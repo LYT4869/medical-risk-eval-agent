@@ -12,6 +12,7 @@
 - [M2 Serving Bundle 与黄金实现](docs/m2-serving-bundle.md)
 - [M3 C++ ONNX Runtime 主链](docs/m3-onnx-serving.md)
 - [M3 本机性能记录](docs/m3-performance.md)
+- [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 
