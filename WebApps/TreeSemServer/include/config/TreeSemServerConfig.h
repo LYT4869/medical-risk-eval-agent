@@ -16,7 +16,14 @@ enum class ModelBackend
     Shadow,
 };
 
+enum class StorageBackend
+{
+    MySql,
+    Memory,
+};
+
 std::string toString(ModelBackend backend);
+std::string toString(StorageBackend backend);
 
 struct TreeSemServerConfig
 {
@@ -27,8 +34,23 @@ struct TreeSemServerConfig
     long modelRequestTimeoutMs{5000};
     std::size_t inferenceWorkerCount{2};
     std::size_t inferenceQueueCapacity{32};
+    std::size_t databaseWorkerCount{4};
+    std::size_t databaseQueueCapacity{64};
     ModelBackend modelBackend{ModelBackend::OnnxFallback};
     std::string servingBundleDirectory;
+    StorageBackend storageBackend{StorageBackend::MySql};
+    std::string databaseHost{"127.0.0.1"};
+    int databasePort{3307};
+    std::string databaseName{"treesem"};
+    std::string databaseUser{"treesem_app"};
+    std::string databasePassword;
+    std::size_t databasePoolSize{8};
+    long databaseAcquireTimeoutMs{500};
+    long databaseConnectTimeoutMs{1000};
+    long databaseReadTimeoutMs{2000};
+    long databaseWriteTimeoutMs{2000};
+    long sessionTtlSeconds{3600};
+    bool cookieSecure{false};
 
     static TreeSemServerConfig load(int argc, char* argv[]);
 };

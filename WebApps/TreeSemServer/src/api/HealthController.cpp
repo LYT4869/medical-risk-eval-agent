@@ -15,6 +15,9 @@ HealthController::HealthController(HealthMetadata metadata)
         {"configured_backend", metadata.configuredBackend},
         {"primary_backend", metadata.primaryBackend},
         {"fallback_enabled", metadata.fallbackEnabled},
+        {"storage_backend", metadata.storageBackend},
+        {"database_pool_size", metadata.databasePoolSize},
+        {"session_ttl_seconds", metadata.sessionTtlSeconds},
     };
     if (metadata.modelVersion.has_value())
     {

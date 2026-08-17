@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "service/InferenceScheduler.h"
+#include "service/BlockingTaskScheduler.h"
 
 int main()
 {
@@ -77,4 +78,41 @@ int main()
         std::lock_guard<std::mutex> lock(responsesMutex);
         assert(statuses.back() == 500);
     }
+
+    std::promise<void> databaseStarted;
+    std::promise<void> releaseDatabase;
+    auto databaseRelease = releaseDatabase.get_future().share();
+    treesem::service::BlockingTaskScheduler databaseScheduler(
+        1, 1, treesem::service::databaseSchedulerErrors());
+    std::vector<std::string> databaseBodies;
+    const http::AsyncResponder databaseResponder = [&](http::ResponseWriter writer) {
+        http::HttpResponse response(false);
+        writer(&response);
+        std::lock_guard<std::mutex> lock(responsesMutex);
+        databaseBodies.push_back(response.body());
+    };
+    assert(databaseScheduler.schedule(
+        [&]() -> http::ResponseWriter {
+            databaseStarted.set_value();
+            databaseRelease.wait();
+            return [](http::HttpResponse* response) {
+                response->setStatusCode(http::HttpResponse::k200Ok);
+            };
+        }, databaseResponder) == SubmitResult::Accepted);
+    databaseStarted.get_future().wait();
+    assert(databaseScheduler.schedule(
+        []() -> http::ResponseWriter {
+            return [](http::HttpResponse* response) {
+                response->setStatusCode(http::HttpResponse::k200Ok);
+            };
+        }, databaseResponder) == SubmitResult::Accepted);
+    assert(databaseScheduler.schedule(
+        []() { return http::ResponseWriter{}; }, databaseResponder) ==
+        SubmitResult::QueueFull);
+    {
+        std::lock_guard<std::mutex> lock(responsesMutex);
+        assert(databaseBodies.back().find("database_overloaded") != std::string::npos);
+    }
+    releaseDatabase.set_value();
+    databaseScheduler.shutdown();
 }

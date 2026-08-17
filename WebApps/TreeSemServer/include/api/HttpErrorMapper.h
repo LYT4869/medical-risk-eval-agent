@@ -6,6 +6,7 @@
 #include "http/AsyncHttp.h"
 #include "http/HttpResponse.h"
 #include "model/ModelException.h"
+#include "application/BusinessException.h"
 
 namespace treesem
 {
@@ -23,6 +24,7 @@ public:
     static http::ResponseWriter success(std::string body);
     static http::ResponseWriter from(const ApiException& error);
     static http::ResponseWriter from(const model::ModelException& error);
+    static http::ResponseWriter from(const application::BusinessException& error);
     static http::ResponseWriter internalError();
 
 private:

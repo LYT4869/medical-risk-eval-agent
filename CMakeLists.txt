@@ -9,10 +9,14 @@ option(KAMA_BUILD_TREESEM_SERVER "Build the treeSem backend entrypoint" ON)
 option(KAMA_BUILD_GOMOKU_SERVER "Build the original Gomoku example" OFF)
 option(KAMA_BUILD_TESTS "Build lightweight HTTP core tests" ON)
 option(KAMA_ENABLE_ONNXRUNTIME "Build the C++ ONNX Runtime model backend" ON)
+option(KAMA_ENABLE_MYSQL "Build the treeSem MySQL persistence backend" ON)
+option(TREESEM_ENABLE_MYSQL_INTEGRATION_TESTS
+    "Register tests that require an externally managed MySQL 8 test database" OFF)
 
 set(MUDUO_ROOT "" CACHE PATH "Muduo installation prefix")
 set(NLOHMANN_JSON_ROOT "" CACHE PATH "nlohmann/json installation prefix")
 set(ONNXRUNTIME_ROOT "" CACHE PATH "ONNX Runtime C++ installation prefix")
+set(MYSQL_CONNECTOR_CPP_ROOT "" CACHE PATH "MySQL Connector/C++ installation prefix")
 set(TREESEM_MODEL_PYTHON_EXECUTABLE "" CACHE FILEPATH
     "Python executable with torch/sklearn for real model tests")
 set(TREESEM_TEST_BUNDLE_DIR "" CACHE PATH "Existing PPH serving bundle for tests")
@@ -94,7 +98,12 @@ add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/api/HttpErrorMapper.cpp
     WebApps/TreeSemServer/src/api/PredictionController.cpp
     WebApps/TreeSemServer/src/api/PredictionJsonCodec.cpp
+    WebApps/TreeSemServer/src/api/BusinessJsonCodec.cpp
+    WebApps/TreeSemServer/src/api/BusinessController.cpp
     WebApps/TreeSemServer/src/application/PredictionService.cpp
+    WebApps/TreeSemServer/src/application/BusinessException.cpp
+    WebApps/TreeSemServer/src/application/SessionService.cpp
+    WebApps/TreeSemServer/src/application/RecordServices.cpp
     WebApps/TreeSemServer/src/client/PythonModelClient.cpp
     WebApps/TreeSemServer/src/config/TreeSemServerConfig.cpp
     WebApps/TreeSemServer/src/concurrency/BoundedWorkerPool.cpp
@@ -104,8 +113,13 @@ add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/infrastructure/model/RoutingModelServices.cpp
     WebApps/TreeSemServer/src/infrastructure/model/ServingBundle.cpp
     WebApps/TreeSemServer/src/infrastructure/process/ProcessSignalHandler.cpp
+    WebApps/TreeSemServer/src/infrastructure/persistence/InMemoryTreeSemStore.cpp
+    WebApps/TreeSemServer/src/infrastructure/support/ValueSupport.cpp
+    WebApps/TreeSemServer/src/domain/BusinessTypes.cpp
+    WebApps/TreeSemServer/src/serialization/ModelResultJsonCodec.cpp
     WebApps/TreeSemServer/src/model/ModelException.cpp
     WebApps/TreeSemServer/src/service/InferenceScheduler.cpp
+    WebApps/TreeSemServer/src/service/BlockingTaskScheduler.cpp
 )
 target_include_directories(treesem_runtime
     PUBLIC
@@ -136,6 +150,33 @@ if(KAMA_ENABLE_ONNXRUNTIME)
     target_include_directories(treesem_runtime SYSTEM PUBLIC ${ONNXRUNTIME_INCLUDE_DIR})
     target_link_libraries(treesem_runtime PUBLIC ${ONNXRUNTIME_LIBRARY})
     target_compile_definitions(treesem_runtime PUBLIC TREESEM_HAS_ONNXRUNTIME=1)
+endif()
+
+if(KAMA_ENABLE_MYSQL)
+    find_path(MYSQL_CONNECTOR_CPP_INCLUDE_DIR
+        NAMES mysql_connection.h
+        HINTS ${MYSQL_CONNECTOR_CPP_ROOT}/include /usr/include
+    )
+    find_library(MYSQL_CONNECTOR_CPP_LIBRARY
+        NAMES mysqlcppconn
+        HINTS
+            ${MYSQL_CONNECTOR_CPP_ROOT}/lib
+            ${MYSQL_CONNECTOR_CPP_ROOT}/lib64
+            ${MYSQL_CONNECTOR_CPP_ROOT}/lib/x86_64-linux-gnu
+    )
+    if(NOT MYSQL_CONNECTOR_CPP_INCLUDE_DIR OR NOT MYSQL_CONNECTOR_CPP_LIBRARY)
+        message(FATAL_ERROR
+            "MySQL Connector/C++ was not found. Install libmysqlcppconn-dev, "
+            "configure MYSQL_CONNECTOR_CPP_ROOT, or use -DKAMA_ENABLE_MYSQL=OFF")
+    endif()
+    target_sources(treesem_runtime PRIVATE
+        WebApps/TreeSemServer/src/infrastructure/persistence/MySqlConnectionPool.cpp
+        WebApps/TreeSemServer/src/infrastructure/persistence/MySqlTreeSemStore.cpp
+    )
+    target_include_directories(treesem_runtime SYSTEM PUBLIC
+        ${MYSQL_CONNECTOR_CPP_INCLUDE_DIR})
+    target_link_libraries(treesem_runtime PUBLIC ${MYSQL_CONNECTOR_CPP_LIBRARY})
+    target_compile_definitions(treesem_runtime PUBLIC TREESEM_HAS_MYSQL=1)
 endif()
 
 if(KAMA_BUILD_TREESEM_SERVER)
@@ -219,6 +260,14 @@ if(KAMA_BUILD_TESTS)
     target_link_libraries(server_config_test PRIVATE treesem_runtime)
     add_test(NAME server_config_test COMMAND server_config_test)
 
+    add_executable(business_services_test tests/business_services_test.cpp)
+    target_link_libraries(business_services_test PRIVATE treesem_runtime)
+    add_test(NAME business_services_test COMMAND business_services_test)
+
+    add_executable(business_json_codec_test tests/business_json_codec_test.cpp)
+    target_link_libraries(business_json_codec_test PRIVATE treesem_runtime)
+    add_test(NAME business_json_codec_test COMMAND business_json_codec_test)
+
     add_test(
         NAME python_adapter_contract_test
         COMMAND ${Python3_EXECUTABLE} -m unittest discover
@@ -296,6 +345,15 @@ if(KAMA_BUILD_TESTS)
                     ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
                     TIMEOUT 120
                 )
+                add_test(
+                    NAME m4_business_integration_test
+                    COMMAND ${Python3_EXECUTABLE}
+                        ${PROJECT_SOURCE_DIR}/tests/test_m4_business_integration.py
+                        $<TARGET_FILE:treesem_server>
+                        ${TREESEM_TEST_BUNDLE_DIR}
+                )
+                set_tests_properties(m4_business_integration_test PROPERTIES
+                    TIMEOUT 120)
             endif()
         endif()
     endif()
@@ -307,5 +365,17 @@ if(KAMA_BUILD_TESTS)
                 ${PROJECT_SOURCE_DIR}/tests/test_backend_integration.py
                 $<TARGET_FILE:treesem_server>
         )
+        if(KAMA_ENABLE_MYSQL AND KAMA_ENABLE_ONNXRUNTIME
+           AND TREESEM_ENABLE_MYSQL_INTEGRATION_TESTS
+           AND TREESEM_TEST_BUNDLE_DIR)
+            add_test(
+                NAME m4_mysql_integration_test
+                COMMAND ${Python3_EXECUTABLE}
+                    ${PROJECT_SOURCE_DIR}/tests/test_m4_mysql_integration.py
+                    $<TARGET_FILE:treesem_server>
+                    ${TREESEM_TEST_BUNDLE_DIR}
+            )
+            set_tests_properties(m4_mysql_integration_test PROPERTIES TIMEOUT 120)
+        endif()
     endif()
 endif()

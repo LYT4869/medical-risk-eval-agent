@@ -3,6 +3,8 @@
 /.cache/
 compile_commands.json
 __pycache__/
+*.env
+.env
 *.py[cod]
 .pytest_cache/
 /artifacts/

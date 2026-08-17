@@ -102,6 +102,48 @@ http::ResponseWriter HttpErrorMapper::from(const model::ModelException& exceptio
     return internalError();
 }
 
+http::ResponseWriter HttpErrorMapper::from(
+    const application::BusinessException& exception)
+{
+    using Kind = application::BusinessException::Kind;
+    switch (exception.kind())
+    {
+    case Kind::InvalidInput:
+        return error(
+            http::HttpResponse::k400BadRequest, "Bad Request",
+            "invalid_request", "The business request is invalid.");
+    case Kind::InvalidSession:
+        return error(
+            http::HttpResponse::k400BadRequest, "Bad Request",
+            "invalid_session", "The session identifier is missing or invalid.");
+    case Kind::NotFound:
+        return error(
+            http::HttpResponse::k404NotFound, "Not Found",
+            "resource_not_found", "The requested resource was not found.");
+    case Kind::Conflict:
+        return error(
+            http::HttpResponse::k409Conflict, "Conflict",
+            "session_conflict", "The session state changed before the request completed.");
+    case Kind::IdempotencyConflict:
+        return error(
+            http::HttpResponse::k409Conflict, "Conflict",
+            "idempotency_conflict", "The idempotency key was reused for another request.");
+    case Kind::DatabaseBusy:
+        return error(
+            http::HttpResponse::k503ServiceUnavailable, "Service Unavailable",
+            "database_busy", "The database connection pool is busy.");
+    case Kind::DatabaseUnavailable:
+        return error(
+            http::HttpResponse::k503ServiceUnavailable, "Service Unavailable",
+            "database_unavailable", "The database is unavailable.");
+    case Kind::PersistenceFailure:
+        return error(
+            http::HttpResponse::k500InternalServerError, "Internal Server Error",
+            "persistence_error", "The service could not persist the request.");
+    }
+    return internalError();
+}
+
 http::ResponseWriter HttpErrorMapper::internalError()
 {
     return error(

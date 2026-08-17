@@ -158,6 +158,7 @@ def main() -> int:
             "TREESEM_INFERENCE_WORKERS": "1",
             "TREESEM_INFERENCE_QUEUE_CAPACITY": "1",
             "TREESEM_MODEL_BACKEND": "remote",
+            "TREESEM_STORAGE_BACKEND": "memory",
         }
     )
     process = subprocess.Popen(
@@ -203,7 +204,7 @@ def main() -> int:
             '{"sample_index":0}',
         )
         assert overloaded_status == 503
-        assert json.loads(overloaded_body)["error"] == "server_overloaded"
+        assert json.loads(overloaded_body)["error"] == "prediction_overloaded"
         GATE.release.set()
         running.join(timeout=3)
         queued.join(timeout=3)

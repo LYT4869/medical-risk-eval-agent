@@ -5,6 +5,7 @@
 #include <memory>
 #include <functional>
 #include <regex>
+#include <stdexcept>
 #include <vector>
 
 #include "RouterHandler.h"
@@ -64,60 +65,96 @@ public:
                                const std::string& path,
                                const AsyncHttpCallback& callback);
 
+    void addAsyncRoute(HttpRequest::Method method,
+                       const std::string& path,
+                       const AsyncHttpCallback& callback);
+
     bool hasAsyncCallback(HttpRequest::Method method, const std::string& path) const;
     bool routeAsync(const HttpRequest& req, const AsyncResponder& responder) const;
 
     // 注册动态路由处理器
-    void addRegexHandler(HttpRequest::Method method, const std::string &path, HandlerPtr handler)
-    {
-        std::regex pathRegex = convertToRegex(path);
-        regexHandlers_.emplace_back(method, pathRegex, handler);
-    }
+    void addRegexHandler(HttpRequest::Method method,
+                         const std::string& path,
+                         HandlerPtr handler);
 
     // 注册动态路由处理函数
-    void addRegexCallback(HttpRequest::Method method, const std::string &path, const HandlerCallback &callback)
-    {
-        std::regex pathRegex = convertToRegex(path);
-        regexCallbacks_.emplace_back(method, pathRegex, callback);
-    }
+    void addRegexCallback(HttpRequest::Method method,
+                          const std::string& path,
+                          const HandlerCallback& callback);
 
     // 处理请求
     bool route(const HttpRequest &req, HttpResponse *resp);
 
 private:
-    std::regex convertToRegex(const std::string &pathPattern)
-    { // 将路径模式转换为正则表达式，支持匹配任意路径参数
-        std::string regexPattern = "^" + std::regex_replace(pathPattern, std::regex(R"(/:([^/]+))"), R"(/([^/]+))") + "$";
-        return std::regex(regexPattern);
-    }
+    struct CompiledPath
+    {
+        std::regex regex;
+        std::vector<std::string> parameterNames;
+    };
+
+    static CompiledPath compilePath(const std::string& pathPattern);
 
     // 提取路径参数
-    void extractPathParameters(const std::smatch &match, HttpRequest &request)
-    {
-        // Assuming the first match is the full path, parameters start from index 1
-        for (size_t i = 1; i < match.size(); ++i)
-        {
-            request.setPathParameters("param" + std::to_string(i), match[i].str());
-        }
-    }
+    static void extractPathParameters(const std::smatch& match,
+                                      const std::vector<std::string>& names,
+                                      HttpRequest& request);
 
 private:
     struct RouteCallbackObj
     {
         HttpRequest::Method method_;
+        std::string pathPattern_;
         std::regex pathRegex_;
+        std::vector<std::string> parameterNames_;
         HandlerCallback callback_;
-        RouteCallbackObj(HttpRequest::Method method, std::regex pathRegex, const HandlerCallback &callback)
-            : method_(method), pathRegex_(pathRegex), callback_(callback) {}
+        RouteCallbackObj(HttpRequest::Method method,
+                         std::string pathPattern,
+                         CompiledPath compiled,
+                         const HandlerCallback& callback)
+            : method_(method)
+            , pathPattern_(std::move(pathPattern))
+            , pathRegex_(std::move(compiled.regex))
+            , parameterNames_(std::move(compiled.parameterNames))
+            , callback_(callback)
+        {}
     };
 
     struct RouteHandlerObj
     {
         HttpRequest::Method method_;
+        std::string pathPattern_;
         std::regex pathRegex_;
+        std::vector<std::string> parameterNames_;
         HandlerPtr handler_;
-        RouteHandlerObj(HttpRequest::Method method, std::regex pathRegex, HandlerPtr handler)
-            : method_(method), pathRegex_(pathRegex), handler_(handler) {}
+        RouteHandlerObj(HttpRequest::Method method,
+                        std::string pathPattern,
+                        CompiledPath compiled,
+                        HandlerPtr handler)
+            : method_(method)
+            , pathPattern_(std::move(pathPattern))
+            , pathRegex_(std::move(compiled.regex))
+            , parameterNames_(std::move(compiled.parameterNames))
+            , handler_(std::move(handler))
+        {}
+    };
+
+    struct AsyncRouteCallbackObj
+    {
+        HttpRequest::Method method_;
+        std::string pathPattern_;
+        std::regex pathRegex_;
+        std::vector<std::string> parameterNames_;
+        AsyncHttpCallback callback_;
+        AsyncRouteCallbackObj(HttpRequest::Method method,
+                              std::string pathPattern,
+                              CompiledPath compiled,
+                              const AsyncHttpCallback& callback)
+            : method_(method)
+            , pathPattern_(std::move(pathPattern))
+            , pathRegex_(std::move(compiled.regex))
+            , parameterNames_(std::move(compiled.parameterNames))
+            , callback_(callback)
+        {}
     };
 
     std::unordered_map<RouteKey, HandlerPtr, RouteKeyHash>      handlers_;       // 精准匹配
@@ -125,6 +162,7 @@ private:
     std::unordered_map<RouteKey, AsyncHttpCallback, RouteKeyHash> asyncCallbacks_;
     std::vector<RouteHandlerObj>                                regexHandlers_;     // 正则匹配
     std::vector<RouteCallbackObj>                               regexCallbacks_;   // 正则匹配
+    std::vector<AsyncRouteCallbackObj>                          asyncRegexCallbacks_;
 };
 
 

@@ -17,6 +17,9 @@ struct HealthMetadata
     std::string configuredBackend;
     std::string primaryBackend;
     bool fallbackEnabled{false};
+    std::string storageBackend{"memory"};
+    std::size_t databasePoolSize{0};
+    long sessionTtlSeconds{3600};
 };
 
 class HealthController

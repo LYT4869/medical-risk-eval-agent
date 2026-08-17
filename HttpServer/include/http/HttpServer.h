@@ -92,6 +92,18 @@ public:
         router_.registerAsyncCallback(HttpRequest::kPost, path, callback);
     }
 
+    void GetAsync(const std::string& path, const AsyncHttpCallback& callback)
+    {
+        router_.registerAsyncCallback(HttpRequest::kGet, path, callback);
+    }
+
+    void addAsyncRoute(HttpRequest::Method method,
+                       const std::string& path,
+                       const AsyncHttpCallback& callback)
+    {
+        router_.addAsyncRoute(method, path, callback);
+    }
+
     // 注册动态路由处理器
     void addRoute(HttpRequest::Method method, const std::string& path, router::Router::HandlerPtr handler)
     {

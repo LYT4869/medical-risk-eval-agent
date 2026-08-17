@@ -1,0 +1,26 @@
+services:
+  mysql:
+    image: mysql:8.0.42
+    environment:
+      MYSQL_DATABASE: treesem
+      MYSQL_USER: treesem_app
+      MYSQL_PASSWORD: treesem_dev_password
+      MYSQL_ROOT_PASSWORD: treesem_root_dev_password
+      TZ: UTC
+    ports:
+      - "3307:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -utreesem_app -ptreesem_dev_password --silent"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - treesem_m4_mysql:/var/lib/mysql
+      - ./db/docker-init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  treesem_m4_mysql:
