@@ -1,15 +1,19 @@
 # treeSem 服务平台架构
 
-## 当前基线
+## 当前 M1 架构
 
 当前可运行链路是：
 
 ```text
 Client
   -> Muduo HttpServer / Router
+  -> PredictionController / PredictionJsonCodec
   -> InferenceScheduler
   -> BoundedWorkerPool
-  -> PythonModelClient (HTTP + timeout)
+  -> PredictionService
+  -> IModelService
+  -> RemoteTreeSemModelService
+  -> IModelAdapterClient / PythonModelClient (HTTP + timeout)
   -> treeSem Python Model Adapter
   -> trusted PyTorch artifact + sklearn tree
   -> response queued back to the connection EventLoop
@@ -17,7 +21,7 @@ Client
 
 网络 EventLoop 只负责连接、HTTP 解析、路由和响应发送。模型 HTTP 调用在有界 Worker Pool 中同步执行；Worker 通过一次性 `AsyncResponder` 把轻量响应构造任务投递回连接所属 EventLoop，不跨线程传递栈上的 `HttpResponse*`。
 
-## M1 分层目标
+## M1 正式分层
 
 ```text
 API Layer
@@ -36,6 +40,8 @@ Infrastructure          v
 ```
 
 依赖只能自上而下。`PredictionService` 不依赖 HTTP、JSON、libcurl 或 Python 名称；`main.cpp` 只作为 composition root 读取配置、构造对象、注册路由并启动服务。
+
+M1 已按该结构实现。`IModelService` 是后续 M3 增加 `OnnxTreeSemModelService` 的替换点；Controller 和业务层不需要随模型运行时变化。
 
 ## 长期目标
 
@@ -77,6 +83,7 @@ EventLoop          Worker              Python Adapter
 - 每个异步请求最多响应一次。
 - 客户端提前断开时不再写连接。
 - 预测响应体不写入服务日志。
+- SIGINT/SIGTERM 通过 self-pipe 转为 EventLoop 事件；EventLoop 退出后，Scheduler 停止接单并排空已接任务。
 
 ## 架构决策
 

@@ -49,6 +49,7 @@ if(NOT MUDUO_INCLUDE_DIR OR NOT MUDUO_NET_LIBRARY OR NOT MUDUO_BASE_LIBRARY)
 endif()
 
 set(KAMA_HTTP_CORE_SOURCES
+    HttpServer/src/http/AsyncHttp.cpp
     HttpServer/src/http/HttpContext.cpp
     HttpServer/src/http/HttpRequest.cpp
     HttpServer/src/http/HttpResponse.cpp
@@ -81,10 +82,19 @@ target_link_libraries(kama_http_core
 target_compile_options(kama_http_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_library(treesem_runtime STATIC
+    WebApps/TreeSemServer/src/api/ApiException.cpp
+    WebApps/TreeSemServer/src/api/HealthController.cpp
+    WebApps/TreeSemServer/src/api/HttpErrorMapper.cpp
+    WebApps/TreeSemServer/src/api/PredictionController.cpp
+    WebApps/TreeSemServer/src/api/PredictionJsonCodec.cpp
+    WebApps/TreeSemServer/src/application/PredictionService.cpp
     WebApps/TreeSemServer/src/client/PythonModelClient.cpp
+    WebApps/TreeSemServer/src/config/TreeSemServerConfig.cpp
     WebApps/TreeSemServer/src/concurrency/BoundedWorkerPool.cpp
+    WebApps/TreeSemServer/src/infrastructure/model/RemoteTreeSemModelService.cpp
+    WebApps/TreeSemServer/src/infrastructure/process/ProcessSignalHandler.cpp
+    WebApps/TreeSemServer/src/model/ModelException.cpp
     WebApps/TreeSemServer/src/service/InferenceScheduler.cpp
-    WebApps/TreeSemServer/src/service/PythonModelProxy.cpp
 )
 target_include_directories(treesem_runtime
     PUBLIC
@@ -100,6 +110,7 @@ if(KAMA_BUILD_TREESEM_SERVER)
         WebApps/TreeSemServer/src/main.cpp
     )
     target_link_libraries(treesem_server PRIVATE treesem_runtime)
+    target_compile_options(treesem_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(KAMA_BUILD_GOMOKU_SERVER)
@@ -143,6 +154,10 @@ if(KAMA_BUILD_TESTS)
     target_link_libraries(router_test PRIVATE kama_http_core)
     add_test(NAME router_test COMMAND router_test)
 
+    add_executable(async_responder_test tests/async_responder_test.cpp)
+    target_link_libraries(async_responder_test PRIVATE kama_http_core)
+    add_test(NAME async_responder_test COMMAND async_responder_test)
+
     add_executable(bounded_worker_pool_test tests/bounded_worker_pool_test.cpp)
     target_link_libraries(bounded_worker_pool_test PRIVATE treesem_runtime)
     add_test(NAME bounded_worker_pool_test COMMAND bounded_worker_pool_test)
@@ -151,9 +166,21 @@ if(KAMA_BUILD_TESTS)
     target_link_libraries(inference_scheduler_test PRIVATE treesem_runtime)
     add_test(NAME inference_scheduler_test COMMAND inference_scheduler_test)
 
-    add_executable(python_model_proxy_test tests/python_model_proxy_test.cpp)
-    target_link_libraries(python_model_proxy_test PRIVATE treesem_runtime)
-    add_test(NAME python_model_proxy_test COMMAND python_model_proxy_test)
+    add_executable(prediction_json_codec_test tests/prediction_json_codec_test.cpp)
+    target_link_libraries(prediction_json_codec_test PRIVATE treesem_runtime)
+    add_test(NAME prediction_json_codec_test COMMAND prediction_json_codec_test)
+
+    add_executable(remote_model_service_test tests/remote_model_service_test.cpp)
+    target_link_libraries(remote_model_service_test PRIVATE treesem_runtime)
+    add_test(NAME remote_model_service_test COMMAND remote_model_service_test)
+
+    add_executable(prediction_controller_test tests/prediction_controller_test.cpp)
+    target_link_libraries(prediction_controller_test PRIVATE treesem_runtime)
+    add_test(NAME prediction_controller_test COMMAND prediction_controller_test)
+
+    add_executable(server_config_test tests/server_config_test.cpp)
+    target_link_libraries(server_config_test PRIVATE treesem_runtime)
+    add_test(NAME server_config_test COMMAND server_config_test)
 
     add_test(
         NAME python_adapter_contract_test
@@ -164,4 +191,13 @@ if(KAMA_BUILD_TESTS)
     set_tests_properties(python_adapter_contract_test PROPERTIES
         ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
     )
+
+    if(KAMA_BUILD_TREESEM_SERVER)
+        add_test(
+            NAME backend_async_integration_test
+            COMMAND ${Python3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tests/test_backend_integration.py
+                $<TARGET_FILE:treesem_server>
+        )
+    endif()
 endif()

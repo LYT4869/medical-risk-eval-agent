@@ -61,7 +61,7 @@ InferenceScheduler::SubmitResult InferenceScheduler::schedule(
                     responder,
                     http::HttpResponse::k500InternalServerError,
                     "Internal Server Error",
-                    R"({"error":"inference_failed"})");
+                    R"({"error":"inference_failed","message":"The inference task failed."})");
             }
         });
 
@@ -71,7 +71,7 @@ InferenceScheduler::SubmitResult InferenceScheduler::schedule(
             responder,
             http::HttpResponse::k503ServiceUnavailable,
             "Service Unavailable",
-            R"({"error":"server_overloaded"})");
+            R"({"error":"server_overloaded","message":"The inference queue is full."})");
     }
     else if (result == SubmitResult::Stopped)
     {
@@ -79,7 +79,7 @@ InferenceScheduler::SubmitResult InferenceScheduler::schedule(
             responder,
             http::HttpResponse::k503ServiceUnavailable,
             "Service Unavailable",
-            R"({"error":"service_stopping"})");
+            R"({"error":"service_stopping","message":"The service is stopping."})");
     }
 
     return result;

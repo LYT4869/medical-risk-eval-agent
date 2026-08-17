@@ -1,7 +1,6 @@
 #include "../../include/http/HttpServer.h"
 
 #include <any>
-#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -35,6 +34,11 @@ void HttpServer::start()
     LOG_WARN << "HttpServer[" << server_.name() << "] starts listening on" << server_.ipPort();
     server_.start();
     mainLoop_.loop();
+}
+
+void HttpServer::stop()
+{
+    mainLoop_.quit();
 }
 
 void HttpServer::initialize()
@@ -194,7 +198,8 @@ bool HttpServer::handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
             response->setStatusCode(HttpResponse::k500InternalServerError);
             response->setStatusMessage("Internal Server Error");
             response->setContentType("application/json; charset=utf-8");
-            response->setBody(R"({"error":"internal_error"})");
+            response->setBody(
+                R"({"error":"internal_error","message":"The server could not complete the request."})");
         });
     }
     return true;
@@ -205,23 +210,14 @@ AsyncResponder HttpServer::makeAsyncResponder(
     std::string httpVersion,
     bool closeConnection)
 {
-    auto responded = std::make_shared<std::atomic_bool>(false);
-
-    return [this,
-            conn,
-            httpVersion = std::move(httpVersion),
-            closeConnection,
-            responded](ResponseWriter writer) {
+    return makeOneShotResponder(
+        [this,
+         conn,
+         httpVersion = std::move(httpVersion),
+         closeConnection](ResponseWriter writer) {
         if (!writer)
         {
             LOG_ERROR << "Ignoring an empty asynchronous response writer";
-            return;
-        }
-
-        bool expected = false;
-        if (!responded->compare_exchange_strong(expected, true))
-        {
-            LOG_WARN << "Ignoring a duplicate asynchronous response";
             return;
         }
 
@@ -247,11 +243,12 @@ AsyncResponder HttpServer::makeAsyncResponder(
                     response.setStatusCode(HttpResponse::k500InternalServerError);
                     response.setStatusMessage("Internal Server Error");
                     response.setContentType("application/json; charset=utf-8");
-                    response.setBody(R"({"error":"response_build_failed"})");
+                    response.setBody(
+                        R"({"error":"response_build_failed","message":"The server could not build the response."})");
                 }
                 sendResponse(conn, &response);
             });
-    };
+        });
 }
 
 void HttpServer::sendResponse(const muduo::net::TcpConnectionPtr& conn,
@@ -285,7 +282,8 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
                      << " path=" << req.path();
             resp->setStatusCode(HttpResponse::k404NotFound);
             resp->setStatusMessage("Not Found");
-            resp->setBody(R"({"error":"not_found"})");
+            resp->setBody(
+                R"({"error":"not_found","message":"The requested route does not exist."})");
             resp->setContentType("application/json; charset=utf-8");
             resp->setCloseConnection(true);
         }
@@ -298,12 +296,14 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         // 处理中间件抛出的响应（如CORS预检请求）
         *resp = res;
     }
-    catch (const std::exception& e) 
+    catch (const std::exception&)
     {
         // 错误处理
         resp->setStatusCode(HttpResponse::k500InternalServerError);
         resp->setStatusMessage("Internal Server Error");
-        resp->setBody(e.what());
+        resp->setContentType("application/json; charset=utf-8");
+        resp->setBody(
+            R"({"error":"internal_error","message":"The server could not complete the request."})");
     }
 }
 

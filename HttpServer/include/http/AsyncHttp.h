@@ -16,4 +16,8 @@ using ResponseWriter = std::function<void(HttpResponse*)>;
 using AsyncResponder = std::function<void(ResponseWriter)>;
 using AsyncHttpCallback = std::function<void(HttpRequest, AsyncResponder)>;
 
+// Wraps a responder so concurrent or repeated response attempts result in
+// exactly one call to the underlying transport responder.
+AsyncResponder makeOneShotResponder(AsyncResponder responder);
+
 } // namespace http

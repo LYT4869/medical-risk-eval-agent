@@ -50,6 +50,9 @@ public:
 
     size_t bodySize() const
     { return body_.size(); }
+
+    const std::string& body() const
+    { return body_; }
     
     void setContentType(const std::string& contentType)
     { addHeader("Content-Type", contentType); }

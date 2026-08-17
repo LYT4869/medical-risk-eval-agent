@@ -49,6 +49,9 @@ public:
     }
 
     void start();
+    // Thread-safe EventLoop stop request. Existing asynchronous work is owned
+    // by the application scheduler and can be drained after start() returns.
+    void stop();
 
     muduo::net::EventLoop* getLoop() const 
     { 
