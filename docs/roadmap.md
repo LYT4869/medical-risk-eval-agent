@@ -8,7 +8,7 @@
 | M1 | C++ Controller/Service/Model/Infrastructure 分层 | 已完成 |
 | M2 | Serving Bundle、Python 黄金实现、反归一化 | 已完成 |
 | M3 | C++ ONNX Runtime 默认模型主链 | 已完成 |
-| M4 | C++ 业务服务、Session、MySQL、医生反馈 | 待执行 |
+| M4 | C++ 业务服务、Session、MySQL、医生反馈 | 已完成 |
 | M5 | Python Agent Core 与领域 Tool | 待执行 |
 | M6 | Doctor/Patient/Admin 权限、安全和审计 | 待执行 |
 | M7 | 医疗知识 RAG 与 MCP Server | 待执行 |
@@ -67,6 +67,19 @@
 - [x] 多 Worker 并发连续 20 轮、客户端断开、优雅停机和 EventLoop 非阻塞不变量保持。
 - [x] 本机固定口径性能报告完成，性能不作为 CI 硬门槛。
 
+## M4 Definition of Done
+
+- [x] 异步动态路由支持命名参数、静态优先、模板校验与重复检测。
+- [x] 推理和数据库查询分别使用有界 Worker Pool，EventLoop 不等待 SQL 或模型。
+- [x] Public Cookie 与 Internal Header Session 链路已接入，MySQL 为默认配置。
+- [x] Prediction、Explanation、History、Comparison、Feedback 由独立 C++ Service 提供。
+- [x] 预测快照和 Session 当前预测在 `READ COMMITTED` 短事务中原子提交。
+- [x] MySQL 连接池限时获取、RAII 归还、参数化 SQL、坏连接淘汰和安全停机已实现。
+- [x] History 使用 keyset cursor；Feedback 使用追加记录和 payload 幂等校验。
+- [x] `/health` 不访问数据库，异步 `/ready` 经数据库调度池执行 `SELECT 1`。
+- [x] 内存业务 E2E 与 M0～M3 全量回归通过。
+- [x] 隔离 MySQL 8.0.42 的 migration、重启持久化、故障恢复 E2E 与性能记录完成。
+
 ## 当前停止线
 
-M0/M1/M2/M3 已完成。下一步进入 M4 的 C++ 业务服务、Session、MySQL 和医生反馈；尚未加入 Agent、MCP/RAG、Skill 或医疗权限。
+M0～M4 代码与文档已完成。下一步进入 M5 Python Agent Core 和确定性领域 Tool；尚未加入 Agent、MCP/RAG、Skill、医疗身份认证或 RBAC。

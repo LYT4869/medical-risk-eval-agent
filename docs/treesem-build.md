@@ -1,6 +1,6 @@
 # treeSem backend：本地构建
 
-当前阶段只构建 HTTP 核心和 treeSem 服务入口，不构建原项目的五子棋示例与 MySQL 模块。
+当前默认构建 HTTP 核心、treeSem 服务入口、ONNX Runtime 和独立的 treeSem MySQL 模块；不构建原项目五子棋示例，也不复用其连接池。
 
 ## 1. 构建 Muduo 网络核心
 
@@ -36,18 +36,27 @@ tar -xzf ../deps/onnxruntime-linux-x64-1.20.1.tgz -C ../deps
 
 ## 3. 构建和测试 treeSem 后端
 
+先安装 MySQL Connector/C++ JDBC 兼容包：
+
+```bash
+sudo apt-get install libmysqlcppconn-dev
+```
+
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DMUDUO_ROOT="$PWD/../deps/muduo-core-install" \
   -DNLOHMANN_JSON_ROOT="/home/data/liyingting/miniconda3" \
   -DKAMA_ENABLE_ONNXRUNTIME=ON \
+  -DKAMA_ENABLE_MYSQL=ON \
   -DONNXRUNTIME_ROOT="$PWD/../deps/onnxruntime-linux-x64-1.20.1"
 cmake --build build -j2
 ctest --test-dir build --output-on-failure
 ```
 
 `-DKAMA_ENABLE_ONNXRUNTIME=OFF` 可构建 remote-only 兼容版本；运行时必须设置 `TREESEM_MODEL_BACKEND=remote`。
+
+`-DKAMA_ENABLE_MYSQL=OFF` 可生成不链接 Connector 的开发构建，但运行时只允许 `TREESEM_STORAGE_BACKEND=memory`。正式默认仍为 MySQL。
 
 ## 4. 导出 M2 Serving Bundle
 
@@ -106,6 +115,7 @@ curl -i -X POST http://127.0.0.1:18081/v1/predict \
 ```bash
 TREESEM_MODEL_BACKEND=onnx_fallback \
 TREESEM_SERVING_BUNDLE_DIR="$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
+TREESEM_STORAGE_BACKEND=memory \
 ./build/treesem_server 18080
 curl -i http://127.0.0.1:18080/health
 curl -i -X POST http://127.0.0.1:18080/api/v1/predictions \
@@ -130,10 +140,30 @@ curl -i -X POST http://127.0.0.1:18080/api/v1/predictions \
 - `TREESEM_INFERENCE_QUEUE_CAPACITY`：默认 `32`
 - `TREESEM_MODEL_BACKEND`：默认 `onnx_fallback`，还支持 `remote`、`onnx`、`shadow`
 - `TREESEM_SERVING_BUNDLE_DIR`：ONNX 相关模式必填
+- `TREESEM_STORAGE_BACKEND`：默认 `mysql`；单元测试/显式开发可设 `memory`
+- `TREESEM_DATABASE_WORKERS` / `TREESEM_DATABASE_QUEUE_CAPACITY`：默认 `4` / `64`
+- `TREESEM_SESSION_TTL_SECONDS`：默认 `3600`
+- `TREESEM_COOKIE_SECURE`：本地 HTTP 默认 `false`，TLS 环境必须为 `true`
 
 服务新代码与对外名称统一使用 `treeSem`；历史训练代码和已有产物中的 `trivae` 名称保持不变，以免破坏旧模型加载。
 
-## 8. 运行真实 Bundle/ONNX 测试
+## 8. 启动 M4 MySQL 开发环境
+
+```bash
+docker compose -f docker-compose.m4.yml up -d
+export TREESEM_DB_PASSWORD=treesem_dev_password
+./scripts/migrate_treesem_db.sh
+
+TREESEM_MODEL_BACKEND=onnx \
+TREESEM_SERVING_BUNDLE_DIR="$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
+TREESEM_STORAGE_BACKEND=mysql \
+TREESEM_DB_PASSWORD="$TREESEM_DB_PASSWORD" \
+./build/treesem_server 18080
+```
+
+真实凭据只放环境变量或未提交的 `.env`，不能写进日志或仓库。完整 M4 API、测试库和重启持久化测试见 [M4 文档](m4-business-persistence.md)。
+
+## 9. 运行真实 Bundle/ONNX 测试
 
 配置以下可选参数后，CTest 会额外执行确定性重复导出、checksum 篡改、反归一化和三输入等价性测试：
 

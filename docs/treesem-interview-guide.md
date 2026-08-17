@@ -1107,9 +1107,101 @@ Run、Python HTTP 和回包；看队列深度、CPU、RSS、fd、fallback 和下
 
 ---
 
-# H. 与项目强相关的 C++ 八股
+# H. MySQL、Session 与业务一致性
 
-## H1. `unique_ptr`、`shared_ptr`、`weak_ptr` 如何选择【P0】
+## H1. 为什么要保存预测快照，而不是查询时重新推理【P0】
+
+**参考回答：**
+
+模型版本、运行时和输入处理方式以后都可能变化，重新推理不能保证还原医生当时看到的结果。M4 在创建预测时保存完整结构化结果和 explanation 快照，后续详情、历史、比较都读取事实记录。这样结果可复现，也避免查询接口再次消耗推理资源。代价是解释中含患者派生值，需要后续访问控制、加密和保留策略。
+
+## H2. 为什么推理池和数据库池要分开【P0】
+
+**参考回答：**
+
+推理是 CPU 密集，本地执行时间相对稳定；数据库任务可能等待连接、锁或网络。如果共用一个队列，慢 SQL 能占满全部 Worker，使本来可用的 ONNX 预测也排队。两个有界池相当于 bulkhead：独立限制容量、分别返回 `prediction_overloaded` 和 `database_overloaded`，故障域和压测结论都更清晰。预测落库仍在预测 Worker 内完成，因为它是预测成功语义的一部分。
+
+## H3. 连接池为什么必须有界并设置 acquire timeout【P0】
+
+**参考回答：**
+
+数据库连接不是越多越好，每条连接都消耗服务端线程、内存和锁资源。固定上限把并发压力控制在数据库容量内；获取超时避免 Worker 无限等待。当前每条连接同一时间只归一个 Worker，RAII Lease 析构时回滚未完成事务、恢复 autocommit 再归还。连接池耗尽映射成可恢复的 503，而不是继续堆积内存和尾延迟。
+
+## H4. 为什么推理完成后才开启数据库事务【P0】
+
+**参考回答：**
+
+ONNX 推理比两条 SQL 慢得多。如果先锁 Session 行再推理，同一 Session 的请求会长时间阻塞，还会占用连接和扩大死锁窗口。项目先解析 Session、完成推理，再开启短事务，`SELECT ... FOR UPDATE` 复查 Session 未过期，然后原子插入预测并更新当前预测。这样不牺牲最终状态一致性，同时显著缩短持锁时间。
+
+## H5. 为什么事务隔离级别选择 READ COMMITTED【P1】
+
+**参考回答：**
+
+这里依赖显式行锁保护同一 Session 的写入，不需要可重复读为整个事务保留历史快照。READ COMMITTED 能减少不必要的快照和间隙锁影响；核心不变量由 `FOR UPDATE` 和单事务更新保证。隔离级别不是越高越好，应根据读写冲突和业务不变量选择。
+
+## H6. 两个并发预测怎样保证 current prediction 合理【P0】
+
+**参考回答：**
+
+两个请求可以并行推理，提交阶段会竞争同一 Session 行锁。获得锁的事务插入自己的预测并更新 `current_prediction_id`，另一个随后提交，因此当前预测指向最后成功提交的记录，且不会出现只插入预测却未更新 Session 的半状态。若业务要求严格按请求到达顺序，就需要序列号或 per-session 排队；M4 明确定义的是提交顺序。
+
+## H7. Cookie Session 与 Internal Header 为什么分开【P0】
+
+**参考回答：**
+
+浏览器适合 HttpOnly Cookie，它能避免业务 JavaScript 直接读取 Session ID；内部 Agent Tool 调用则显式传 `X-TreeSem-Session-Id`，接口契约和调试更清楚，也不会意外继承浏览器 Cookie。Internal 不从 Cookie fallback。M4 的 Session 仍是匿名上下文，不是身份认证；Cookie 的 Secure 属性在 TLS 环境必须开启，M6 还要增加认证、授权和 CSRF 等防护。
+
+## H8. 滑动过期有什么并发边界【P1】
+
+**参考回答：**
+
+每次成功访问把 `last_accessed_at` 和 `expires_at` 向后刷新。预测在推理前解析一次 Session，提交事务里再次检查是否过期，因此长推理跨过 TTL 时不会写入过期 Session，而是返回冲突。生产系统还需要后台清理过期数据，但清理任务不能成为请求正确性的前提。
+
+## H9. 为什么历史查询使用 keyset pagination【P0】
+
+**参考回答：**
+
+大 offset 需要数据库扫描并丢弃前面的行，而且并发插入时容易产生重复或漏项。项目按 `(created_at, prediction_id)` 倒序建立复合索引，cursor 保存上一页最后一项的两个键，下一页查询“小于该键”的记录。prediction ID 作为时间相同情况下的稳定 tie-breaker，cursor 对调用者保持 opaque。
+
+## H10. 幂等键怎样处理医生反馈重试【P0】
+
+**参考回答：**
+
+客户端超时后不知道写入是否成功，直接重试可能产生重复反馈。M4 对 `(session_id, idempotency_key)` 建唯一约束，并保存 canonical payload 的 SHA-256。相同 key、相同 payload 返回原记录；相同 key、不同 payload 返回 409。幂等不是简单“发现重复就成功”，必须防止一个 key 被复用于不同业务含义。
+
+## H11. PreparedStatement 解决了什么，没解决什么【P0】
+
+**参考回答：**
+
+参数绑定让 SQL 结构和用户值分离，避免通过输入改写查询结构，也正确处理引号等特殊字符。但它不负责鉴权、最小权限、敏感字段加密、日志脱敏或业务越权。表名、排序字段等无法普通绑定的动态结构仍应使用服务端白名单。
+
+## H12. `/health` 和 `/ready` 为什么分开【P0】
+
+**参考回答：**
+
+`/health` 只表示进程和模型初始化成功，不能因为 MySQL 暂时变慢就让网络层也失去存活信号；`/ready` 经数据库任务池获取连接并执行 `SELECT 1`，表示实例当前能承接完整业务。数据库宕机时 health 应快速返回，ready 和数据库 API 返回 503，便于编排系统停止导流又保留诊断能力。
+
+## H13. MySQL 宕机后怎样恢复，为什么不能无限重试【P1】
+
+**参考回答：**
+
+SQLState 连接错误会把 Lease 标记为坏连接，归还时销毁；下次 acquire 在连接数低于上限时重新建立。当前请求返回稳定 503，不在 Worker 内无限重试，避免故障放大和超出上游 deadline。恢复后的新请求可以补建连接；进一步生产化会加入有预算的单次重连、熔断和连接池指标。
+
+## H14. 为什么当前没有 Redis Session cache【P1】
+
+**参考回答：**
+
+M4 的目标是先把一致性语义做清楚，MySQL 已能支撑本地面试演示。再加缓存会引入失效、双写和过期一致性问题，而当前没有压测证据证明数据库是瓶颈。若后续数据表明 Session 读取成为热点，可采用 cache-aside，但当前预测指针更新仍要以数据库事务为真相源。
+
+## H15. 医生反馈为什么不能说成“完成了医疗审核系统”【P0】
+
+**参考回答：**
+
+M4 只实现内部、追加式、幂等的反馈记录，`reviewer_reference` 来自请求且 `reviewer_verified=false`。它能演示反馈数据模型和一致性，但不能证明提交者真是医生。认证上下文、Doctor/Patient/Admin 的资源级授权、审计、加密和合规属于 M6；面试时必须主动说明这个边界。
+
+# I. 与项目强相关的 C++ 八股
+
+## I1. `unique_ptr`、`shared_ptr`、`weak_ptr` 如何选择【P0】
 
 **参考回答：**
 
@@ -1117,7 +1209,7 @@ Run、Python HTTP 和回包；看队列深度、CPU、RSS、fd、fallback 和下
 延长生命周期时用 `shared_ptr`；观察共享对象但不延长寿命、打破环时用 `weak_ptr`。智能指针
 不是越多越安全，`shared_ptr` 会模糊销毁时机并有原子引用计数成本。
 
-## H2. 左值、右值和移动语义在异步请求中有什么价值【P1】
+## I2. 左值、右值和移动语义在异步请求中有什么价值【P1】
 
 **参考回答：**
 
@@ -1125,7 +1217,7 @@ Run、Python HTTP 和回包；看队列深度、CPU、RSS、fd、fallback 和下
 但 move 后对象仍有效、值未指定，不能继续依赖原内容。生命周期正确性优先于少一次复制，跨线程
 借用局部引用通常比合理复制更危险。
 
-## H3. lambda 捕获最容易出什么问题【P0】
+## I3. lambda 捕获最容易出什么问题【P0】
 
 **参考回答：**
 
@@ -1133,7 +1225,7 @@ Run、Python HTTP 和回包；看队列深度、CPU、RSS、fd、fallback 和下
 有复制成本。项目明确捕获拥有生命周期的连接共享引用、不可变值和 moved callable，不捕获栈上
 响应地址。代码审查时要把 lambda 当一个可能很晚执行的对象分析。
 
-## H4. 虚函数接口为什么适合模型后端【P1】
+## I4. 虚函数接口为什么适合模型后端【P1】
 
 **参考回答：**
 
@@ -1141,7 +1233,7 @@ Run、Python HTTP 和回包；看队列深度、CPU、RSS、fd、fallback 和下
 和 fake 共享接口。接口析构必须是 virtual。若类型在编译期固定且性能极敏感，可以考虑模板或
 variant，但这里可替换性和测试价值高于一次虚调用成本。
 
-## H5. `const` 成员函数是否意味着线程安全【P0】
+## I5. `const` 成员函数是否意味着线程安全【P0】
 
 **参考回答：**
 
@@ -1149,7 +1241,7 @@ variant，但这里可替换性和测试价值高于一次虚调用成本。
 第三方库共享状态。项目线程安全依赖更强的不变量：Bundle/树加载后只读，ORT 明确支持并发 Run，
 每请求 buffer 私有；不能只看到 `const predict` 就下结论。
 
-## H6. 编译期多态和运行时多态有什么区别【P1】
+## I6. 编译期多态和运行时多态有什么区别【P1】
 
 **参考回答：**
 
@@ -1157,7 +1249,7 @@ variant，但这里可替换性和测试价值高于一次虚调用成本。
 选择实现，有小的间接调用成本，但能在统一 ABI 下动态组合。模型调用本身远重于虚调用，所以
 项目选择清晰的运行时接口。
 
-## H7. 异常和错误码如何选择【P1】
+## I7. 异常和错误码如何选择【P1】
 
 **参考回答：**
 
@@ -1165,7 +1257,7 @@ variant，但这里可替换性和测试价值高于一次虚调用成本。
 可用 `expected`/错误码。项目把模型错误分为输入、超时、不可用、非法下游和本地推理失败，再由
 HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch 未知异常作为隔离网。
 
-## H8. 为什么错误信息要区分内部和外部【P0】
+## I8. 为什么错误信息要区分内部和外部【P0】
 
 **参考回答：**
 
@@ -1173,7 +1265,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 路径、依赖版本、模型结构甚至患者数据。当前响应集中构造，日志不打印原始输入和完整结果；
 生产中再通过 request ID 关联受控内部日志。
 
-## H9. 静态库、动态库和 ONNX Runtime 部署有什么关系【P1】
+## I9. 静态库、动态库和 ONNX Runtime 部署有什么关系【P1】
 
 **参考回答：**
 
@@ -1181,7 +1273,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 保证 `.so` 版本、搜索路径和 ABI。项目通过 CMake 显式指定 ONNX Runtime 根目录，启用时缺头文件
 或库直接配置失败，不把第三方二进制提交仓库。部署还需固定来源和 SHA-256。
 
-## H10. ABI 不兼容可能从哪里来【P2】
+## I10. ABI 不兼容可能从哪里来【P2】
 
 **参考回答：**
 
@@ -1189,7 +1281,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 跨边界最好使用稳定 C API 或在同一工具链构建；ONNX Runtime 的 C++ API 本质上包装 C API，但
 项目仍固定 Runtime 版本并在目标环境实际加载测试。
 
-## H11. 内存泄漏、悬空指针和数据竞争分别是什么【P0】
+## I11. 内存泄漏、悬空指针和数据竞争分别是什么【P0】
 
 **参考回答：**
 
@@ -1197,7 +1289,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 至少两个线程无同步访问同一内存且至少一个写，也是未定义行为。RAII 主要防泄漏，所有权和
 线程亲和防悬空，mutex/atomic/消息传递防数据竞争，三者不能互相替代。
 
-## H12. false sharing 是什么，与项目有关吗【P2】
+## I12. false sharing 是什么，与项目有关吗【P2】
 
 **参考回答：**
 
@@ -1205,7 +1297,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 变慢。当前模型服务瓶颈尚未证明在共享计数器，因此没有提前做 cache-line padding。若指标表明
 并发计数或队列热点，再用 profiler 和硬件计数器验证后优化。
 
-## H13. 为什么开启 `-Wall -Wextra -Wpedantic` 还不够【P1】
+## I13. 为什么开启 `-Wall -Wextra -Wpedantic` 还不够【P1】
 
 **参考回答：**
 
@@ -1213,7 +1305,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 错误。还需要单元/E2E、ASan/UBSan/TSan、静态分析、fuzz parser 和真实压力测试。工具之间是
 互补关系。
 
-## H14. CMake 中可选 ONNX 构建为什么有价值【P1】
+## I14. CMake 中可选 ONNX 构建为什么有价值【P1】
 
 **参考回答：**
 
@@ -1221,7 +1313,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 版本，方便没有 Runtime 的开发环境。功能开关必须反映到运行配置校验：一个未编译 ONNX 的
 二进制收到 ONNX 模式配置应启动失败，而不是运行到请求时才失败。
 
-## H15. `std::call_once` 适合解决什么【P1】
+## I15. `std::call_once` 适合解决什么【P1】
 
 **参考回答：**
 
@@ -1231,7 +1323,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 
 ---
 
-# I. 高频连续追问链
+# J. 高频连续追问链
 
 ## 追问链 1：为什么异步
 
@@ -1285,7 +1377,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 
 ---
 
-# J. 高风险说法修正表
+# K. 高风险说法修正表
 
 | 高风险说法 | 推荐表述 |
 |---|---|
@@ -1301,10 +1393,13 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 | “支持 HTTP/1.1” | “支持当前接口需要的 HTTP/1.0/1.1 基本解析、Content-Length 和 keep-alive；不支持 chunked，pipelining 尚不完整。” |
 | “框架有 SSL 所以数据安全” | “原框架存在 SSL 组件，但 treeSem 尚未完成生产验证；正式入口应使用成熟 TLS 终止和应用层鉴权。” |
 | “Accuracy 90% 很高” | “类别不平衡下 Accuracy 可能误导；当前 F1/AUC 明显异常，已划入独立模型质量审计。” |
+| “Session 就是用户登录” | “M4 Session 只是匿名业务上下文；认证身份、RBAC 和审计在 M6 实现。” |
+| “用了 PreparedStatement 就安全了” | “它主要防 SQL 注入；越权、凭据、加密、审计和数据保留仍需单独治理。” |
+| “医生已经审核了结果” | “M4 只记录未认证 reviewer reference，`reviewer_verified` 固定为 false。” |
 
 ---
 
-# K. 30 分钟自测清单
+# L. 30 分钟自测清单
 
 不看文档，确认自己能完成以下回答：
 
@@ -1326,18 +1421,22 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 - [ ] 明确区分“部署一致性”和“模型质量”。
 - [ ] 说明当前模型质量为什么要单独修、如何不破坏 Serving 架构。
 - [ ] 说明原 Kama/Muduo 能力和自己的新增能力。
+- [ ] 画出推理后开启短事务、锁 Session、插入预测并更新 current prediction 的时序。
+- [ ] 解释双 Worker Pool、连接池上限、acquire timeout 和 503 的关系。
+- [ ] 讲清 Cookie/Internal Header、匿名 Session 与认证用户的区别。
+- [ ] 讲清 keyset pagination 与幂等 key + payload hash。
+- [ ] 说明 `/health`、`/ready` 以及 MySQL 故障后的恢复边界。
 - [ ] 给出继续生产化的前三优先级，而不是罗列技术名词。
 - [ ] 能把任意场景按“现象→指标→分段定位→止损→根因→改进”回答。
 
 ---
 
-# L. 后续模块维护入口
+# M. 后续模块维护入口
 
 以下只记录未来题库位置，不代表已经实现：
 
 | 后续模块 | 实现完成后新增的核心题组 |
 |---|---|
-| MySQL 与 Session | 连接池、事务、索引、隔离级别、幂等、会话过期、缓存一致性 |
 | 医疗 RBAC | Doctor/Patient/Admin、资源级授权、最小权限、审计、越权与脱敏 |
 | Agent Core | Agent Loop、终止条件、结构化 tool call、状态机、超时和预算 |
 | RAG/MCP | 检索链、chunk/embedding/rerank、MCP 边界、来源引用、权限过滤 |
@@ -1349,7 +1448,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 
 ---
 
-# M. 资料来源
+# N. 资料来源
 
 技术结论优先参考规范与官方文档；社区面经仅用于观察提问方向，不作为技术事实依据。
 
@@ -1372,6 +1471,12 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 - [ONNX Runtime C++ API](https://onnxruntime.ai/docs/api/c/onnxruntime__cxx__api_8h_source.html)
 - [PyTorch ONNX export](https://docs.pytorch.org/docs/main/onnx_export.html)
 - [PyTorch ONNX verification](https://docs.pytorch.org/docs/stable/onnx_verification.html)
+
+## MySQL 与事务
+
+- [MySQL 8.0 InnoDB Transaction Model](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-model.html)
+- [MySQL 8.0 Transaction Isolation Levels](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)
+- [MySQL 8.0 Prepared Statements](https://dev.mysql.com/doc/refman/8.0/en/sql-prepared-statements.html)
 
 ## 真实面试提问方向（仅作方向参考）
 

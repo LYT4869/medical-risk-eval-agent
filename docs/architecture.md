@@ -1,27 +1,29 @@
 # treeSem 服务平台架构
 
-## 当前 M3 架构
+## 当前 M4 架构
 
 当前可运行链路是：
 
 ```text
 Client
   -> Muduo HttpServer / Router
-  -> PredictionController / PredictionJsonCodec
-  -> InferenceScheduler
-  -> BoundedWorkerPool
-  -> PredictionService
-  -> IModelService
+  -> PredictionController / BusinessController
+  -> Prediction Scheduler / Database Scheduler（两个独立有界池）
+  -> Prediction / Explanation / History / Comparison / Feedback Service
+  -> SessionService + ITreeSemStore
+  -> MySqlTreeSemStore（默认）/ InMemoryTreeSemStore（测试）
+  -> PredictionService 调用 IModelService
   -> backend routing: onnx / onnx_fallback / shadow / remote
   -> OnnxTreeSemModelService（默认主链）
      -> ONNX Runtime Session（神经网络）
      -> FeaturePreprocessor + NativeDecisionTree（标准化与解释）
   -> RemoteTreeSemModelService（黄金参考与 fallback）
      -> PythonModelClient -> treeSem Python Bundle Adapter
+  -> Prediction 与 Session 状态短事务提交
   -> response queued back to the connection EventLoop
 ```
 
-网络 EventLoop 只负责连接、HTTP 解析、路由和响应发送。模型 HTTP 调用在有界 Worker Pool 中同步执行；Worker 通过一次性 `AsyncResponder` 把轻量响应构造任务投递回连接所属 EventLoop，不跨线程传递栈上的 `HttpResponse*`。
+网络 EventLoop 只负责连接、HTTP 解析、路由和响应发送。推理、连接池等待和 SQL 都在对应的有界 Worker Pool 中执行；Worker 通过一次性 `AsyncResponder` 把轻量响应构造任务投递回连接所属 EventLoop，不跨线程传递栈上的 `HttpResponse*`。
 
 ## M1 正式分层
 
@@ -38,7 +40,8 @@ Model Abstraction       v
 Infrastructure          v
   RemoteTreeSemModelService
   IModelAdapterClient / PythonModelClient
-  InferenceScheduler / BoundedWorkerPool
+  BlockingTaskScheduler / BoundedWorkerPool
+  MySqlTreeSemStore / MySqlConnectionPool
 ```
 
 依赖只能自上而下。`PredictionService` 不依赖 HTTP、JSON、libcurl 或 Python 名称；`main.cpp` 只作为 composition root 读取配置、构造对象、注册路由并启动服务。
@@ -107,6 +110,8 @@ EventLoop          Worker              ONNX / Python fallback
 - Python treeSem Model Adapter 与真实 PPH 模型接入。
 - 确定性 Serving Bundle、命名临床输入和反归一化解释。
 - C++ ONNX Runtime 主链、原生决策树、fallback、shadow 与全量一致性验证。
+- 类型化匿名 Session、Repository、MySQL 连接池与事务持久化。
+- 预测详情、解释快照、keyset 历史、确定性比较和内部未认证医生反馈。
 - 超时、过载、下游故障映射和敏感响应日志治理。
 
 简历中应表述为“基于 Muduo/Kama-HTTPServer 二次开发”，不表述为从零自研完整 HTTP 框架。
