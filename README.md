@@ -2,7 +2,7 @@
 
 ## treeSem 二次开发
 
-本分支在 Kama-HTTPServer/Muduo 基础上构建 treeSem 可解释医疗模型服务平台。当前已经完成 HTTP 核心修复、异步响应、有界推理 Worker Pool、C++ 四层服务架构、统一错误边界、优雅停机，以及带版本/checksum 的 Serving Bundle、命名临床输入和反归一化解释。
+本分支在 Kama-HTTPServer/Muduo 基础上构建 treeSem 可解释医疗模型服务平台。当前已经完成 HTTP 核心修复、异步响应、有界推理 Worker Pool、C++ 四层服务架构、带版本/checksum 的 Serving Bundle，以及 C++ ONNX Runtime 默认主链、原生树解释、Python fallback 和 shadow 一致性验证。
 
 - [架构与能力归属](docs/architecture.md)
 - [M0/M1 API 契约](docs/api-contract.md)
@@ -10,6 +10,8 @@
 - [模块路线与当前状态](docs/roadmap.md)
 - [M1 分层实现与学习入口](docs/m1-implementation.md)
 - [M2 Serving Bundle 与黄金实现](docs/m2-serving-bundle.md)
+- [M3 C++ ONNX Runtime 主链](docs/m3-onnx-serving.md)
+- [M3 本机性能记录](docs/m3-performance.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 

@@ -1,21 +1,36 @@
 #include "api/HealthController.h"
 
-#include <string>
+#include <nlohmann/json.hpp>
 
 namespace treesem
 {
 namespace api
 {
 
-void healthHandler(const http::HttpRequest& request, http::HttpResponse* response)
+HealthController::HealthController(HealthMetadata metadata)
 {
-    static const std::string body =
-        R"({"status":"ok","service":"treeSem-backend"})";
+    nlohmann::json body{
+        {"status", "ok"},
+        {"service", "treeSem-backend"},
+        {"configured_backend", metadata.configuredBackend},
+        {"primary_backend", metadata.primaryBackend},
+        {"fallback_enabled", metadata.fallbackEnabled},
+    };
+    if (metadata.modelVersion.has_value())
+    {
+        body["model_version"] = *metadata.modelVersion;
+    }
+    body_ = body.dump();
+}
 
+void HealthController::handle(
+    const http::HttpRequest& request,
+    http::HttpResponse* response) const
+{
     response->setStatusLine(
         request.getVersion(), http::HttpResponse::k200Ok, "OK");
     response->setContentType("application/json; charset=utf-8");
-    response->setBody(body);
+    response->setBody(body_);
 }
 
 } // namespace api

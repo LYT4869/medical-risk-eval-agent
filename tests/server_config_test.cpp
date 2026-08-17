@@ -71,6 +71,8 @@ int main()
         "TREESEM_MODEL_TIMEOUT_MS",
         "TREESEM_INFERENCE_WORKERS",
         "TREESEM_INFERENCE_QUEUE_CAPACITY",
+        "TREESEM_MODEL_BACKEND",
+        "TREESEM_SERVING_BUNDLE_DIR",
     });
 
     char program[] = "treesem_server";
@@ -83,12 +85,16 @@ int main()
     assert(config.modelRequestTimeoutMs == 5000);
     assert(config.inferenceWorkerCount == 2);
     assert(config.inferenceQueueCapacity == 32);
+    assert(config.modelBackend == treesem::config::ModelBackend::OnnxFallback);
+    assert(config.servingBundleDirectory.empty());
 
     ::setenv("TREESEM_MODEL_ADAPTER_URL", "http://adapter/v1/predict", 1);
     ::setenv("TREESEM_MODEL_CONNECT_TIMEOUT_MS", "250", 1);
     ::setenv("TREESEM_MODEL_TIMEOUT_MS", "3000", 1);
     ::setenv("TREESEM_INFERENCE_WORKERS", "4", 1);
     ::setenv("TREESEM_INFERENCE_QUEUE_CAPACITY", "16", 1);
+    ::setenv("TREESEM_MODEL_BACKEND", "shadow", 1);
+    ::setenv("TREESEM_SERVING_BUNDLE_DIR", "/safe/example/bundle", 1);
     char port[] = "19090";
     char* configuredArguments[] = {program, port, nullptr};
     config = treesem::config::TreeSemServerConfig::load(
@@ -99,6 +105,8 @@ int main()
     assert(config.modelRequestTimeoutMs == 3000);
     assert(config.inferenceWorkerCount == 4);
     assert(config.inferenceQueueCapacity == 16);
+    assert(config.modelBackend == treesem::config::ModelBackend::Shadow);
+    assert(config.servingBundleDirectory == "/safe/example/bundle");
 
     char badPort[] = "8080junk";
     char* badPortArguments[] = {program, badPort, nullptr};
@@ -123,6 +131,11 @@ int main()
         treesem::config::TreeSemServerConfig::load(1, defaultArguments);
     });
     ::setenv("TREESEM_INFERENCE_WORKERS", "abc", 1);
+    assertInvalid([&]() {
+        treesem::config::TreeSemServerConfig::load(1, defaultArguments);
+    });
+    ::setenv("TREESEM_INFERENCE_WORKERS", "2", 1);
+    ::setenv("TREESEM_MODEL_BACKEND", "unknown", 1);
     assertInvalid([&]() {
         treesem::config::TreeSemServerConfig::load(1, defaultArguments);
     });

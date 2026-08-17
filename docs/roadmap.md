@@ -7,7 +7,7 @@
 | M0 | 基线、架构契约、文档与检查点 | 已完成 |
 | M1 | C++ Controller/Service/Model/Infrastructure 分层 | 已完成 |
 | M2 | Serving Bundle、Python 黄金实现、反归一化 | 已完成 |
-| M3 | C++ ONNX Runtime 默认模型主链 | 待执行 |
+| M3 | C++ ONNX Runtime 默认模型主链 | 已完成 |
 | M4 | C++ 业务服务、Session、MySQL、医生反馈 | 待执行 |
 | M5 | Python Agent Core 与领域 Tool | 待执行 |
 | M6 | Doctor/Patient/Admin 权限、安全和审计 | 待执行 |
@@ -55,6 +55,18 @@
 - [x] 全量 1489 样本相对历史实现的概率最大差异为 0，离散输出无差异。
 - [x] C++/Python 单元回归、真实 Bundle 校验和真实端到端链路通过。
 
+## M3 Definition of Done
+
+- [x] opset 17 确定性 ONNX 子图经过 checker、shape inference 和 Python ORT 全量验证。
+- [x] C++ Loader 启动时校验 Schema、SHA256、特征顺序、Scaler、树拓扑和 ONNX 契约。
+- [x] C++ 原生执行预处理、反归一化、决策树、重要特征和决策路径。
+- [x] ONNX Session 启动时创建一次，Worker 并发使用独立 Tensor，ORT 内部线程固定为 1+1。
+- [x] `remote`、`onnx`、`onnx_fallback`、`shadow` 四种模式可配置并有测试。
+- [x] Python Adapter 下线不影响 ONNX；运行异常只 fallback 一次；非法输入和损坏 Bundle 不 fallback。
+- [x] 1489 样本 Python/C++ 最大概率差异 `1.79e-7`，label、cluster、leaf、path 和重要特征顺序 100% 一致。
+- [x] 多 Worker 并发连续 20 轮、客户端断开、优雅停机和 EventLoop 非阻塞不变量保持。
+- [x] 本机固定口径性能报告完成，性能不作为 CI 硬门槛。
+
 ## 当前停止线
 
-M0/M1/M2 已完成。下一步实现 M3 的 ONNX 导出、C++ 原生 Bundle/Tree 和四种 backend mode；尚未加入 MySQL、Agent、MCP/RAG、Skill 或医疗权限。
+M0/M1/M2/M3 已完成。下一步进入 M4 的 C++ 业务服务、Session、MySQL 和医生反馈；尚未加入 Agent、MCP/RAG、Skill 或医疗权限。

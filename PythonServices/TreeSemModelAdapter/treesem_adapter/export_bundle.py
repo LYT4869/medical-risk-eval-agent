@@ -259,6 +259,11 @@ def export_bundle(
             "raw_data_sha256": raw_sha,
             "reference_rows": int(reference_inputs.shape[0]) if include_reference_dataset else 0,
             "seed": seed,
+            "split": {
+                "seed": seed,
+                "stratified": stratify is not None,
+                "test_size": test_size,
+            },
         }
         _write_json(temporary / "manifest.json", manifest)
         from .model import ServingBundlePredictor

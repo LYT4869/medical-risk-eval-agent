@@ -8,9 +8,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(KAMA_BUILD_TREESEM_SERVER "Build the treeSem backend entrypoint" ON)
 option(KAMA_BUILD_GOMOKU_SERVER "Build the original Gomoku example" OFF)
 option(KAMA_BUILD_TESTS "Build lightweight HTTP core tests" ON)
+option(KAMA_ENABLE_ONNXRUNTIME "Build the C++ ONNX Runtime model backend" ON)
 
 set(MUDUO_ROOT "" CACHE PATH "Muduo installation prefix")
 set(NLOHMANN_JSON_ROOT "" CACHE PATH "nlohmann/json installation prefix")
+set(ONNXRUNTIME_ROOT "" CACHE PATH "ONNX Runtime C++ installation prefix")
 set(TREESEM_MODEL_PYTHON_EXECUTABLE "" CACHE FILEPATH
     "Python executable with torch/sklearn for real model tests")
 set(TREESEM_TEST_BUNDLE_DIR "" CACHE PATH "Existing PPH serving bundle for tests")
@@ -97,6 +99,10 @@ add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/config/TreeSemServerConfig.cpp
     WebApps/TreeSemServer/src/concurrency/BoundedWorkerPool.cpp
     WebApps/TreeSemServer/src/infrastructure/model/RemoteTreeSemModelService.cpp
+    WebApps/TreeSemServer/src/infrastructure/model/FeaturePreprocessor.cpp
+    WebApps/TreeSemServer/src/infrastructure/model/NativeDecisionTree.cpp
+    WebApps/TreeSemServer/src/infrastructure/model/RoutingModelServices.cpp
+    WebApps/TreeSemServer/src/infrastructure/model/ServingBundle.cpp
     WebApps/TreeSemServer/src/infrastructure/process/ProcessSignalHandler.cpp
     WebApps/TreeSemServer/src/model/ModelException.cpp
     WebApps/TreeSemServer/src/service/InferenceScheduler.cpp
@@ -109,6 +115,28 @@ target_link_libraries(treesem_runtime PUBLIC kama_http_core)
 target_include_directories(treesem_runtime SYSTEM PUBLIC ${NLOHMANN_JSON_INCLUDE_DIR})
 target_link_libraries(treesem_runtime PUBLIC CURL::libcurl)
 target_compile_options(treesem_runtime PRIVATE -Wall -Wextra -Wpedantic)
+
+if(KAMA_ENABLE_ONNXRUNTIME)
+    find_path(ONNXRUNTIME_INCLUDE_DIR
+        NAMES onnxruntime_cxx_api.h
+        HINTS ${ONNXRUNTIME_ROOT}/include
+    )
+    find_library(ONNXRUNTIME_LIBRARY
+        NAMES onnxruntime
+        HINTS ${ONNXRUNTIME_ROOT}/lib ${ONNXRUNTIME_ROOT}/lib64
+    )
+    if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIBRARY)
+        message(FATAL_ERROR
+            "ONNX Runtime C++ was not found. Configure ONNXRUNTIME_ROOT or "
+            "use -DKAMA_ENABLE_ONNXRUNTIME=OFF for a remote-only build")
+    endif()
+    target_sources(treesem_runtime PRIVATE
+        WebApps/TreeSemServer/src/infrastructure/model/OnnxTreeSemModelService.cpp
+    )
+    target_include_directories(treesem_runtime SYSTEM PUBLIC ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(treesem_runtime PUBLIC ${ONNXRUNTIME_LIBRARY})
+    target_compile_definitions(treesem_runtime PUBLIC TREESEM_HAS_ONNXRUNTIME=1)
+endif()
 
 if(KAMA_BUILD_TREESEM_SERVER)
     add_executable(treesem_server
@@ -179,6 +207,10 @@ if(KAMA_BUILD_TESTS)
     target_link_libraries(remote_model_service_test PRIVATE treesem_runtime)
     add_test(NAME remote_model_service_test COMMAND remote_model_service_test)
 
+    add_executable(routing_model_services_test tests/routing_model_services_test.cpp)
+    target_link_libraries(routing_model_services_test PRIVATE treesem_runtime)
+    add_test(NAME routing_model_services_test COMMAND routing_model_services_test)
+
     add_executable(prediction_controller_test tests/prediction_controller_test.cpp)
     target_link_libraries(prediction_controller_test PRIVATE treesem_runtime)
     add_test(NAME prediction_controller_test COMMAND prediction_controller_test)
@@ -213,6 +245,59 @@ if(KAMA_BUILD_TESTS)
             ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
             TIMEOUT 120
         )
+    endif()
+
+    if(KAMA_ENABLE_ONNXRUNTIME AND TREESEM_TEST_BUNDLE_DIR)
+        add_executable(onnx_model_service_test tests/onnx_model_service_test.cpp)
+        target_link_libraries(onnx_model_service_test PRIVATE treesem_runtime)
+        add_test(
+            NAME onnx_model_service_test
+            COMMAND onnx_model_service_test ${TREESEM_TEST_BUNDLE_DIR}
+        )
+
+        add_executable(onnx_predictions_dump tests/onnx_predictions_dump.cpp)
+        target_link_libraries(onnx_predictions_dump PRIVATE treesem_runtime)
+        if(TREESEM_MODEL_PYTHON_EXECUTABLE AND TREESEM_TEST_RAW_FILE)
+            if(TREESEM_TEST_ARTIFACT)
+                add_test(
+                    NAME onnx_export_contract_test
+                    COMMAND ${TREESEM_MODEL_PYTHON_EXECUTABLE}
+                        ${PROJECT_SOURCE_DIR}/tests/test_onnx_export_contract.py
+                        --validation-bundle ${TREESEM_TEST_BUNDLE_DIR}
+                        --artifact ${TREESEM_TEST_ARTIFACT}
+                        --raw-file ${TREESEM_TEST_RAW_FILE}
+                )
+                set_tests_properties(onnx_export_contract_test PROPERTIES
+                    ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
+                    TIMEOUT 120
+                )
+            endif()
+            add_test(
+                NAME full_onnx_parity_test
+                COMMAND ${TREESEM_MODEL_PYTHON_EXECUTABLE}
+                    ${PROJECT_SOURCE_DIR}/tests/test_full_onnx_parity.py
+                    --dump-executable $<TARGET_FILE:onnx_predictions_dump>
+                    --bundle ${TREESEM_TEST_BUNDLE_DIR}
+                    --raw-file ${TREESEM_TEST_RAW_FILE}
+            )
+            set_tests_properties(full_onnx_parity_test PROPERTIES
+                ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
+                TIMEOUT 120
+            )
+            if(KAMA_BUILD_TREESEM_SERVER)
+                add_test(
+                    NAME onnx_backend_integration_test
+                    COMMAND ${TREESEM_MODEL_PYTHON_EXECUTABLE}
+                        ${PROJECT_SOURCE_DIR}/tests/test_onnx_backend_integration.py
+                        $<TARGET_FILE:treesem_server>
+                        ${TREESEM_TEST_BUNDLE_DIR}
+                )
+                set_tests_properties(onnx_backend_integration_test PROPERTIES
+                    ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
+                    TIMEOUT 120
+                )
+            endif()
+        endif()
     endif()
 
     if(KAMA_BUILD_TREESEM_SERVER)

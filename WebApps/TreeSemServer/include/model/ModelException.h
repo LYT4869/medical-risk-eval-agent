@@ -18,6 +18,7 @@ public:
         Unavailable,
         InvalidResponse,
         DownstreamFailure,
+        InferenceFailure,
     };
 
     ModelException(Kind kind, const std::string& message);

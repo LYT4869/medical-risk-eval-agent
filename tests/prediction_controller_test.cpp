@@ -25,6 +25,7 @@ public:
     {
         Success,
         Timeout,
+        InferenceFailure,
         Failure,
     };
 
@@ -39,6 +40,10 @@ public:
             throw treesem::model::ModelException(
                 treesem::model::ModelException::Kind::Timeout,
                 "simulated timeout");
+        case Behavior::InferenceFailure:
+            throw treesem::model::ModelException(
+                treesem::model::ModelException::Kind::InferenceFailure,
+                "simulated ONNX failure");
         case Behavior::Failure:
             throw std::runtime_error("simulated unexpected failure");
         }
@@ -107,6 +112,13 @@ int main()
            std::string::npos);
     assert(response.body.find("simulated unexpected failure") ==
            std::string::npos);
+
+    modelService.behavior = FakeModelService::Behavior::InferenceFailure;
+    response = invoke(controller, R"({"sample_index":0})");
+    assert(response.status == 500);
+    assert(response.body.find("\"error\":\"model_inference_failed\"") !=
+           std::string::npos);
+    assert(response.body.find("simulated ONNX failure") == std::string::npos);
 
     scheduler.waitForIdle();
 }

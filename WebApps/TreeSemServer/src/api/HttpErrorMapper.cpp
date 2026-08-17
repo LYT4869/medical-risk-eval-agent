@@ -92,6 +92,12 @@ http::ResponseWriter HttpErrorMapper::from(const model::ModelException& exceptio
             "Bad Gateway",
             "model_adapter_unavailable",
             "The model service is unavailable.");
+    case model::ModelException::Kind::InferenceFailure:
+        return error(
+            http::HttpResponse::k500InternalServerError,
+            "Internal Server Error",
+            "model_inference_failed",
+            "The local model could not complete inference.");
     }
     return internalError();
 }

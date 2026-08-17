@@ -157,6 +157,7 @@ def main() -> int:
             "TREESEM_MODEL_TIMEOUT_MS": "3000",
             "TREESEM_INFERENCE_WORKERS": "1",
             "TREESEM_INFERENCE_QUEUE_CAPACITY": "1",
+            "TREESEM_MODEL_BACKEND": "remote",
         }
     )
     process = subprocess.Popen(

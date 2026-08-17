@@ -47,7 +47,45 @@ std::size_t parsePositiveSize(const char* name, std::size_t fallback)
     return static_cast<std::size_t>(parsed);
 }
 
+ModelBackend parseBackend(const std::string& value)
+{
+    if (value == "remote")
+    {
+        return ModelBackend::Remote;
+    }
+    if (value == "onnx")
+    {
+        return ModelBackend::Onnx;
+    }
+    if (value == "onnx_fallback")
+    {
+        return ModelBackend::OnnxFallback;
+    }
+    if (value == "shadow")
+    {
+        return ModelBackend::Shadow;
+    }
+    throw std::invalid_argument(
+        "TREESEM_MODEL_BACKEND must be remote, onnx, onnx_fallback or shadow");
+}
+
 } // namespace
+
+std::string toString(ModelBackend backend)
+{
+    switch (backend)
+    {
+    case ModelBackend::Remote:
+        return "remote";
+    case ModelBackend::Onnx:
+        return "onnx";
+    case ModelBackend::OnnxFallback:
+        return "onnx_fallback";
+    case ModelBackend::Shadow:
+        return "shadow";
+    }
+    throw std::invalid_argument("unknown model backend");
+}
 
 TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
 {
@@ -81,6 +119,10 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
         "TREESEM_INFERENCE_WORKERS", config.inferenceWorkerCount);
     config.inferenceQueueCapacity = parsePositiveSize(
         "TREESEM_INFERENCE_QUEUE_CAPACITY", config.inferenceQueueCapacity);
+    config.modelBackend = parseBackend(environmentOr(
+        "TREESEM_MODEL_BACKEND", toString(config.modelBackend)));
+    config.servingBundleDirectory = environmentOr(
+        "TREESEM_SERVING_BUNDLE_DIR", config.servingBundleDirectory);
     return config;
 }
 

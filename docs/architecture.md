@@ -1,6 +1,6 @@
 # treeSem 服务平台架构
 
-## 当前 M1 架构
+## 当前 M3 架构
 
 当前可运行链路是：
 
@@ -12,10 +12,12 @@ Client
   -> BoundedWorkerPool
   -> PredictionService
   -> IModelService
-  -> RemoteTreeSemModelService
-  -> IModelAdapterClient / PythonModelClient (HTTP + timeout)
-  -> treeSem Python Model Adapter
-  -> trusted PyTorch artifact + sklearn tree
+  -> backend routing: onnx / onnx_fallback / shadow / remote
+  -> OnnxTreeSemModelService（默认主链）
+     -> ONNX Runtime Session（神经网络）
+     -> FeaturePreprocessor + NativeDecisionTree（标准化与解释）
+  -> RemoteTreeSemModelService（黄金参考与 fallback）
+     -> PythonModelClient -> treeSem Python Bundle Adapter
   -> response queued back to the connection EventLoop
 ```
 
@@ -41,7 +43,7 @@ Infrastructure          v
 
 依赖只能自上而下。`PredictionService` 不依赖 HTTP、JSON、libcurl 或 Python 名称；`main.cpp` 只作为 composition root 读取配置、构造对象、注册路由并启动服务。
 
-M1 已按该结构实现。`IModelService` 是后续 M3 增加 `OnnxTreeSemModelService` 的替换点；Controller 和业务层不需要随模型运行时变化。
+M3 已利用 `IModelService` 无侵入加入本地 ONNX、fallback 和 shadow；Controller 与业务层没有因模型运行时变化而修改。
 
 ## 长期目标
 
@@ -56,7 +58,7 @@ Client
 
 - C++ Backend 不依赖 Agent、MCP 或 Skill 概念。
 - Python Agent 通过 C++ Internal API 使用确定性业务能力，不直接访问模型实例或 MySQL。
-- 后续 `OnnxTreeSemModelService` 是默认模型主链；当前 Python Adapter 保留为黄金参考和 fallback。
+- `OnnxTreeSemModelService` 是默认模型主链；Python Adapter 保留为黄金参考和 fallback。
 - RAG 只提供模型知识、可信临床参考和患者教育，不生成预测事实。
 - Doctor、Patient、Admin 的认证、授权和审计属于后续安全模块。
 - RabbitMQ 仅在压测证明存在批量、长任务、状态查询或跨进程重试需求后加入。
@@ -64,13 +66,13 @@ Client
 ## 请求线程时序
 
 ```text
-EventLoop          Worker              Python Adapter
+EventLoop          Worker              ONNX / Python fallback
    |                  |                       |
    | parse + route    |                       |
    |----------------->| schedule              |
    | returns to poll  |                       |
-   |                  |---- HTTP POST ------->|
-   |                  |<--- JSON / error -----|
+   |                  |---- local Run/HTTP --->|
+   |                  |<--- result / error ----|
    |<-----------------| queueInLoop(writer)   |
    | build + send     |                       |
 ```
@@ -91,7 +93,7 @@ EventLoop          Worker              Python Adapter
 2. 同步模型接口仅由 Worker 调用，使业务层保持简单，同时保护 EventLoop。
 3. 模型抽象只表示确定性预测模型；LLM Agent 不实现 `IModelService`。
 4. 新服务、接口和文档统一使用 `treeSem`；历史训练包和可信产物中的 `trivae` 名称不改动。
-5. M2 负责 Serving Bundle、反归一化和原始临床字段；M1 不临时复制这部分逻辑。
+5. Scaler 和树是 Bundle 中的跨语言事实；ONNX 只负责确定性神经网络子图。
 6. Skill 使用可信本地目录和渐进加载，不建设通用插件市场。
 
 ## 能力归属
@@ -103,6 +105,8 @@ EventLoop          Worker              Python Adapter
 - 有界 Worker Pool 和推理调度。
 - treeSem C++ 服务入口和模型 Adapter 客户端。
 - Python treeSem Model Adapter 与真实 PPH 模型接入。
+- 确定性 Serving Bundle、命名临床输入和反归一化解释。
+- C++ ONNX Runtime 主链、原生决策树、fallback、shadow 与全量一致性验证。
 - 超时、过载、下游故障映射和敏感响应日志治理。
 
 简历中应表述为“基于 Muduo/Kama-HTTPServer 二次开发”，不表述为从零自研完整 HTTP 框架。

@@ -1,6 +1,6 @@
-# treeSem M2 API 契约
+# treeSem M3 API 契约
 
-本契约描述 M2 已实现的预测链路。未知的医疗单位保持 `null`，不根据字段名猜测。
+本契约描述 M3 已实现的预测链路。未知的医疗单位保持 `null`，不根据字段名猜测。
 
 ## C++ Backend
 
@@ -9,10 +9,17 @@
 成功响应：
 
 ```json
-{"status":"ok","service":"treeSem-backend"}
+{
+  "status":"ok",
+  "service":"treeSem-backend",
+  "model_version":"pph-seed42-1a299a474ce5",
+  "configured_backend":"onnx_fallback",
+  "primary_backend":"onnx",
+  "fallback_enabled":true
+}
 ```
 
-该接口是进程存活检查，不同步探测 Python Adapter。
+该接口是已初始化进程的存活检查，不执行真实推理，也不同步探测 Python Adapter。ONNX 或 Bundle 初始化失败时进程不会开始监听。
 
 ### `POST /api/v1/predictions`
 
@@ -63,7 +70,7 @@
 {
   "model": "treeSem",
   "model_version": "pph-seed42-1a299a474ce5",
-  "serving_backend": "python_reference",
+  "serving_backend": "onnx",
   "dataset": "pph",
   "input_source": "pph_test_split",
   "sample_index": 0,
@@ -107,7 +114,8 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | 400 | `invalid_json` | 请求体不是合法 JSON |
 | 400 | `invalid_request` | JSON 类型、字段组合、维度或数值非法 |
 | 404 | `not_found` | 路由不存在 |
-| 500 | `inference_failed` / `internal_error` | 未分类内部异常 |
+| 500 | `model_inference_failed` | 严格 ONNX 模式的本地推理异常 |
+| 500 | `internal_error` | 未分类内部异常 |
 | 502 | `model_adapter_unavailable` | Adapter 无法连接或传输失败 |
 | 502 | `invalid_model_adapter_response` | Adapter 响应为空、过大、非法或缺少必需字段 |
 | 502 | `model_adapter_failed` | Adapter 返回 5xx |
@@ -125,7 +133,11 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | `TREESEM_MODEL_TIMEOUT_MS` | `5000` |
 | `TREESEM_INFERENCE_WORKERS` | `2` |
 | `TREESEM_INFERENCE_QUEUE_CAPACITY` | `32` |
+| `TREESEM_MODEL_BACKEND` | `onnx_fallback` |
+| `TREESEM_SERVING_BUNDLE_DIR` | 无；ONNX 模式必须设置 |
 | Python Adapter host | `127.0.0.1` |
 | Python Adapter port | `18081` |
 
 所有端口必须在 `1..65535`，所有 timeout、Worker 数和队列容量必须为正整数。非法配置在启动阶段失败。
+
+`TREESEM_MODEL_BACKEND` 支持：`remote` 只走 Python；`onnx` 严格本地推理；`onnx_fallback` 在 ONNX 运行异常时调用一次 Python；`shadow` 返回 ONNX 并同步比较 Python。非法用户输入与损坏 Bundle 不触发 fallback。
