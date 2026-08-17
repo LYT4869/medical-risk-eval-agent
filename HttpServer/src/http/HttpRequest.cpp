@@ -1,5 +1,21 @@
 #include "../../include/http/HttpRequest.h"
 
+#include <algorithm>
+#include <cctype>
+
+namespace
+{
+
+std::string normalizeHeaderName(std::string name)
+{
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return name;
+}
+
+} // namespace
+
 namespace http
 {
 
@@ -19,6 +35,10 @@ bool HttpRequest::setMethod(const char *start, const char *end)
     else if (m == "POST")
     {
         method_ = kPost;
+    }
+    else if (m == "HEAD")
+    {
+        method_ = kHead;
     }
     else if (m == "PUT")
     {
@@ -106,7 +126,7 @@ void HttpRequest::setQueryParameters(const char *start, const char *end)
 
 void HttpRequest::addHeader(const char *start, const char *colon, const char *end)
 {
-    std::string key(start, colon);
+    std::string key = normalizeHeaderName(std::string(start, colon));
     ++colon;
     while (colon < end && isspace(*colon))
     {
@@ -123,7 +143,7 @@ void HttpRequest::addHeader(const char *start, const char *colon, const char *en
 std::string HttpRequest::getHeader(const std::string &field) const
 {
     std::string result;
-    auto it = headers_.find(field);
+    auto it = headers_.find(normalizeHeaderName(field));
     if (it != headers_.end())
     {
         result = it->second;
@@ -140,6 +160,8 @@ void HttpRequest::swap(HttpRequest &that)
     std::swap(version_, that.version_);
     std::swap(headers_, that.headers_);
     std::swap(receiveTime_, that.receiveTime_);
+    std::swap(content_, that.content_);
+    std::swap(contentLength_, that.contentLength_);
 }
 
 } // namespace http

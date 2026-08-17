@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <functional>
+#include <atomic>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <muduo/base/Logging.h>
 
 #include "HttpContext.h"
+#include "AsyncHttp.h"
 #include "HttpRequest.h"
 #include "HttpResponse.h"
 #include "../router/Router.h"
@@ -80,6 +82,13 @@ public:
         router_.registerHandler(HttpRequest::kPost, path, handler);
     }
 
+    // The responder may be invoked from a worker thread. HttpServer moves the
+    // response construction and socket write back onto the connection I/O loop.
+    void PostAsync(const std::string& path, const AsyncHttpCallback& callback)
+    {
+        router_.registerAsyncCallback(HttpRequest::kPost, path, callback);
+    }
+
     // 注册动态路由处理器
     void addRoute(HttpRequest::Method method, const std::string& path, router::Router::HandlerPtr handler)
     {
@@ -126,12 +135,21 @@ private:
                    muduo::Timestamp receiveTime);
     void onRequest(const muduo::net::TcpConnectionPtr&, const HttpRequest&);
 
+    bool handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
+                            const HttpRequest& req,
+                            bool closeConnection);
+    AsyncResponder makeAsyncResponder(const muduo::net::TcpConnectionPtr& conn,
+                                      std::string httpVersion,
+                                      bool closeConnection);
+    void sendResponse(const muduo::net::TcpConnectionPtr& conn,
+                      HttpResponse* response);
+
     void handleRequest(const HttpRequest& req, HttpResponse* resp);
     
 private:
+    muduo::net::EventLoop                        mainLoop_; // 主循环
     muduo::net::InetAddress                      listenAddr_; // 监听地址
     muduo::net::TcpServer                        server_; 
-    muduo::net::EventLoop                        mainLoop_; // 主循环
     HttpCallback                                 httpCallback_; // 回调函数
     router::Router                               router_; // 路由
     std::unique_ptr<session::SessionManager>     sessionManager_; // 会话管理器

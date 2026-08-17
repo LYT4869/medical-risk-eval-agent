@@ -32,6 +32,12 @@ void HttpResponse::appendToBuffer(muduo::net::Buffer* outputBuf) const
         outputBuf->append(header.second);
         outputBuf->append("\r\n");
     }
+    if (headers_.find("Content-Length") == headers_.end())
+    {
+        outputBuf->append("Content-Length: ");
+        outputBuf->append(std::to_string(body_.size()));
+        outputBuf->append("\r\n");
+    }
     outputBuf->append("\r\n");
     
     outputBuf->append(body_);

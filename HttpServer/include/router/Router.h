@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "RouterHandler.h"
+#include "../http/AsyncHttp.h"
 #include "../http/HttpRequest.h"
 #include "../http/HttpResponse.h"
 
@@ -58,6 +59,13 @@ public:
 
     // 注册回调函数形式的处理器
     void registerCallback(HttpRequest::Method method, const std::string &path, const HandlerCallback &callback);
+
+    void registerAsyncCallback(HttpRequest::Method method,
+                               const std::string& path,
+                               const AsyncHttpCallback& callback);
+
+    bool hasAsyncCallback(HttpRequest::Method method, const std::string& path) const;
+    bool routeAsync(const HttpRequest& req, const AsyncResponder& responder) const;
 
     // 注册动态路由处理器
     void addRegexHandler(HttpRequest::Method method, const std::string &path, HandlerPtr handler)
@@ -114,6 +122,7 @@ private:
 
     std::unordered_map<RouteKey, HandlerPtr, RouteKeyHash>      handlers_;       // 精准匹配
     std::unordered_map<RouteKey, HandlerCallback, RouteKeyHash> callbacks_; // 精准匹配
+    std::unordered_map<RouteKey, AsyncHttpCallback, RouteKeyHash> asyncCallbacks_;
     std::vector<RouteHandlerObj>                                regexHandlers_;     // 正则匹配
     std::vector<RouteCallbackObj>                               regexCallbacks_;   // 正则匹配
 };

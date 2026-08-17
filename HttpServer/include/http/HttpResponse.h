@@ -12,6 +12,7 @@ public:
     {
         kUnknown,
         k200Ok = 200,
+        k202Accepted = 202,
         k204NoContent = 204,
         k301MovedPermanently = 301,
         k400BadRequest = 400,
@@ -20,6 +21,9 @@ public:
         k404NotFound = 404,
         k409Conflict = 409,
         k500InternalServerError = 500,
+        k502BadGateway = 502,
+        k503ServiceUnavailable = 503,
+        k504GatewayTimeout = 504,
     };
 
     HttpResponse(bool close = true)
@@ -43,6 +47,9 @@ public:
 
     bool closeConnection() const
     { return closeConnection_; }
+
+    size_t bodySize() const
+    { return body_.size(); }
     
     void setContentType(const std::string& contentType)
     { addHeader("Content-Type", contentType); }

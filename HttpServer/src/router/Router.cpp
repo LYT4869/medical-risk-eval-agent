@@ -18,6 +18,30 @@ void Router::registerCallback(HttpRequest::Method method, const std::string &pat
     callbacks_[key] = std::move(callback);
 }
 
+void Router::registerAsyncCallback(HttpRequest::Method method,
+                                   const std::string& path,
+                                   const AsyncHttpCallback& callback)
+{
+    RouteKey key{method, path};
+    asyncCallbacks_[key] = callback;
+}
+
+bool Router::hasAsyncCallback(HttpRequest::Method method, const std::string& path) const
+{
+    return asyncCallbacks_.find(RouteKey{method, path}) != asyncCallbacks_.end();
+}
+
+bool Router::routeAsync(const HttpRequest& req, const AsyncResponder& responder) const
+{
+    const auto callback = asyncCallbacks_.find(RouteKey{req.method(), req.path()});
+    if (callback == asyncCallbacks_.end())
+    {
+        return false;
+    }
+    callback->second(req, responder);
+    return true;
+}
+
 bool Router::route(const HttpRequest &req, HttpResponse *resp)
 {
     RouteKey key{req.method(), req.path()};
@@ -67,7 +91,7 @@ bool Router::route(const HttpRequest &req, HttpResponse *resp)
             HttpRequest newReq(req); // 因为这里需要用这一次所以是可以改的
             extractPathParameters(match, newReq);
 
-            callback(req, resp);
+            callback(newReq, resp);
             return true;
         }
     }

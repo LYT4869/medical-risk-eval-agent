@@ -1,6 +1,7 @@
 #include "../../include/http/HttpServer.h"
 
 #include <any>
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -19,10 +20,11 @@ HttpServer::HttpServer(int port,
                        const std::string &name,
                        bool useSSL,
                        muduo::net::TcpServer::Option option)
-    : listenAddr_(port)
+    : mainLoop_()
+    , listenAddr_(port)
     , server_(&mainLoop_, listenAddr_, name, option)
-    , useSSL_(useSSL)
     , httpCallback_(std::bind(&HttpServer::handleRequest, this, std::placeholders::_1, std::placeholders::_2))
+    , useSSL_(useSSL)
 {
     initialize();
 }
@@ -125,6 +127,7 @@ void HttpServer::onMessage(const muduo::net::TcpConnectionPtr &conn,
             // 如果解析http报文过程中出错
             conn->send("HTTP/1.1 400 Bad Request\r\n\r\n");
             conn->shutdown();
+            return;
         }
         // 如果buf缓冲区中解析出一个完整的数据包才封装响应报文
         if (context->gotAll())
@@ -147,20 +150,120 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     const std::string &connection = req.getHeader("Connection");
     bool close = ((connection == "close") ||
                   (req.getVersion() == "HTTP/1.0" && connection != "Keep-Alive"));
+
+    if (handleAsyncRequest(conn, req, close))
+    {
+        return;
+    }
+
     HttpResponse response(close);
+    response.setVersion(req.getVersion());
 
     // 根据请求报文信息来封装响应报文对象
     httpCallback_(req, &response); // 执行onHttpCallback函数
 
     // 可以给response设置一个成员，判断是否请求的是文件，如果是文件设置为true，并且存在文件位置在这里send出去。
-    muduo::net::Buffer buf;
-    response.appendToBuffer(&buf);
-    // 打印完整的响应内容用于调试
-    LOG_INFO << "Sending response:\n" << buf.toStringPiece().as_string();
+    sendResponse(conn, &response);
+}
 
-    conn->send(&buf);
-    // 如果是短连接的话，返回响应报文后就断开连接
-    if (response.closeConnection())
+bool HttpServer::handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
+                                    const HttpRequest& req,
+                                    bool closeConnection)
+{
+    if (!router_.hasAsyncCallback(req.method(), req.path()))
+    {
+        return false;
+    }
+
+    AsyncResponder responder =
+        makeAsyncResponder(conn, req.getVersion(), closeConnection);
+    HttpRequest mutableReq = req;
+
+    try
+    {
+        middlewareChain_.processBefore(mutableReq);
+        router_.routeAsync(mutableReq, responder);
+    }
+    catch (const HttpResponse& response)
+    {
+        responder([response](HttpResponse* target) { *target = response; });
+    }
+    catch (...)
+    {
+        responder([](HttpResponse* response) {
+            response->setStatusCode(HttpResponse::k500InternalServerError);
+            response->setStatusMessage("Internal Server Error");
+            response->setContentType("application/json; charset=utf-8");
+            response->setBody(R"({"error":"internal_error"})");
+        });
+    }
+    return true;
+}
+
+AsyncResponder HttpServer::makeAsyncResponder(
+    const muduo::net::TcpConnectionPtr& conn,
+    std::string httpVersion,
+    bool closeConnection)
+{
+    auto responded = std::make_shared<std::atomic_bool>(false);
+
+    return [this,
+            conn,
+            httpVersion = std::move(httpVersion),
+            closeConnection,
+            responded](ResponseWriter writer) {
+        if (!writer)
+        {
+            LOG_ERROR << "Ignoring an empty asynchronous response writer";
+            return;
+        }
+
+        bool expected = false;
+        if (!responded->compare_exchange_strong(expected, true))
+        {
+            LOG_WARN << "Ignoring a duplicate asynchronous response";
+            return;
+        }
+
+        conn->getLoop()->queueInLoop(
+            [this, conn, httpVersion, closeConnection, writer = std::move(writer)]() {
+                if (!conn->connected())
+                {
+                    return;
+                }
+
+                HttpResponse response(closeConnection);
+                response.setVersion(httpVersion);
+                try
+                {
+                    writer(&response);
+                    response.setVersion(httpVersion);
+                    middlewareChain_.processAfter(response);
+                }
+                catch (...)
+                {
+                    response = HttpResponse(closeConnection);
+                    response.setVersion(httpVersion);
+                    response.setStatusCode(HttpResponse::k500InternalServerError);
+                    response.setStatusMessage("Internal Server Error");
+                    response.setContentType("application/json; charset=utf-8");
+                    response.setBody(R"({"error":"response_build_failed"})");
+                }
+                sendResponse(conn, &response);
+            });
+    };
+}
+
+void HttpServer::sendResponse(const muduo::net::TcpConnectionPtr& conn,
+                              HttpResponse* response)
+{
+    muduo::net::Buffer buffer;
+    response->appendToBuffer(&buffer);
+    // Model responses may contain medical features. Log metadata, not the body.
+    LOG_INFO << "Sending response status=" << response->getStatusCode()
+             << " body_bytes=" << response->bodySize();
+    conn->send(&buffer);
+    if (response->closeConnection())
     {
         conn->shutdown();
     }
@@ -178,10 +281,12 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         // 路由处理
         if (!router_.route(mutableReq, resp))
         {
-            LOG_INFO << "请求的啥，url：" << req.method() << " " << req.path();
-            LOG_INFO << "未找到路由，返回404";
+            LOG_INFO << "Route not found: method=" << req.method()
+                     << " path=" << req.path();
             resp->setStatusCode(HttpResponse::k404NotFound);
             resp->setStatusMessage("Not Found");
+            resp->setBody(R"({"error":"not_found"})");
+            resp->setContentType("application/json; charset=utf-8");
             resp->setCloseConnection(true);
         }
 
@@ -197,6 +302,7 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
     {
         // 错误处理
         resp->setStatusCode(HttpResponse::k500InternalServerError);
+        resp->setStatusMessage("Internal Server Error");
         resp->setBody(e.what());
     }
 }
