@@ -6,9 +6,159 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .bundle import (
+    FeaturePreprocessor,
+    ServingBundle,
+    TorchTreeSemEngine,
+    TreeEvaluator,
+)
+
 
 class RequestValidationError(ValueError):
     """Raised when an inference request violates the adapter contract."""
+
+
+class ServingBundlePredictor:
+    """Self-contained golden implementation backed only by a serving bundle."""
+
+    def __init__(self, bundle_path: str | Path) -> None:
+        self._bundle = ServingBundle(bundle_path)
+        self._preprocessor = FeaturePreprocessor(self._bundle)
+        self._engine = TorchTreeSemEngine(self._bundle)
+        self._tree = TreeEvaluator(self._bundle)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "service": "treeSem-model-adapter",
+            "dataset": "pph",
+            "input_dim": self._bundle.input_dim,
+            "test_samples": (
+                int(len(self._bundle.reference_inputs))
+                if self._bundle.reference_inputs is not None
+                else 0
+            ),
+            "device": "cpu",
+            "model_version": self._bundle.model_version,
+            "serving_backend": "python_reference",
+        }
+
+    def predict(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise RequestValidationError("request body must be a JSON object")
+        input_fields = [
+            name
+            for name in ("sample_index", "preprocessed_features", "raw_features")
+            if name in payload
+        ]
+        if len(input_fields) != 1:
+            raise RequestValidationError(
+                "provide exactly one of sample_index, preprocessed_features or raw_features"
+            )
+
+        sample_index: int | None = None
+        field = input_fields[0]
+        try:
+            if field == "sample_index":
+                value = payload[field]
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise RequestValidationError("sample_index must be an integer")
+                reference = self._bundle.reference_inputs
+                if reference is None:
+                    raise RequestValidationError(
+                        "sample_index is unavailable in this serving bundle"
+                    )
+                if value < 0 or value >= len(reference):
+                    raise RequestValidationError("sample_index is out of range")
+                sample_index = value
+                standardized = reference[value]
+                source = "pph_reference_dataset"
+            elif field == "preprocessed_features":
+                values = payload[field]
+                if not isinstance(values, list):
+                    raise RequestValidationError(
+                        "preprocessed_features must be an array"
+                    )
+                standardized = self._preprocessor.validate_standardized(values)
+                source = "request_preprocessed"
+            else:
+                standardized = self._preprocessor.raw_object_to_standardized(
+                    payload[field]
+                )
+                source = "request_raw"
+        except RequestValidationError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise RequestValidationError(str(error)) from error
+
+        probabilities, cluster_logits = self._engine.predict(standardized)
+        label = max(range(len(probabilities)), key=probabilities.__getitem__)
+        cluster_id = max(range(len(cluster_logits)), key=cluster_logits.__getitem__)
+        tree_probability, leaf_id, path = self._tree.evaluate(standardized)
+        numeric_values = [*probabilities, *cluster_logits, tree_probability]
+        if not all(math.isfinite(float(value)) for value in numeric_values):
+            raise RuntimeError("model returned a non-finite prediction")
+
+        return {
+            "model": "treeSem",
+            "model_version": self._bundle.model_version,
+            "serving_backend": "python_reference",
+            "dataset": "pph",
+            "input_source": source,
+            "sample_index": sample_index,
+            "prediction": {
+                "label": int(label),
+                "positive_probability": float(probabilities[1]),
+                "confidence": float(probabilities[label]),
+                "cluster_id": int(cluster_id),
+                "tree_probability": float(tree_probability),
+                "tree_leaf_id": int(leaf_id),
+            },
+            "important_features": self._important_features(standardized),
+            "decision_path": self._decision_path(path),
+        }
+
+    def _important_features(self, standardized: Any) -> list[dict[str, Any]]:
+        result = []
+        for index in self._tree.important_indices(limit=5):
+            feature = self._bundle.feature(index)
+            value = float(standardized[index])
+            result.append(
+                {
+                    "index": index,
+                    "name": feature.name,
+                    "display_name": feature.display_name,
+                    "standardized_value": value,
+                    "original_value": self._preprocessor.original_value(index, value),
+                    "unit": feature.unit,
+                    "tree_importance": self._tree.importances[index],
+                }
+            )
+        return result
+
+    def _decision_path(self, path: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for step in path:
+            if "leaf_id" in step:
+                result.append(step)
+                continue
+            index = int(step["feature_index"])
+            feature = self._bundle.feature(index)
+            result.append(
+                {
+                    **step,
+                    "feature_name": feature.name,
+                    "feature_display_name": feature.display_name,
+                    "threshold_original": self._preprocessor.original_value(
+                        index, float(step["threshold_standardized"])
+                    ),
+                    "value_original": self._preprocessor.original_value(
+                        index, float(step["value_standardized"])
+                    ),
+                    "unit": feature.unit,
+                }
+            )
+        return result
 
 
 class TreeSemPredictor:

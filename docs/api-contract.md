@@ -1,6 +1,6 @@
-# treeSem M0/M1 API 契约
+# treeSem M2 API 契约
 
-本契约只描述 M0/M1 已实现的预测链路。原始临床字段、原始单位和模型 Serving Bundle 在 M2 增量加入。
+本契约描述 M2 已实现的预测链路。未知的医疗单位保持 `null`，不根据字段名猜测。
 
 ## C++ Backend
 
@@ -42,7 +42,18 @@
 - 数组必须恰好包含 49 个有限数值。
 - 该输入是内部兼容接口；调用方必须使用与当前 PPH 产物完全一致的特征顺序和标准化方式。
 
-请求必须是 JSON object，并且只能提供上述两个输入来源中的一个。可以携带未来兼容字段，但不能同时提供两个输入来源。
+#### 请求形式三：原始命名临床特征
+
+```json
+{"raw_features":{"Gestational_Age":39,"...其余字段...":0,"Intrapartum_Bleeding":200}}
+```
+
+- `raw_features` 必须是 object，并严格包含 Bundle 中定义的 49 个大小写敏感字段。
+- 不允许缺失字段、未知字段、布尔值、字符串、`null` 或非有限数值。
+- 当前只做结构与数值校验；权威数据字典到位前不伪造医学范围或枚举规则。
+- 字段顺序由 Bundle Schema 决定，标准化由具体模型服务完成。
+
+请求必须是 JSON object，并且只能提供上述三个输入来源中的一个。重复 JSON key 会被拒绝。
 
 #### 成功响应
 
@@ -51,6 +62,8 @@
 ```json
 {
   "model": "treeSem",
+  "model_version": "pph-seed42-1a299a474ce5",
+  "serving_backend": "python_reference",
   "dataset": "pph",
   "input_source": "pph_test_split",
   "sample_index": 0,
@@ -67,17 +80,17 @@
 }
 ```
 
-当前 `important_features` 和 `decision_path` 使用标准化值。M2 会以新增字段的方式提供原始值、阈值、特征单位和显示文本。
+`important_features` 在原有字段之外包含 `display_name`、`original_value` 和 `unit`。分支路径同时返回 `feature_display_name`、`threshold_original`、`value_original` 和 `unit`。原有标准化字段保持不变；未知单位为 JSON `null`。
 
 ## Python Model Adapter
 
 ### `GET /health`
 
-返回服务、数据集、输入维度、测试样本数、设备和可信产物文件名。只有模型和数据加载成功后服务才开始监听。
+Bundle 模式返回服务、数据集、输入维度、reference 样本数、`model_version` 和 `serving_backend`。只有 Schema、checksum、维度、权重和树全部验证成功后才监听。
 
 ### `POST /v1/predict`
 
-使用与 C++ 预测入口相同的两种请求形式，并返回相同的预测业务字段。该端口默认只监听 `127.0.0.1`。
+使用与 C++ 预测入口相同的三种请求形式，并返回相同的预测业务字段。该端口默认只监听 `127.0.0.1`。
 
 ## 错误契约
 

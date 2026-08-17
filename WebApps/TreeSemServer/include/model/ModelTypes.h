@@ -24,7 +24,16 @@ struct PreprocessedFeaturesInput
     std::vector<double> values;
 };
 
-using ModelInput = std::variant<SampleIndexInput, PreprocessedFeaturesInput>;
+struct RawClinicalFeaturesInput
+{
+    // Values are ordered by kPphFeatureNames; names are validated at the API edge.
+    std::vector<double> values;
+};
+
+using ModelInput = std::variant<
+    SampleIndexInput,
+    PreprocessedFeaturesInput,
+    RawClinicalFeaturesInput>;
 
 struct PredictionValues
 {
@@ -42,6 +51,9 @@ struct ImportantFeature
     std::string name;
     double standardizedValue;
     double treeImportance;
+    std::optional<std::string> displayName;
+    std::optional<double> originalValue;
+    std::optional<std::string> unit;
 };
 
 struct DecisionPathStep
@@ -52,12 +64,18 @@ struct DecisionPathStep
     std::optional<std::string> comparisonOperator;
     std::optional<double> thresholdStandardized;
     std::optional<double> valueStandardized;
+    std::optional<std::string> featureDisplayName;
+    std::optional<double> thresholdOriginal;
+    std::optional<double> valueOriginal;
+    std::optional<std::string> unit;
     std::optional<int> leafId;
 };
 
 struct ModelResult
 {
     std::string modelName;
+    std::optional<std::string> modelVersion;
+    std::optional<std::string> servingBackend;
     std::string dataset;
     std::string inputSource;
     std::optional<std::int64_t> sampleIndex;

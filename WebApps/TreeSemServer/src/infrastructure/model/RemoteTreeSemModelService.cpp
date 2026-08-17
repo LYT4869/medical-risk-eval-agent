@@ -11,6 +11,7 @@
 
 #include "client/PythonModelClient.h"
 #include "model/ModelException.h"
+#include "model/PphFeatureSchema.h"
 
 namespace treesem
 {
@@ -92,7 +93,8 @@ std::string serializeInput(const model::ModelInput& input)
                 }
                 return Json{{"sample_index", value.sampleIndex}}.dump();
             }
-            else
+            else if constexpr (
+                std::is_same_v<Input, model::PreprocessedFeaturesInput>)
             {
                 if (value.values.size() != model::kPphInputDimension)
                 {
@@ -111,6 +113,28 @@ std::string serializeInput(const model::ModelInput& input)
                 }
                 return Json{{"preprocessed_features", value.values}}.dump();
             }
+            else
+            {
+                if (value.values.size() != model::kPphInputDimension)
+                {
+                    throw model::ModelException(
+                        model::ModelException::Kind::InvalidInput,
+                        "raw_features has an invalid dimension");
+                }
+                Json raw = Json::object();
+                for (std::size_t index = 0; index < value.values.size(); ++index)
+                {
+                    if (!std::isfinite(value.values[index]))
+                    {
+                        throw model::ModelException(
+                            model::ModelException::Kind::InvalidInput,
+                            "raw_features must contain finite values");
+                    }
+                    raw[std::string(model::kPphFeatureNames[index])] =
+                        value.values[index];
+                }
+                return Json{{"raw_features", std::move(raw)}}.dump();
+            }
         },
         input);
 }
@@ -128,6 +152,16 @@ model::ModelResult parseResult(const std::string& body)
 
         model::ModelResult result;
         result.modelName = nonEmptyString(root.at("model"), "model");
+        if (root.contains("model_version"))
+        {
+            result.modelVersion = nonEmptyString(
+                root.at("model_version"), "model_version");
+        }
+        if (root.contains("serving_backend"))
+        {
+            result.servingBackend = nonEmptyString(
+                root.at("serving_backend"), "serving_backend");
+        }
         result.dataset = nonEmptyString(root.at("dataset"), "dataset");
         result.inputSource = nonEmptyString(root.at("input_source"), "input_source");
 
@@ -208,16 +242,31 @@ model::ModelResult parseResult(const std::string& body)
             {
                 invalidResponse("important feature index is out of range");
             }
-            result.importantFeatures.push_back(model::ImportantFeature{
-                featureIndex,
-                nonEmptyString(feature.at("name"), "important_features.name"),
-                finiteNumber(
-                    feature.at("standardized_value"),
-                    "important_features.standardized_value"),
-                finiteNumber(
-                    feature.at("tree_importance"),
-                    "important_features.tree_importance"),
-            });
+            model::ImportantFeature parsedFeature;
+            parsedFeature.index = featureIndex;
+            parsedFeature.name = nonEmptyString(
+                feature.at("name"), "important_features.name");
+            parsedFeature.standardizedValue = finiteNumber(
+                feature.at("standardized_value"),
+                "important_features.standardized_value");
+            parsedFeature.treeImportance = finiteNumber(
+                feature.at("tree_importance"),
+                "important_features.tree_importance");
+            if (feature.contains("display_name"))
+            {
+                parsedFeature.displayName = nonEmptyString(
+                    feature.at("display_name"), "important_features.display_name");
+                parsedFeature.originalValue = finiteNumber(
+                    feature.at("original_value"),
+                    "important_features.original_value");
+                const Json& unit = feature.at("unit");
+                if (!unit.is_null())
+                {
+                    parsedFeature.unit = nonEmptyString(
+                        unit, "important_features.unit");
+                }
+            }
+            result.importantFeatures.push_back(std::move(parsedFeature));
         }
 
         const Json& decisionPath = root.at("decision_path");
@@ -266,6 +315,21 @@ model::ModelResult parseResult(const std::string& body)
                     step.at("threshold_standardized"), "threshold_standardized");
                 parsed.valueStandardized = finiteNumber(
                     step.at("value_standardized"), "value_standardized");
+                if (step.contains("feature_display_name"))
+                {
+                    parsed.featureDisplayName = nonEmptyString(
+                        step.at("feature_display_name"),
+                        "feature_display_name");
+                    parsed.thresholdOriginal = finiteNumber(
+                        step.at("threshold_original"), "threshold_original");
+                    parsed.valueOriginal = finiteNumber(
+                        step.at("value_original"), "value_original");
+                    const Json& unit = step.at("unit");
+                    if (!unit.is_null())
+                    {
+                        parsed.unit = nonEmptyString(unit, "unit");
+                    }
+                }
             }
             result.decisionPath.push_back(std::move(parsed));
         }

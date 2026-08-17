@@ -11,6 +11,11 @@ option(KAMA_BUILD_TESTS "Build lightweight HTTP core tests" ON)
 
 set(MUDUO_ROOT "" CACHE PATH "Muduo installation prefix")
 set(NLOHMANN_JSON_ROOT "" CACHE PATH "nlohmann/json installation prefix")
+set(TREESEM_MODEL_PYTHON_EXECUTABLE "" CACHE FILEPATH
+    "Python executable with torch/sklearn for real model tests")
+set(TREESEM_TEST_BUNDLE_DIR "" CACHE PATH "Existing PPH serving bundle for tests")
+set(TREESEM_TEST_ARTIFACT "" CACHE FILEPATH "Trusted PPH artifact for exporter tests")
+set(TREESEM_TEST_RAW_FILE "" CACHE FILEPATH "Raw PPH CSV for exporter tests")
 
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
@@ -191,6 +196,24 @@ if(KAMA_BUILD_TESTS)
     set_tests_properties(python_adapter_contract_test PROPERTIES
         ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
     )
+
+    if(TREESEM_MODEL_PYTHON_EXECUTABLE
+       AND TREESEM_TEST_BUNDLE_DIR
+       AND TREESEM_TEST_ARTIFACT
+       AND TREESEM_TEST_RAW_FILE)
+        add_test(
+            NAME python_bundle_runtime_test
+            COMMAND ${TREESEM_MODEL_PYTHON_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tests/test_bundle_runtime.py
+                --bundle ${TREESEM_TEST_BUNDLE_DIR}
+                --artifact ${TREESEM_TEST_ARTIFACT}
+                --raw-file ${TREESEM_TEST_RAW_FILE}
+        )
+        set_tests_properties(python_bundle_runtime_test PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
+            TIMEOUT 120
+        )
+    endif()
 
     if(KAMA_BUILD_TREESEM_SERVER)
         add_test(

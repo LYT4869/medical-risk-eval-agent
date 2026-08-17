@@ -9,6 +9,7 @@
 #include "client/PythonModelClient.h"
 #include "infrastructure/model/RemoteTreeSemModelService.h"
 #include "model/ModelException.h"
+#include "model/PphFeatureSchema.h"
 
 namespace
 {
@@ -61,9 +62,18 @@ int main()
 
     const treesem::model::ModelResult result = service.predict(input);
     assert(result.modelName == "treeSem");
+    assert(result.modelVersion == "pph-seed42-1a299a474ce5");
+    assert(result.servingBackend == "python_reference");
     assert(result.prediction.label == 0);
     assert(result.decisionPath.back().leafId == 8);
     assert(nlohmann::json::parse(client.lastRequest).at("sample_index") == 3);
+
+    std::vector<double> rawValues(treesem::model::kPphInputDimension, 2.0);
+    (void)service.predict(treesem::model::RawClinicalFeaturesInput{rawValues});
+    const nlohmann::json serializedRaw = nlohmann::json::parse(client.lastRequest);
+    assert(serializedRaw.at("raw_features").size() ==
+           treesem::model::kPphFeatureNames.size());
+    assert(serializedRaw.at("raw_features").at("Age") == 2.0);
 
     client.response = {200, "not-json"};
     assert(throwsKind(service, input, ModelFailure::InvalidResponse));

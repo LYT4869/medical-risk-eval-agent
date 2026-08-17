@@ -27,18 +27,31 @@ cmake --build build -j2
 ctest --test-dir build --output-on-failure
 ```
 
-## 3. 启动 treeSem 模型 Adapter
+## 3. 导出 M2 Serving Bundle
 
-Adapter 是常驻 Python 进程：启动时加载一次模型，请求期间不重复加载。当前 PPH 配置使用可信的本地产物和历史训练代码；新服务名统一使用 `treeSem`，只有兼容层仍导入历史 `trivae` Python 包。
+导出只执行一次。它从可信 PT 产物和原始 CSV 重建训练期划分与 `StandardScaler`，随后 Serving 不再读取 CSV。下面的本地演示 Bundle 包含 1489×49 的派生 reference matrix，不能当作生产包提交或发布：
+
+```bash
+PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
+/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+  -m treesem_adapter.export_bundle \
+  --artifact /home/data/liyingting/models/TRI_VAE/runs/compat_tau_fix_20260801/pph/main/pph_semantic_frontier_maxdepth3_seed42_tau_sharpen_20260801.pt \
+  --raw-file /home/data/liyingting/models/TRI_VAE/content/test.csv \
+  --output-dir "$PWD/artifacts/treesem/pph" \
+  --include-reference-dataset
+```
+
+不带 `--include-reference-dataset` 时生成生产形态 Bundle；此时 `sample_index` 会返回 400，命名原始输入和预处理输入仍可用。生成目录已被 `.gitignore` 排除。
+
+## 4. 启动 treeSem 模型 Adapter
+
+Adapter 是常驻 Python 进程：启动时加载并校验一次 Bundle，请求期间不重复加载。Bundle 模式不依赖研究源码、原始 CSV、sklearn 模型对象或训练逻辑。
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
 /home/data/liyingting/miniconda3/envs/triVae/bin/python \
   -m treesem_adapter.server \
-  --artifact /home/data/liyingting/models/TRI_VAE/runs/compat_tau_fix_20260801/pph/main/pph_semantic_frontier_maxdepth3_seed42_tau_sharpen_20260801.pt \
-  --code-root /home/data/liyingting/models/TRI_VAE/article/code_submission/treesem_vae_mainline_code_20260731 \
-  --raw-file /home/data/liyingting/models/TRI_VAE/content/test.csv \
-  --device cpu \
+  --bundle "$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
   --port 18081
 ```
 
@@ -51,7 +64,9 @@ curl -i -X POST http://127.0.0.1:18081/v1/predict \
   -d '{"sample_index":0}'
 ```
 
-## 4. 启动 C++ 服务并完成端到端验证
+历史 `--artifact + --code-root + --raw-file` 启动方式仅保留为迁移兼容入口，不作为默认运行方式。
+
+## 5. 启动 C++ 服务并完成端到端验证
 
 ```bash
 ./build/treesem_server 18080
@@ -78,3 +93,16 @@ curl -i -X POST http://127.0.0.1:18080/api/v1/predictions \
 - `TREESEM_INFERENCE_QUEUE_CAPACITY`：默认 `32`
 
 服务新代码与对外名称统一使用 `treeSem`；历史训练代码和已有产物中的 `trivae` 名称保持不变，以免破坏旧模型加载。
+
+## 6. 运行真实 Bundle 测试
+
+配置以下可选参数后，CTest 会额外执行确定性重复导出、checksum 篡改、反归一化和三输入等价性测试：
+
+```bash
+cmake -S . -B build \
+  -DTREESEM_MODEL_PYTHON_EXECUTABLE=/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+  -DTREESEM_TEST_BUNDLE_DIR="$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
+  -DTREESEM_TEST_ARTIFACT=/home/data/liyingting/models/TRI_VAE/runs/compat_tau_fix_20260801/pph/main/pph_semantic_frontier_maxdepth3_seed42_tau_sharpen_20260801.pt \
+  -DTREESEM_TEST_RAW_FILE=/home/data/liyingting/models/TRI_VAE/content/test.csv
+ctest --test-dir build --output-on-failure
+```

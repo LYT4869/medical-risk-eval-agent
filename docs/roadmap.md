@@ -6,7 +6,7 @@
 |---|---|---|
 | M0 | 基线、架构契约、文档与检查点 | 已完成 |
 | M1 | C++ Controller/Service/Model/Infrastructure 分层 | 已完成 |
-| M2 | Serving Bundle、Python 黄金实现、反归一化 | 待执行 |
+| M2 | Serving Bundle、Python 黄金实现、反归一化 | 已完成 |
 | M3 | C++ ONNX Runtime 默认模型主链 | 待执行 |
 | M4 | C++ 业务服务、Session、MySQL、医生反馈 | 待执行 |
 | M5 | Python Agent Core 与领域 Tool | 待执行 |
@@ -43,6 +43,18 @@
 - [x] 真实 `C++ -> Python Adapter -> treeSem` 与 M0 基线语义一致。
 - [x] 编译警告选项开启且 `git diff --check` 通过。
 
+## M2 Definition of Done
+
+- [x] 确定性 Bundle Exporter 固定模型版本、文件 checksum 和跨语言 Schema。
+- [x] Serving 不再从原始 CSV 动态重建 Scaler。
+- [x] Python Adapter 仅凭 Bundle 启动并作为黄金参考实现。
+- [x] 神经网络只执行 `mu`、分类和 cluster 的确定性子图；树由原生 evaluator 执行。
+- [x] `sample_index`、预处理数组和 49 字段原始 object 三种输入结果一致。
+- [x] 响应兼容扩展 `model_version`、backend、原始值、原始阈值和未知单位。
+- [x] reference matrix 被显式标记为患者派生数据且仅用于本地测试/演示。
+- [x] 全量 1489 样本相对历史实现的概率最大差异为 0，离散输出无差异。
+- [x] C++/Python 单元回归、真实 Bundle 校验和真实端到端链路通过。
+
 ## 当前停止线
 
-M0/M1 已完成。下一步从 M2 开始实现 Serving Bundle、反归一化和原始临床字段；本轮没有提前加入 ONNX、MySQL、Agent、MCP/RAG、Skill 或医疗权限。
+M0/M1/M2 已完成。下一步实现 M3 的 ONNX 导出、C++ 原生 Bundle/Tree 和四种 backend mode；尚未加入 MySQL、Agent、MCP/RAG、Skill 或医疗权限。
