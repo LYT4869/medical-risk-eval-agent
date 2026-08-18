@@ -1,6 +1,7 @@
 #include "../../include/http/HttpRequest.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 
 namespace

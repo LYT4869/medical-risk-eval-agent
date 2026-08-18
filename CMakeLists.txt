@@ -27,7 +27,9 @@ set(TREESEM_TEST_RAW_FILE "" CACHE FILEPATH "Raw PPH CSV for exporter tests")
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(CURL REQUIRED)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(KAMA_BUILD_TESTS)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
 
 find_path(NLOHMANN_JSON_INCLUDE_DIR
     NAMES nlohmann/json.hpp

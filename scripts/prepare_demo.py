@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 from pathlib import Path
 
@@ -60,6 +61,18 @@ def main() -> None:
     if not cache.is_dir():
         raise SystemExit("Hugging Face cache is missing; build the knowledge index offline first")
     if env_path.exists():
+        existing = env_path.read_text(encoding="utf-8")
+        runtime_values = {
+            "TREESEM_RUNTIME_UID": str(os.getuid()),
+            "TREESEM_RUNTIME_GID": str(os.getgid()),
+        }
+        missing = [f"{key}={value}\n" for key, value in runtime_values.items()
+                   if f"{key}=" not in existing]
+        if missing:
+            with env_path.open("a", encoding="utf-8") as target:
+                target.writelines(missing)
+            env_path.chmod(0o600)
+            print("added runtime UID/GID to existing .env")
         print(f"existing {env_path} preserved")
         print(f"validated bundle: {bundle}")
         print(f"validated index:  {index}")
@@ -73,6 +86,8 @@ def main() -> None:
         "TREESEM_AGENT_SERVICE_SECRET": secret(),
         "TREESEM_KNOWLEDGE_JWT_SECRET": secret(),
         "TREESEM_METRICS_BEARER_TOKEN": "",
+        "TREESEM_RUNTIME_UID": str(os.getuid()),
+        "TREESEM_RUNTIME_GID": str(os.getgid()),
         "TREESEM_SERVING_BUNDLE_DIR": str(bundle),
         "TREESEM_KNOWLEDGE_INDEX_DIR": str(index),
         "TREESEM_HF_CACHE_DIR": str(cache),

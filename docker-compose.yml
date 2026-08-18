@@ -28,6 +28,7 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/model-adapter.Dockerfile
+    user: "${TREESEM_RUNTIME_UID:?run scripts/prepare_demo.py first}:${TREESEM_RUNTIME_GID:?run scripts/prepare_demo.py first}"
     volumes:
       - ${TREESEM_SERVING_BUNDLE_DIR:?run scripts/prepare_demo.py first}:/models/treesem:ro
     healthcheck:
@@ -41,6 +42,7 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/knowledge.Dockerfile
+    user: "${TREESEM_RUNTIME_UID:?run scripts/prepare_demo.py first}:${TREESEM_RUNTIME_GID:?run scripts/prepare_demo.py first}"
     environment:
       <<: *common-env
       TREESEM_KNOWLEDGE_HOST: 0.0.0.0
@@ -64,6 +66,7 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/backend.Dockerfile
+    user: "${TREESEM_RUNTIME_UID:?run scripts/prepare_demo.py first}:${TREESEM_RUNTIME_GID:?run scripts/prepare_demo.py first}"
     environment:
       <<: *common-env
       TREESEM_STORAGE_BACKEND: mysql
@@ -150,6 +153,10 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_SECURITY_ADMIN_PASSWORD: ${TREESEM_GRAFANA_ADMIN_PASSWORD:-treesem-local-only}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
     volumes:
       - ./deploy/observability/grafana:/etc/grafana/provisioning:ro
       - ./deploy/observability/dashboards:/var/lib/grafana/dashboards:ro

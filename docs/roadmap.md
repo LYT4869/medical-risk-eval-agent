@@ -13,8 +13,8 @@
 | M6 | Doctor/Patient/Admin 权限、安全和审计 | 已完成 |
 | M7 | 医疗知识 RAG 与 MCP Server | 已完成 |
 | M8 | 医疗领域 Skill 和渐进加载 | 已完成 |
-| M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 已完成（k6 实测需安装工具） |
-| M10 | Docker、Demo、项目文档和面试材料 | 已实现；容器实测需 Docker daemon 权限 |
+| M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 已完成 |
+| M10 | Docker、Demo、项目文档和面试材料 | 已完成 |
 | M11 | 模型质量复现、Bundle v2、发布与回滚 | 已完成 |
 
 ## M0 Definition of Done
@@ -128,7 +128,7 @@
 - [x] 60 条 Agent 确定性评测 100% 通过，真实 LLM 无凭据时明确 `not_run`。
 - [x] k6 预测/混合流量、故障注入和统一 `verify-full` 入口已提供。
 - [x] RabbitMQ ADR 已形成；同步主链暂不引入 MQ。
-- [ ] 当前机器未安装 k6，完整负载曲线须在安装后执行。
+- [x] k6 以容器方式完成 1/4/16/64 VU 阶梯压测，过载快速 503、无未知状态且负载后队列归零。
 
 ## M10 Definition of Done
 
@@ -137,7 +137,7 @@
 - [x] Artifact 预检、离线/真实 LLM 模式和一键演示流程已实现。
 - [x] 静态 Web 覆盖认证、预测、解释、历史、比较、Chat、citation 和 Doctor feedback。
 - [x] Compose 配置静态验证通过，`.env` 以 0600 生成且被 Git 忽略。
-- [ ] 当前账户无 Docker daemon 权限，镜像构建和进程级 Compose E2E 尚不能在本机执行。
+- [x] 五个应用镜像真实构建，六服务 Compose E2E、MySQL 重启、故障隔离、Prometheus/Grafana 与 SIGTERM 均已验收。
 
 ## M11 Definition of Done
 
@@ -150,4 +150,4 @@
 
 ## 当前停止线
 
-M0～M11 的代码与文档实现已收口。环境内可运行的 C++、Python、Bundle 与 ONNX 验证需要保持全绿；Docker Compose 真实演示和 k6 完整压测需在具备 Docker daemon 权限及 k6 的机器补跑，不能把静态配置检查冒充运行验收。
+M0～M11 的代码、文档与本机运行验收已收口。C++/Python/Bundle/ONNX 测试、Docker Compose 完整演示、故障恢复、可观测性和 k6 阶梯压测均已实际执行；真实外部 LLM 质量评测仍需在提供相应凭据时单独运行，不能用 Scripted LLM 结果替代。

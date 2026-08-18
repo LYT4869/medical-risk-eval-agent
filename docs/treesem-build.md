@@ -281,7 +281,14 @@ PYTHONPATH=PythonServices/TreeSemAgent \
 python3 scripts/trace_query.py <trace_id> <log-file-or-directory>
 ```
 
-production 还必须设置至少 32 字节的 `TREESEM_METRICS_BEARER_TOKEN`。k6 安装后可执行 `k6 run load/k6/prediction.js` 或 `mixed.js`。
+production 还必须设置至少 32 字节的 `TREESEM_METRICS_BEARER_TOKEN`。k6 场景需要完整身份上下文：设置 `TREESEM_LOAD_EMAIL` 与 `TREESEM_LOAD_PASSWORD` 让每个 VU 登录，或同时提供 `TREESEM_LOAD_ACCESS_TOKEN` 与 `TREESEM_LOAD_SESSION_COOKIE`。例如：
+
+```bash
+TREESEM_LOAD_BASE_URL=http://127.0.0.1:3000 \
+TREESEM_LOAD_EMAIL=load-patient@example.test \
+TREESEM_LOAD_PASSWORD='<load-test-password>' \
+k6 run load/k6/prediction.js
+```
 
 ## 14. M10 Compose 演示
 

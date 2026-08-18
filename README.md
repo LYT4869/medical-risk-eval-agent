@@ -54,10 +54,10 @@ make demo-flow
 
 ```bash
 make verify       # C++ 注册测试 + 60 条确定性 Agent Evaluation
-make verify-full  # 具备私有 Artifact、Docker 和 k6 的本地完整门槛
+make verify-full  # 具备私有 Artifact 与 Docker 的本地完整门槛
 ```
 
-当前开发账户无法访问 Docker daemon，仓库已通过 Compose 静态配置验证，但容器真实 E2E 需要在有 Docker 权限的环境补跑。详见 [M10 验证边界](docs/m10-deployment-demo.md)。
+2026-08-18 已完成真实 Docker 构建、完整离线 E2E、可选服务故障隔离、MySQL 重启恢复、Prometheus/Grafana 抓取和 SIGTERM 验收。详见 [M10 验证边界](docs/m10-deployment-demo.md)。
 
 ---
 

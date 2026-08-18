@@ -498,7 +498,8 @@ std::optional<domain::PredictionRecord> MySqlTreeSemStore::findPrediction(
     return withSqlTranslation(lease, [&]() -> std::optional<domain::PredictionRecord> {
         std::unique_ptr<sql::PreparedStatement> statement(
             lease.connection().prepareStatement(
-                "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,result_json,created_at "
+                "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,"
+                "CAST(result_json AS CHAR) AS result_json,created_at "
                 "FROM treesem_predictions WHERE session_id=? AND prediction_id=?"));
         statement->setString(1, sessionId);
         statement->setString(2, predictionId);
@@ -564,7 +565,8 @@ std::optional<domain::PredictionRecord> MySqlTreeSemStore::findPredictionBySubje
     auto lease = pool_.acquire();
     return withSqlTranslation(lease, [&]() -> std::optional<domain::PredictionRecord> {
         std::unique_ptr<sql::PreparedStatement> statement(lease.connection().prepareStatement(
-            "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,result_json,created_at "
+            "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,"
+            "CAST(result_json AS CHAR) AS result_json,created_at "
             "FROM treesem_predictions WHERE subject_user_id=? AND prediction_id=?"));
         statement->setString(1, subject); statement->setString(2, predictionId);
         std::unique_ptr<sql::ResultSet> row(statement->executeQuery());
@@ -579,7 +581,8 @@ std::optional<domain::PredictionRecord> MySqlTreeSemStore::findPredictionAny(
     auto lease = pool_.acquire();
     return withSqlTranslation(lease, [&]() -> std::optional<domain::PredictionRecord> {
         std::unique_ptr<sql::PreparedStatement> statement(lease.connection().prepareStatement(
-            "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,result_json,created_at "
+            "SELECT prediction_id,session_id,subject_user_id,created_by_user_id,"
+            "CAST(result_json AS CHAR) AS result_json,created_at "
             "FROM treesem_predictions WHERE prediction_id=?"));
         statement->setString(1, predictionId);
         std::unique_ptr<sql::ResultSet> row(statement->executeQuery());
@@ -756,6 +759,7 @@ domain::AgentRunStartResult MySqlTreeSemStore::startAgentRun(
     return withSqlTranslation(lease, [&]() {
         auto& connection = lease.connection();
         connection.setAutoCommit(false);
+        const char* stage = "lock_session";
         try
         {
             std::unique_ptr<sql::PreparedStatement> lock(connection.prepareStatement(
@@ -764,14 +768,25 @@ domain::AgentRunStartResult MySqlTreeSemStore::startAgentRun(
             std::unique_ptr<sql::ResultSet> locked(lock->executeQuery());
             if (!locked->next()) throw application::BusinessException(
                 application::BusinessException::Kind::NotFound, "session not found");
+            locked.reset();
+            lock.reset();
+            stage = "lookup_idempotency";
             std::unique_ptr<sql::PreparedStatement> existing(connection.prepareStatement(
-                "SELECT * FROM treesem_agent_runs WHERE session_id=? AND idempotency_key=?"));
+                "SELECT run_id,session_id,idempotency_key,payload_sha256,status,step_count,"
+                "CAST(tool_summary_json AS CHAR) AS tool_summary_json,"
+                "CAST(grounding_ids_json AS CHAR) AS grounding_ids_json,"
+                "CAST(grounding_sources_json AS CHAR) AS grounding_sources_json,"
+                "knowledge_index_version,skill_id,skill_version,skill_catalog_version,"
+                "final_message_id,error_code,started_at,completed_at,actor_user_id,subject_user_id "
+                "FROM treesem_agent_runs WHERE session_id=? AND idempotency_key=?"));
             existing->setString(1, run.sessionId);
             existing->setString(2, run.idempotencyKey);
             std::unique_ptr<sql::ResultSet> row(existing->executeQuery());
             if (row->next())
             {
                 domain::AgentRunRecord stored = readAgentRun(*row);
+                row.reset();
+                existing.reset();
                 if (stored.payloadSha256 != run.payloadSha256)
                     throw application::BusinessException(
                         application::BusinessException::Kind::IdempotencyConflict,
@@ -788,22 +803,28 @@ domain::AgentRunStartResult MySqlTreeSemStore::startAgentRun(
                 connection.commit(); connection.setAutoCommit(true);
                 return domain::AgentRunStartResult{std::move(stored), std::move(final), false};
             }
+            row.reset();
+            existing.reset();
+            stage = "prepare_run_insert";
             std::unique_ptr<sql::PreparedStatement> insertRun(connection.prepareStatement(
                 "INSERT INTO treesem_agent_runs "
                 "(run_id,session_id,idempotency_key,payload_sha256,status,step_count,"
                 "tool_summary_json,grounding_ids_json,grounding_sources_json,"
                 "started_at,actor_user_id,subject_user_id) "
-                "VALUES (?,?,?,?,?,0,'[]','[]',JSON_OBJECT('ids', JSON_ARRAY(),"
-                "'citations', JSON_ARRAY()),?,?,?)"));
+                "VALUES (?,?,?,?,?,0,'[]','[]',?,?,?,?)"));
             insertRun->setString(1, run.runId); insertRun->setString(2, run.sessionId);
             insertRun->setString(3, run.idempotencyKey); insertRun->setString(4, run.payloadSha256);
             insertRun->setString(5, domain::toString(run.status));
-            insertRun->setString(6, mysqlTime(run.startedAt));
-            if (run.actorUserId.has_value()) insertRun->setString(7, *run.actorUserId);
-            else insertRun->setNull(7, sql::DataType::VARCHAR);
-            if (run.subjectUserId.has_value()) insertRun->setString(8, *run.subjectUserId);
+            insertRun->setString(6, groundingSourcesJson(run));
+            insertRun->setString(7, mysqlTime(run.startedAt));
+            if (run.actorUserId.has_value()) insertRun->setString(8, *run.actorUserId);
             else insertRun->setNull(8, sql::DataType::VARCHAR);
+            if (run.subjectUserId.has_value()) insertRun->setString(9, *run.subjectUserId);
+            else insertRun->setNull(9, sql::DataType::VARCHAR);
+            stage = "execute_run_insert";
             insertRun->executeUpdate();
+            insertRun.reset();
+            stage = "prepare_user_message_insert";
             std::unique_ptr<sql::PreparedStatement> insertMessage(connection.prepareStatement(
                 "INSERT INTO treesem_chat_messages "
                 "(message_id,session_id,run_id,role,content,created_at,actor_user_id,subject_user_id) "
@@ -820,9 +841,27 @@ domain::AgentRunStartResult MySqlTreeSemStore::startAgentRun(
             if (userMessage.subjectUserId.has_value())
                 insertMessage->setString(8, *userMessage.subjectUserId);
             else insertMessage->setNull(8, sql::DataType::VARCHAR);
+            stage = "execute_user_message_insert";
             insertMessage->executeUpdate();
+            insertMessage.reset();
+            stage = "commit";
             connection.commit(); connection.setAutoCommit(true);
             return domain::AgentRunStartResult{run, std::nullopt, true};
+        }
+        catch (const sql::SQLException& error)
+        {
+            LOG_ERROR << "treeSem start agent run failed stage=" << stage
+                      << " error_code=" << error.getErrorCode()
+                      << " sql_state=" << error.getSQLState();
+            rollbackNoThrow(connection);
+            throw;
+        }
+        catch (const std::exception& error)
+        {
+            LOG_ERROR << "treeSem start agent run failed stage=" << stage
+                      << " error=" << error.what();
+            rollbackNoThrow(connection);
+            throw;
         }
         catch (...) { rollbackNoThrow(connection); throw; }
     });

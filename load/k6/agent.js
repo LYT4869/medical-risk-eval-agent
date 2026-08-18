@@ -2,6 +2,7 @@ import http from 'k6/http';
 import exec from 'k6/execution';
 import {check, sleep} from 'k6';
 import {Rate} from 'k6/metrics';
+import {authenticatedHeaders} from './auth.js';
 
 const unexpected = new Rate('treesem_agent_unexpected_responses');
 export const options = {
@@ -15,16 +16,14 @@ export const options = {
 };
 
 const base = __ENV.TREESEM_LOAD_BASE_URL || 'http://127.0.0.1:8080';
-const token = __ENV.TREESEM_LOAD_ACCESS_TOKEN || '';
 export default function () {
   const question = (__ITER % 2 === 0)
     ? '解释一下当前预测结果'
     : '介绍产后出血的权威资料并给出引用';
   const response = http.post(`${base}/api/v1/chat`, JSON.stringify({message: question}), {
     headers: {
-      'Content-Type': 'application/json',
+      ...authenticatedHeaders(base),
       'Idempotency-Key': `k6-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
-      ...(token ? {Authorization: `Bearer ${token}`} : {}),
     },
     timeout: '35s',
   });

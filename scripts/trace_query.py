@@ -8,10 +8,11 @@ from pathlib import Path
 
 
 def events(lines, trace_id: str):
+    decoder = json.JSONDecoder()
     for order, line in enumerate(lines):
         begin = line.find("{")
         if begin < 0: continue
-        try: event = json.loads(line[begin:])
+        try: event, _ = decoder.raw_decode(line[begin:])
         except json.JSONDecodeError: continue
         if event.get("trace_id") == trace_id:
             event["_order"] = order
