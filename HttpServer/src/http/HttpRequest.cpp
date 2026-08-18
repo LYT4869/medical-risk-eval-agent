@@ -140,6 +140,11 @@ void HttpRequest::addHeader(const char *start, const char *colon, const char *en
     headers_[key] = value;
 }
 
+void HttpRequest::setHeader(const std::string& field, const std::string& value)
+{
+    headers_[normalizeHeaderName(field)] = value;
+}
+
 std::string HttpRequest::getHeader(const std::string &field) const
 {
     std::string result;

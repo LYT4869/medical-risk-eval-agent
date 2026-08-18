@@ -10,6 +10,7 @@ option(KAMA_BUILD_GOMOKU_SERVER "Build the original Gomoku example" OFF)
 option(KAMA_BUILD_TESTS "Build lightweight HTTP core tests" ON)
 option(KAMA_ENABLE_ONNXRUNTIME "Build the C++ ONNX Runtime model backend" ON)
 option(KAMA_ENABLE_MYSQL "Build the treeSem MySQL persistence backend" ON)
+option(KAMA_ENABLE_AUTH "Build treeSem authentication and Argon2id support" ON)
 option(TREESEM_ENABLE_MYSQL_INTEGRATION_TESTS
     "Register tests that require an externally managed MySQL 8 test database" OFF)
 
@@ -100,11 +101,19 @@ add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/api/PredictionJsonCodec.cpp
     WebApps/TreeSemServer/src/api/BusinessJsonCodec.cpp
     WebApps/TreeSemServer/src/api/BusinessController.cpp
+    WebApps/TreeSemServer/src/api/ChatController.cpp
+    WebApps/TreeSemServer/src/api/ChatJsonCodec.cpp
+    WebApps/TreeSemServer/src/api/AuthController.cpp
+    WebApps/TreeSemServer/src/api/DoctorController.cpp
     WebApps/TreeSemServer/src/application/PredictionService.cpp
     WebApps/TreeSemServer/src/application/BusinessException.cpp
     WebApps/TreeSemServer/src/application/SessionService.cpp
     WebApps/TreeSemServer/src/application/RecordServices.cpp
+    WebApps/TreeSemServer/src/application/AgentApplicationService.cpp
+    WebApps/TreeSemServer/src/application/AuthService.cpp
+    WebApps/TreeSemServer/src/application/AuditService.cpp
     WebApps/TreeSemServer/src/client/PythonModelClient.cpp
+    WebApps/TreeSemServer/src/client/PythonAgentClient.cpp
     WebApps/TreeSemServer/src/config/TreeSemServerConfig.cpp
     WebApps/TreeSemServer/src/concurrency/BoundedWorkerPool.cpp
     WebApps/TreeSemServer/src/infrastructure/model/RemoteTreeSemModelService.cpp
@@ -116,6 +125,9 @@ add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/infrastructure/persistence/InMemoryTreeSemStore.cpp
     WebApps/TreeSemServer/src/infrastructure/support/ValueSupport.cpp
     WebApps/TreeSemServer/src/domain/BusinessTypes.cpp
+    WebApps/TreeSemServer/src/domain/SecurityTypes.cpp
+    WebApps/TreeSemServer/src/security/JwtService.cpp
+    WebApps/TreeSemServer/src/security/SecurityMiddleware.cpp
     WebApps/TreeSemServer/src/serialization/ModelResultJsonCodec.cpp
     WebApps/TreeSemServer/src/model/ModelException.cpp
     WebApps/TreeSemServer/src/service/InferenceScheduler.cpp
@@ -129,6 +141,17 @@ target_link_libraries(treesem_runtime PUBLIC kama_http_core)
 target_include_directories(treesem_runtime SYSTEM PUBLIC ${NLOHMANN_JSON_INCLUDE_DIR})
 target_link_libraries(treesem_runtime PUBLIC CURL::libcurl)
 target_compile_options(treesem_runtime PRIVATE -Wall -Wextra -Wpedantic)
+
+if(KAMA_ENABLE_AUTH)
+    find_library(ARGON2_LIBRARY NAMES argon2 libargon2.so.1)
+    if(NOT ARGON2_LIBRARY)
+        message(FATAL_ERROR "libargon2 was not found; install libargon2-dev or disable KAMA_ENABLE_AUTH")
+    endif()
+    target_sources(treesem_runtime PRIVATE
+        WebApps/TreeSemServer/src/security/PasswordHasher.cpp)
+    target_link_libraries(treesem_runtime PUBLIC ${ARGON2_LIBRARY})
+    target_compile_definitions(treesem_runtime PUBLIC TREESEM_HAS_AUTH=1)
+endif()
 
 if(KAMA_ENABLE_ONNXRUNTIME)
     find_path(ONNXRUNTIME_INCLUDE_DIR
@@ -185,6 +208,13 @@ if(KAMA_BUILD_TREESEM_SERVER)
     )
     target_link_libraries(treesem_server PRIVATE treesem_runtime)
     target_compile_options(treesem_server PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(KAMA_BUILD_TREESEM_SERVER AND KAMA_ENABLE_MYSQL AND KAMA_ENABLE_AUTH)
+    add_executable(treesem-admin
+        WebApps/TreeSemServer/src/admin_main.cpp)
+    target_link_libraries(treesem-admin PRIVATE treesem_runtime)
+    target_compile_options(treesem-admin PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(KAMA_BUILD_GOMOKU_SERVER)
@@ -268,11 +298,31 @@ if(KAMA_BUILD_TESTS)
     target_link_libraries(business_json_codec_test PRIVATE treesem_runtime)
     add_test(NAME business_json_codec_test COMMAND business_json_codec_test)
 
+    add_executable(agent_application_service_test tests/agent_application_service_test.cpp)
+    target_link_libraries(agent_application_service_test PRIVATE treesem_runtime)
+    add_test(NAME agent_application_service_test COMMAND agent_application_service_test)
+
+    if(KAMA_ENABLE_AUTH)
+        add_executable(security_core_test tests/security_core_test.cpp)
+        target_link_libraries(security_core_test PRIVATE treesem_runtime)
+        add_test(NAME security_core_test COMMAND security_core_test)
+        set_tests_properties(security_core_test PROPERTIES TIMEOUT 30)
+    endif()
+
     add_test(
         NAME python_adapter_contract_test
         COMMAND ${Python3_EXECUTABLE} -m unittest discover
             -s ${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter/tests
             -p test_server_contract.py
+    )
+    add_test(
+        NAME python_agent_core_test
+        COMMAND ${Python3_EXECUTABLE} -m unittest discover
+            -s ${PROJECT_SOURCE_DIR}/PythonServices/TreeSemAgent/tests
+            -p test_agent_loop.py
+    )
+    set_tests_properties(python_agent_core_test PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemAgent"
     )
     set_tests_properties(python_adapter_contract_test PROPERTIES
         ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"
@@ -360,11 +410,27 @@ if(KAMA_BUILD_TESTS)
 
     if(KAMA_BUILD_TREESEM_SERVER)
         add_test(
+            NAME m5_agent_integration_test
+            COMMAND ${Python3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tests/test_m5_agent_integration.py
+                $<TARGET_FILE:treesem_server>
+        )
+        set_tests_properties(m5_agent_integration_test PROPERTIES TIMEOUT 30)
+        add_test(
             NAME backend_async_integration_test
             COMMAND ${Python3_EXECUTABLE}
                 ${PROJECT_SOURCE_DIR}/tests/test_backend_integration.py
                 $<TARGET_FILE:treesem_server>
         )
+        if(KAMA_ENABLE_AUTH)
+            add_test(
+                NAME m6_auth_integration_test
+                COMMAND ${Python3_EXECUTABLE}
+                    ${PROJECT_SOURCE_DIR}/tests/test_m6_auth_integration.py
+                    $<TARGET_FILE:treesem_server>
+            )
+            set_tests_properties(m6_auth_integration_test PROPERTIES TIMEOUT 30)
+        endif()
         if(KAMA_ENABLE_MYSQL AND KAMA_ENABLE_ONNXRUNTIME
            AND TREESEM_ENABLE_MYSQL_INTEGRATION_TESTS
            AND TREESEM_TEST_BUNDLE_DIR)

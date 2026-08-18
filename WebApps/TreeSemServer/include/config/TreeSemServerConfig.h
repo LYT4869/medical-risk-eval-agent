@@ -51,6 +51,27 @@ struct TreeSemServerConfig
     long databaseWriteTimeoutMs{2000};
     long sessionTtlSeconds{3600};
     bool cookieSecure{false};
+    bool agentEnabled{true};
+    std::string agentUrl{"http://127.0.0.1:8091/v1/agent/runs"};
+    std::string agentServiceSecret;
+    long agentConnectTimeoutMs{500};
+    long agentRequestTimeoutMs{30000};
+    std::size_t agentWorkerCount{4};
+    std::size_t agentQueueCapacity{64};
+    std::size_t agentContextMessages{12};
+    std::size_t agentMessageMaxCharacters{4000};
+    std::size_t agentResponseMaxBytes{1024 * 1024};
+    bool authRequired{true};
+    std::string deploymentEnvironment{"local"};
+    std::string accessJwtSecret;
+    std::string capabilityJwtSecret;
+    long accessTokenTtlSeconds{900};
+    long refreshTokenTtlSeconds{604800};
+    long capabilityTokenTtlSeconds{120};
+    bool refreshCookieSecure{false};
+    std::string allowedOrigins{"http://127.0.0.1:3000"};
+    std::size_t authWorkerCount{2};
+    std::size_t authQueueCapacity{32};
 
     static TreeSemServerConfig load(int argc, char* argv[]);
 };

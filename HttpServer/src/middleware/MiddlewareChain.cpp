@@ -38,5 +38,22 @@ void MiddlewareChain::processAfter(HttpResponse &response)
     }
 }
 
+void MiddlewareChain::processAfter(
+    const HttpRequest& request, HttpResponse& response)
+{
+    try
+    {
+        for (auto it = middlewares_.rbegin(); it != middlewares_.rend(); ++it)
+        {
+            if (*it) (*it)->after(request, response);
+        }
+    }
+    catch (const std::exception& error)
+    {
+        LOG_ERROR << "Error in request-aware middleware after processing: "
+                  << error.what();
+    }
+}
+
 } // namespace middleware
 } // namespace http

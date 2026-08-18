@@ -91,5 +91,10 @@ std::chrono::seconds SessionService::ttl() const noexcept
     return ttl_;
 }
 
+ResolvedSession SessionService::createNew() const
+{
+    return create();
+}
+
 } // namespace application
 } // namespace treesem

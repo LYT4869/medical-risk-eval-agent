@@ -18,6 +18,14 @@ public:
     
     // 响应后处理
     virtual void after(HttpResponse& response) = 0;
+
+    // Request-aware response hook. Existing middleware remains source
+    // compatible through this forwarding implementation.
+    virtual void after(const HttpRequest& request, HttpResponse& response)
+    {
+        (void)request;
+        after(response);
+    }
     
     // 设置下一个中间件
     void setNext(std::shared_ptr<Middleware> next) 

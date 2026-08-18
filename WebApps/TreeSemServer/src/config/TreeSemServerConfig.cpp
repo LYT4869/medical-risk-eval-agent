@@ -185,6 +185,77 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
     config.cookieSecure = parseBoolean(environmentOr(
         "TREESEM_COOKIE_SECURE", config.cookieSecure ? "true" : "false"),
         "TREESEM_COOKIE_SECURE");
+    config.agentEnabled = parseBoolean(environmentOr(
+        "TREESEM_AGENT_ENABLED", config.agentEnabled ? "true" : "false"),
+        "TREESEM_AGENT_ENABLED");
+    config.agentUrl = environmentOr("TREESEM_AGENT_URL", config.agentUrl);
+    config.agentServiceSecret = environmentOr(
+        "TREESEM_AGENT_SERVICE_SECRET", config.agentServiceSecret);
+    config.agentConnectTimeoutMs = parsePositiveLong(environmentOr(
+        "TREESEM_AGENT_CONNECT_TIMEOUT_MS", std::to_string(config.agentConnectTimeoutMs)),
+        "TREESEM_AGENT_CONNECT_TIMEOUT_MS");
+    config.agentRequestTimeoutMs = parsePositiveLong(environmentOr(
+        "TREESEM_AGENT_TIMEOUT_MS", std::to_string(config.agentRequestTimeoutMs)),
+        "TREESEM_AGENT_TIMEOUT_MS");
+    config.agentWorkerCount = parsePositiveSize(
+        "TREESEM_AGENT_WORKERS", config.agentWorkerCount);
+    config.agentQueueCapacity = parsePositiveSize(
+        "TREESEM_AGENT_QUEUE_CAPACITY", config.agentQueueCapacity);
+    config.agentContextMessages = parsePositiveSize(
+        "TREESEM_AGENT_CONTEXT_MESSAGES", config.agentContextMessages);
+    config.agentMessageMaxCharacters = parsePositiveSize(
+        "TREESEM_AGENT_MESSAGE_MAX_CHARS", config.agentMessageMaxCharacters);
+    config.agentResponseMaxBytes = parsePositiveSize(
+        "TREESEM_AGENT_RESPONSE_MAX_BYTES", config.agentResponseMaxBytes);
+    if (config.agentEnabled && config.agentUrl.empty())
+        throw std::invalid_argument("TREESEM_AGENT_URL must not be empty when agent is enabled");
+    const std::string authMode = environmentOr("TREESEM_AUTH_MODE", "required");
+    if (authMode != "required" && authMode != "development")
+        throw std::invalid_argument("TREESEM_AUTH_MODE must be required or development");
+    config.authRequired = authMode == "required";
+    config.deploymentEnvironment = environmentOr(
+        "TREESEM_DEPLOYMENT_ENV", config.deploymentEnvironment);
+    if (config.deploymentEnvironment != "local" &&
+        config.deploymentEnvironment != "production")
+        throw std::invalid_argument("TREESEM_DEPLOYMENT_ENV must be local or production");
+    config.accessJwtSecret = environmentOr(
+        "TREESEM_ACCESS_JWT_SECRET", config.accessJwtSecret);
+    config.capabilityJwtSecret = environmentOr(
+        "TREESEM_CAPABILITY_JWT_SECRET", config.capabilityJwtSecret);
+    config.accessTokenTtlSeconds = parsePositiveLong(environmentOr(
+        "TREESEM_ACCESS_TOKEN_TTL_SECONDS", std::to_string(config.accessTokenTtlSeconds)),
+        "TREESEM_ACCESS_TOKEN_TTL_SECONDS");
+    config.refreshTokenTtlSeconds = parsePositiveLong(environmentOr(
+        "TREESEM_REFRESH_TOKEN_TTL_SECONDS", std::to_string(config.refreshTokenTtlSeconds)),
+        "TREESEM_REFRESH_TOKEN_TTL_SECONDS");
+    config.capabilityTokenTtlSeconds = parsePositiveLong(environmentOr(
+        "TREESEM_CAPABILITY_TOKEN_TTL_SECONDS", std::to_string(config.capabilityTokenTtlSeconds)),
+        "TREESEM_CAPABILITY_TOKEN_TTL_SECONDS");
+    config.refreshCookieSecure = parseBoolean(environmentOr(
+        "TREESEM_REFRESH_COOKIE_SECURE",
+        config.refreshCookieSecure ? "true" : "false"),
+        "TREESEM_REFRESH_COOKIE_SECURE");
+    config.allowedOrigins = environmentOr(
+        "TREESEM_ALLOWED_ORIGINS", config.allowedOrigins);
+    config.authWorkerCount = parsePositiveSize(
+        "TREESEM_AUTH_WORKERS", config.authWorkerCount);
+    config.authQueueCapacity = parsePositiveSize(
+        "TREESEM_AUTH_QUEUE_CAPACITY", config.authQueueCapacity);
+    if (config.authRequired &&
+        (config.accessJwtSecret.size() < 32 ||
+         config.capabilityJwtSecret.size() < 32 ||
+         config.agentServiceSecret.size() < 32 ||
+         config.accessJwtSecret == config.capabilityJwtSecret ||
+         config.accessJwtSecret == config.agentServiceSecret ||
+         config.capabilityJwtSecret == config.agentServiceSecret))
+        throw std::invalid_argument(
+            "required auth needs three distinct secrets of at least 32 bytes");
+    if (config.deploymentEnvironment == "production" &&
+        (!config.authRequired || !config.cookieSecure ||
+         !config.refreshCookieSecure ||
+         config.allowedOrigins.find('*') != std::string::npos))
+        throw std::invalid_argument(
+            "production requires auth, secure cookies and exact CORS origins");
     if (config.databaseHost.empty() || config.databaseName.empty() ||
         config.databaseUser.empty())
     {

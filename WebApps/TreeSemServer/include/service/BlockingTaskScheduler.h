@@ -43,6 +43,8 @@ private:
 
 SchedulerErrorPolicy predictionSchedulerErrors();
 SchedulerErrorPolicy databaseSchedulerErrors();
+SchedulerErrorPolicy agentSchedulerErrors();
+SchedulerErrorPolicy authenticationSchedulerErrors();
 
 } // namespace service
 } // namespace treesem

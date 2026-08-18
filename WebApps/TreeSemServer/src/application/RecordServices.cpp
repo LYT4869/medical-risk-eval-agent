@@ -239,7 +239,7 @@ domain::FeedbackSaveResult FeedbackService::submit(
         predictionId,
         sessionId,
         input.reviewerReference,
-        false,
+        input.reviewerVerified,
         input.assessment,
         input.correctedLabel,
         input.comment,

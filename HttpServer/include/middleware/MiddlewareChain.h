@@ -15,6 +15,7 @@ public:
     void addMiddleware(std::shared_ptr<Middleware> middleware);
     void processBefore(HttpRequest& request);
     void processAfter(HttpResponse& response);
+    void processAfter(const HttpRequest& request, HttpResponse& response);
 
 private:
     std::vector<std::shared_ptr<Middleware>> middlewares_;

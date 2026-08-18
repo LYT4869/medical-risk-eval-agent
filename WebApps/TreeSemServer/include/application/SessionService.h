@@ -34,6 +34,7 @@ public:
         const std::optional<std::string>& suppliedSessionId,
         SessionAccess access) const;
     std::chrono::seconds ttl() const noexcept;
+    ResolvedSession createNew() const;
 
 private:
     ResolvedSession create() const;

@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 #include <openssl/evp.h>
+#include <openssl/crypto.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 
@@ -20,7 +21,7 @@ namespace infrastructure
 namespace
 {
 
-std::string base64UrlEncode(const std::string& input)
+std::string base64UrlEncodeInternal(const std::string& input)
 {
     std::string output(4 * ((input.size() + 2) / 3), '\0');
     const int size = EVP_EncodeBlock(
@@ -37,9 +38,9 @@ std::string base64UrlEncode(const std::string& input)
     return output;
 }
 
-std::string base64UrlDecode(std::string input)
+std::string base64UrlDecodeInternal(std::string input, std::size_t maxDecodedBytes)
 {
-    if (input.empty() || input.size() > 256)
+    if (input.empty() || input.size() > 4 * ((maxDecodedBytes + 2) / 3) + 4)
     {
         throw std::invalid_argument("invalid history cursor");
     }
@@ -87,6 +88,32 @@ std::string generateOpaqueId(const std::string& prefix)
         result.push_back(hex[value & 0x0f]);
     }
     return result;
+}
+
+std::string base64UrlEncode(const std::string& value)
+{
+    return base64UrlEncodeInternal(value);
+}
+
+std::string base64UrlDecode(const std::string& value, std::size_t maxDecodedBytes)
+{
+    return base64UrlDecodeInternal(value, maxDecodedBytes);
+}
+
+bool constantTimeEquals(const std::string& left, const std::string& right)
+{
+    if (left.size() != right.size()) return false;
+    return CRYPTO_memcmp(left.data(), right.data(), left.size()) == 0;
+}
+
+std::string secureRandomToken(std::size_t bytes)
+{
+    if (bytes == 0 || bytes > 4096) throw std::invalid_argument("invalid token size");
+    std::string random(bytes, '\0');
+    if (RAND_bytes(reinterpret_cast<unsigned char*>(random.data()),
+                   static_cast<int>(random.size())) != 1)
+        throw std::runtime_error("secure random token generation failed");
+    return base64UrlEncodeInternal(random);
 }
 
 std::string sha256Hex(const std::string& value)
@@ -156,14 +183,14 @@ domain::TimePoint parseUtc(const std::string& value)
 
 std::string encodeHistoryCursor(const domain::HistoryCursor& cursor)
 {
-    return base64UrlEncode(
+    return base64UrlEncodeInternal(
         std::to_string(epochMicroseconds(cursor.createdAt)) + ":" +
         cursor.predictionId);
 }
 
 domain::HistoryCursor decodeHistoryCursor(const std::string& cursor)
 {
-    const std::string decoded = base64UrlDecode(cursor);
+    const std::string decoded = base64UrlDecodeInternal(cursor, 256);
     const std::size_t separator = decoded.find(':');
     if (separator == std::string::npos)
     {

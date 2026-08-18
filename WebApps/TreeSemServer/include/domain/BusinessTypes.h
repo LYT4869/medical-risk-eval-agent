@@ -30,6 +30,8 @@ struct PredictionRecord
 {
     std::string predictionId;
     std::string sessionId;
+    std::optional<std::string> subjectUserId;
+    std::optional<std::string> createdByUserId;
     model::ModelResult result;
     TimePoint createdAt;
 };
@@ -113,6 +115,66 @@ struct ClinicalFeedback
 struct FeedbackSaveResult
 {
     ClinicalFeedback feedback;
+    bool created{false};
+};
+
+enum class AgentRunStatus { Running, Completed, Failed };
+std::string toString(AgentRunStatus status);
+
+struct AgentToolSummary
+{
+    std::string name;
+    std::string status;
+    std::uint64_t durationMs{0};
+};
+
+struct AgentRunRecord
+{
+    std::string runId;
+    std::string sessionId;
+    std::string idempotencyKey;
+    std::string payloadSha256;
+    AgentRunStatus status{AgentRunStatus::Running};
+    int stepCount{0};
+    std::vector<AgentToolSummary> tools;
+    std::vector<std::string> groundingPredictionIds;
+    std::optional<std::string> finalMessageId;
+    std::optional<std::string> errorCode;
+    TimePoint startedAt;
+    std::optional<TimePoint> completedAt;
+    std::optional<std::string> actorUserId;
+    std::optional<std::string> subjectUserId;
+};
+
+struct ChatMessage
+{
+    std::string messageId;
+    std::string sessionId;
+    std::string runId;
+    std::string role;
+    std::string content;
+    TimePoint createdAt;
+    std::optional<std::string> actorUserId;
+    std::optional<std::string> subjectUserId;
+};
+
+struct ChatCursor
+{
+    TimePoint createdAt;
+    std::string messageId;
+};
+
+struct ChatPage
+{
+    std::string sessionId;
+    std::vector<ChatMessage> items;
+    std::optional<ChatCursor> nextCursor;
+};
+
+struct AgentRunStartResult
+{
+    AgentRunRecord run;
+    std::optional<ChatMessage> finalMessage;
     bool created{false};
 };
 

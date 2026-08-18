@@ -7,6 +7,17 @@ namespace treesem
 namespace domain
 {
 
+std::string toString(AgentRunStatus status)
+{
+    switch (status)
+    {
+    case AgentRunStatus::Running: return "running";
+    case AgentRunStatus::Completed: return "completed";
+    case AgentRunStatus::Failed: return "failed";
+    }
+    throw std::invalid_argument("unknown agent run status");
+}
+
 std::string toString(FeedbackAssessment assessment)
 {
     switch (assessment)

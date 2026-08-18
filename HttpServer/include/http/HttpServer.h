@@ -154,7 +154,7 @@ private:
                             const HttpRequest& req,
                             bool closeConnection);
     AsyncResponder makeAsyncResponder(const muduo::net::TcpConnectionPtr& conn,
-                                      std::string httpVersion,
+                                      HttpRequest request,
                                       bool closeConnection);
     void sendResponse(const muduo::net::TcpConnectionPtr& conn,
                       HttpResponse* response);

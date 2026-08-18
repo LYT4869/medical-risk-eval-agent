@@ -50,6 +50,9 @@ public:
     
     void addHeader(const char* start, const char* colon, const char* end);
     std::string getHeader(const std::string& field) const;
+    // Programmatically injected headers follow the same case-insensitive
+    // normalization as headers parsed from the wire.
+    void setHeader(const std::string& field, const std::string& value);
 
     const std::map<std::string, std::string>& headers() const
     { return headers_; }

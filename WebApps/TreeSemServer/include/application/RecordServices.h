@@ -54,6 +54,7 @@ struct FeedbackInput
     std::optional<int> correctedLabel;
     std::optional<std::string> comment;
     std::string idempotencyKey;
+    bool reviewerVerified{false};
 };
 
 class FeedbackService

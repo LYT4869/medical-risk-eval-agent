@@ -21,6 +21,7 @@ public:
         k403Forbidden = 403,
         k404NotFound = 404,
         k409Conflict = 409,
+        k429TooManyRequests = 429,
         k500InternalServerError = 500,
         k502BadGateway = 502,
         k503ServiceUnavailable = 503,
@@ -62,7 +63,16 @@ public:
     { addHeader("Content-Length", std::to_string(length)); }
 
     void addHeader(const std::string& key, const std::string& value)
-    { headers_[key] = value; }
+    {
+        if (key != "Set-Cookie") headers_.erase(key);
+        headers_.emplace(key, value);
+    }
+
+    std::string getHeader(const std::string& key) const
+    {
+        const auto found = headers_.find(key);
+        return found == headers_.end() ? std::string() : found->second;
+    }
     
     void setBody(const std::string& body)
     { 
@@ -78,11 +88,14 @@ public:
 
     void appendToBuffer(muduo::net::Buffer* outputBuf) const;
 private:
-    std::string                        httpVersion_; 
+    // Middleware and error mappers may construct a response before it reaches
+    // the normal router responder.  Keep those responses valid on the wire;
+    // the responder will still replace this with the request version.
+    std::string                        httpVersion_{"HTTP/1.1"};
     HttpStatusCode                     statusCode_;
     std::string                        statusMessage_;
     bool                               closeConnection_;
-    std::map<std::string, std::string> headers_;
+    std::multimap<std::string, std::string> headers_;
     std::string                        body_;
     bool                               isFile_;
 };

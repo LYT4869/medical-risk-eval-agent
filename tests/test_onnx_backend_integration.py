@@ -80,6 +80,7 @@ def launch_backend(
         {
             "TREESEM_MODEL_BACKEND": backend,
             "TREESEM_STORAGE_BACKEND": "memory",
+            "TREESEM_AUTH_MODE": "development",
             "TREESEM_SERVING_BUNDLE_DIR": str(bundle),
             "TREESEM_MODEL_ADAPTER_URL": f"http://127.0.0.1:{adapter_port}/v1/predict",
             "TREESEM_MODEL_CONNECT_TIMEOUT_MS": "200",

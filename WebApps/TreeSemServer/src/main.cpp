@@ -12,10 +12,17 @@
 #include "api/HealthController.h"
 #include "api/BusinessController.h"
 #include "api/PredictionController.h"
+#include "api/ChatController.h"
+#include "api/AuthController.h"
+#include "api/DoctorController.h"
 #include "application/PredictionService.h"
 #include "application/RecordServices.h"
 #include "application/SessionService.h"
+#include "application/AgentApplicationService.h"
+#include "application/AuthService.h"
+#include "application/AuditService.h"
 #include "client/PythonModelClient.h"
+#include "client/PythonAgentClient.h"
 #include "config/TreeSemServerConfig.h"
 #include "http/HttpServer.h"
 #include "infrastructure/model/RemoteTreeSemModelService.h"
@@ -31,6 +38,11 @@
 #include "persistence/ITreeSemStore.h"
 #include "service/BlockingTaskScheduler.h"
 #include "service/InferenceScheduler.h"
+#if defined(TREESEM_HAS_AUTH)
+#include "security/JwtService.h"
+#include "security/PasswordHasher.h"
+#include "security/SecurityMiddleware.h"
+#endif
 
 int main(int argc, char* argv[])
 {
@@ -115,6 +127,34 @@ int main(int argc, char* argv[])
         }
         treesem::application::SessionService sessionService(
             *store, std::chrono::seconds(config.sessionTtlSeconds));
+        auto* securityStore = dynamic_cast<treesem::persistence::ISecurityStore*>(
+            store.get());
+        if (securityStore == nullptr)
+            throw std::logic_error("configured store has no security support");
+        const treesem::security::JwtService* configuredJwtService = nullptr;
+        const treesem::application::AuditService* auditServicePtr = nullptr;
+#if defined(TREESEM_HAS_AUTH)
+        const std::string developmentAccessSecret =
+            "treesem-development-access-secret-change-me";
+        const std::string developmentCapabilitySecret =
+            "treesem-development-capability-secret-change-me";
+        treesem::security::JwtService jwtService({
+            config.authRequired ? config.accessJwtSecret : developmentAccessSecret,
+            config.authRequired ? config.capabilityJwtSecret : developmentCapabilitySecret,
+            std::chrono::seconds(config.accessTokenTtlSeconds),
+            std::chrono::seconds(config.capabilityTokenTtlSeconds)});
+        treesem::security::PasswordHasher passwordHasher;
+        treesem::application::AuthService authService(
+            *securityStore, passwordHasher, jwtService,
+            std::chrono::seconds(config.accessTokenTtlSeconds),
+            std::chrono::seconds(config.refreshTokenTtlSeconds));
+        treesem::application::AuditService auditService(*securityStore);
+        configuredJwtService = config.authRequired ? &jwtService : nullptr;
+        auditServicePtr = config.authRequired ? &auditService : nullptr;
+#else
+        if (config.authRequired)
+            throw std::invalid_argument("this build has no authentication support");
+#endif
         treesem::application::PredictionService predictionService(
             *selectedModelService, *store, sessionService);
         treesem::application::ExplanationService explanationService(*store);
@@ -129,13 +169,60 @@ int main(int argc, char* argv[])
             config.databaseWorkerCount,
             config.databaseQueueCapacity,
             treesem::service::databaseSchedulerErrors());
+#if defined(TREESEM_HAS_AUTH)
+        treesem::service::BlockingTaskScheduler authScheduler(
+            config.authWorkerCount, config.authQueueCapacity,
+            treesem::service::authenticationSchedulerErrors());
+        treesem::api::AuthController authController(
+            authService, sessionService, *securityStore, authScheduler,
+            config.refreshCookieSecure,
+            config.refreshTokenTtlSeconds, config.allowedOrigins);
+#endif
+        std::unique_ptr<treesem::client::PythonAgentClient> agentClient;
+        std::unique_ptr<treesem::application::AgentApplicationService> agentService;
+        std::unique_ptr<treesem::service::BlockingTaskScheduler> agentScheduler;
+        std::unique_ptr<treesem::api::ChatController> chatController;
+        if (config.agentEnabled)
+        {
+            treesem::client::PythonAgentClientConfig agentClientConfig;
+            agentClientConfig.url = config.agentUrl;
+            agentClientConfig.serviceSecret = config.agentServiceSecret;
+            agentClientConfig.connectTimeoutMs = config.agentConnectTimeoutMs;
+            agentClientConfig.requestTimeoutMs = config.agentRequestTimeoutMs;
+            agentClientConfig.maxResponseBytes = config.agentResponseMaxBytes;
+            agentClient = std::make_unique<treesem::client::PythonAgentClient>(
+                std::move(agentClientConfig));
+            agentService = std::make_unique<treesem::application::AgentApplicationService>(
+                *agentClient, *store, sessionService, config.agentContextMessages,
+                configuredJwtService);
+            agentScheduler = std::make_unique<treesem::service::BlockingTaskScheduler>(
+                config.agentWorkerCount, config.agentQueueCapacity,
+                treesem::service::agentSchedulerErrors());
+            chatController = std::make_unique<treesem::api::ChatController>(
+                *agentService, sessionService, *agentScheduler, databaseScheduler,
+                config.cookieSecure, config.sessionTtlSeconds,
+                config.agentMessageMaxCharacters, securityStore,
+                configuredJwtService,
+                config.authRequired, auditServicePtr);
+        }
+#if defined(TREESEM_HAS_AUTH)
+        treesem::api::DoctorController doctorController(
+            authService, sessionService, predictionService, agentService.get(),
+            feedbackService, *store, *securityStore, predictionScheduler,
+            agentScheduler.get(), databaseScheduler, auditService,
+            config.cookieSecure,
+            config.sessionTtlSeconds, config.agentMessageMaxCharacters);
+#endif
         treesem::api::PredictionController predictionController(
             predictionService, predictionScheduler, config.cookieSecure,
-            config.sessionTtlSeconds);
+            config.sessionTtlSeconds, securityStore, config.authRequired,
+            auditServicePtr);
         treesem::api::BusinessController businessController(
             sessionService, explanationService, historyService,
             comparisonService, feedbackService, *store, databaseScheduler,
-            config.cookieSecure, config.sessionTtlSeconds);
+            config.cookieSecure, config.sessionTtlSeconds,
+            securityStore, config.authRequired, auditServicePtr);
+
         treesem::api::HealthController healthController({
             modelVersion,
             treesem::config::toString(config.modelBackend),
@@ -147,6 +234,10 @@ int main(int argc, char* argv[])
             config.sessionTtlSeconds});
 
         http::HttpServer server(config.listenPort, "TreeSemServer");
+#if defined(TREESEM_HAS_AUTH)
+        server.addMiddleware(std::make_shared<treesem::security::SecurityMiddleware>(
+            jwtService, config.authRequired, config.allowedOrigins));
+#endif
         server.Get(
             "/health",
             [&healthController](const http::HttpRequest& request,
@@ -207,6 +298,82 @@ int main(int argc, char* argv[])
             };
         server.PostAsync("/api/v1/comparisons", comparisonHandler);
         server.PostAsync("/internal/v1/comparisons", comparisonHandler);
+#if defined(TREESEM_HAS_AUTH)
+        server.PostAsync("/api/v1/auth/register",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.registerPatient(std::move(request), std::move(responder));
+            });
+        server.PostAsync("/api/v1/auth/login",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.login(std::move(request), std::move(responder));
+            });
+        server.PostAsync("/api/v1/auth/refresh",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.refresh(std::move(request), std::move(responder));
+            });
+        server.PostAsync("/api/v1/auth/logout",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.logout(std::move(request), std::move(responder));
+            });
+        server.GetAsync("/api/v1/auth/me",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.me(std::move(request), std::move(responder));
+            });
+        server.PostAsync("/api/v1/admin/doctors",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.createDoctor(std::move(request), std::move(responder));
+            });
+        server.PostAsync("/api/v1/admin/doctor-patient-assignments",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.createAssignment(std::move(request), std::move(responder));
+            });
+        server.GetAsync("/api/v1/admin/doctor-patient-assignments",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.listAssignments(std::move(request), std::move(responder));
+            });
+        server.GetAsync("/api/v1/admin/audit-events",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.listAudit(std::move(request), std::move(responder));
+            });
+        server.addAsyncRoute(http::HttpRequest::kDelete,
+            "/api/v1/admin/doctor-patient-assignments/:assignment_id",
+            [&authController](http::HttpRequest request, http::AsyncResponder responder) {
+                authController.revokeAssignment(std::move(request), std::move(responder));
+            });
+        server.addAsyncRoute(http::HttpRequest::kPost,
+            "/api/v1/doctor/patients/:patient_id/predictions",
+            [&doctorController](http::HttpRequest request, http::AsyncResponder responder) {
+                doctorController.predict(std::move(request), std::move(responder));
+            });
+        server.addAsyncRoute(http::HttpRequest::kPost,
+            "/api/v1/doctor/patients/:patient_id/chat",
+            [&doctorController](http::HttpRequest request, http::AsyncResponder responder) {
+                doctorController.chat(std::move(request), std::move(responder));
+            });
+        server.addAsyncRoute(http::HttpRequest::kGet,
+            "/api/v1/doctor/patients/:patient_id/history",
+            [&doctorController](http::HttpRequest request, http::AsyncResponder responder) {
+                doctorController.history(std::move(request), std::move(responder));
+            });
+        server.addAsyncRoute(http::HttpRequest::kPost,
+            "/api/v1/predictions/:prediction_id/feedback",
+            [&doctorController](http::HttpRequest request, http::AsyncResponder responder) {
+                doctorController.feedback(std::move(request), std::move(responder));
+            });
+#endif
+        if (chatController)
+        {
+            server.PostAsync("/api/v1/chat",
+                [&chatController](http::HttpRequest request,
+                                  http::AsyncResponder responder) {
+                    chatController->chat(std::move(request), std::move(responder));
+                });
+            server.GetAsync("/api/v1/chat/history",
+                [&chatController](http::HttpRequest request,
+                                  http::AsyncResponder responder) {
+                    chatController->history(std::move(request), std::move(responder));
+                });
+        }
         server.addAsyncRoute(
             http::HttpRequest::kPost,
             "/internal/v1/predictions/:prediction_id/feedback",
@@ -232,6 +399,10 @@ int main(int argc, char* argv[])
         }
         predictionScheduler.shutdown();
         databaseScheduler.shutdown();
+        if (agentScheduler) agentScheduler->shutdown();
+#if defined(TREESEM_HAS_AUTH)
+        authScheduler.shutdown();
+#endif
     }
     catch (const std::exception& error)
     {

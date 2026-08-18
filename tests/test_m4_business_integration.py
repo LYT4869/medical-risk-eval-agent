@@ -59,6 +59,7 @@ def main() -> int:
         "TREESEM_MODEL_BACKEND": "onnx",
         "TREESEM_SERVING_BUNDLE_DIR": str(bundle),
         "TREESEM_STORAGE_BACKEND": "memory",
+        "TREESEM_AUTH_MODE": "development",
         "TREESEM_INFERENCE_WORKERS": "2",
         "TREESEM_INFERENCE_QUEUE_CAPACITY": "8",
         "TREESEM_DATABASE_WORKERS": "2",

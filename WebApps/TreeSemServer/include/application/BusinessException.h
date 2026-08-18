@@ -18,6 +18,7 @@ public:
         NotFound,
         Conflict,
         IdempotencyConflict,
+        AgentRunInProgress,
         DatabaseBusy,
         DatabaseUnavailable,
         PersistenceFailure,

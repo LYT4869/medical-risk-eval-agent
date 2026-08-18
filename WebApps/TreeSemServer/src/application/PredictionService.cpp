@@ -33,7 +33,9 @@ std::pair<domain::PredictionRecord, ResolvedSession>
 PredictionService::createPrediction(
     const model::ModelInput& input,
     const std::optional<std::string>& suppliedSessionId,
-    SessionAccess access) const
+    SessionAccess access,
+    const std::optional<std::string>& subjectUserId,
+    const std::optional<std::string>& createdByUserId) const
 {
     if (store_ == nullptr || sessionService_ == nullptr)
     {
@@ -45,6 +47,8 @@ PredictionService::createPrediction(
         infrastructure::epochMicroseconds(std::chrono::system_clock::now())));
     domain::PredictionRecord record;
     record.sessionId = resolved.session.sessionId;
+    record.subjectUserId = subjectUserId;
+    record.createdByUserId = createdByUserId;
     record.result = std::move(modelResult);
     record.createdAt = createdAt;
     for (int attempt = 0; attempt < 4; ++attempt)

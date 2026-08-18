@@ -22,7 +22,9 @@ public:
     std::pair<domain::PredictionRecord, ResolvedSession> createPrediction(
         const model::ModelInput& input,
         const std::optional<std::string>& suppliedSessionId,
-        SessionAccess access) const;
+        SessionAccess access,
+        const std::optional<std::string>& subjectUserId = std::nullopt,
+        const std::optional<std::string>& createdByUserId = std::nullopt) const;
 
 private:
     const model::IModelService& modelService_;

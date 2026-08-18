@@ -9,6 +9,8 @@
 #include "http/HttpRequest.h"
 #include "persistence/ITreeSemStore.h"
 #include "service/BlockingTaskScheduler.h"
+#include "persistence/ISecurityStore.h"
+#include "application/AuditService.h"
 
 namespace treesem
 {
@@ -27,7 +29,10 @@ public:
         persistence::ITreeSemStore& store,
         service::BlockingTaskScheduler& databaseScheduler,
         bool cookieSecure,
-        long sessionTtlSeconds);
+        long sessionTtlSeconds,
+        persistence::ISecurityStore* securityStore = nullptr,
+        bool authRequired = false,
+        const application::AuditService* audit = nullptr);
 
     void getPrediction(http::HttpRequest request, http::AsyncResponder responder) const;
     void getExplanation(http::HttpRequest request, http::AsyncResponder responder) const;
@@ -58,6 +63,9 @@ private:
     service::BlockingTaskScheduler& databaseScheduler_;
     bool cookieSecure_;
     long sessionTtlSeconds_;
+    persistence::ISecurityStore* securityStore_;
+    bool authRequired_;
+    const application::AuditService* audit_;
 };
 
 } // namespace api

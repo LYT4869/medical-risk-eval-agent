@@ -24,6 +24,8 @@ int main()
     assert(context.request().path() == "/api/v1/echo");
     assert(context.request().contentLength() == 13);
     assert(context.request().getBody() == "{\"value\":123}");
+    context.request().setHeader("X-TreeSem-Actor-Id", "usr_test");
+    assert(context.request().getHeader("x-treesem-actor-id") == "usr_test");
 
     context.reset();
     assert(!context.gotAll());

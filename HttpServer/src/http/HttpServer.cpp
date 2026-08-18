@@ -180,7 +180,7 @@ bool HttpServer::handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
     }
 
     AsyncResponder responder =
-        makeAsyncResponder(conn, req.getVersion(), closeConnection);
+        makeAsyncResponder(conn, req, closeConnection);
     HttpRequest mutableReq = req;
 
     try
@@ -207,12 +207,14 @@ bool HttpServer::handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
 
 AsyncResponder HttpServer::makeAsyncResponder(
     const muduo::net::TcpConnectionPtr& conn,
-    std::string httpVersion,
+    HttpRequest request,
     bool closeConnection)
 {
+    std::string httpVersion = request.getVersion();
     return makeOneShotResponder(
         [this,
          conn,
+         request = std::move(request),
          httpVersion = std::move(httpVersion),
          closeConnection](ResponseWriter writer) {
         if (!writer)
@@ -222,7 +224,8 @@ AsyncResponder HttpServer::makeAsyncResponder(
         }
 
         conn->getLoop()->queueInLoop(
-            [this, conn, httpVersion, closeConnection, writer = std::move(writer)]() {
+            [this, conn, request, httpVersion, closeConnection,
+             writer = std::move(writer)]() {
                 if (!conn->connected())
                 {
                     return;
@@ -234,7 +237,7 @@ AsyncResponder HttpServer::makeAsyncResponder(
                 {
                     writer(&response);
                     response.setVersion(httpVersion);
-                    middlewareChain_.processAfter(response);
+                    middlewareChain_.processAfter(request, response);
                 }
                 catch (...)
                 {
@@ -289,7 +292,7 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         }
 
         // 处理响应后的中间件
-        middlewareChain_.processAfter(*resp);
+        middlewareChain_.processAfter(mutableReq, *resp);
     }
     catch (const HttpResponse& res) 
     {

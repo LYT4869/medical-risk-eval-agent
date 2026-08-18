@@ -132,5 +132,19 @@ SchedulerErrorPolicy databaseSchedulerErrors()
         "The database task failed."};
 }
 
+SchedulerErrorPolicy agentSchedulerErrors()
+{
+    return {"agent_overloaded", "The agent queue is full.",
+            "service_stopping", "The service is stopping.",
+            "agent_task_failed", "The agent task failed."};
+}
+
+SchedulerErrorPolicy authenticationSchedulerErrors()
+{
+    return {"authentication_overloaded", "The authentication queue is full.",
+            "service_stopping", "The service is stopping.",
+            "authentication_task_failed", "Authentication failed."};
+}
+
 } // namespace service
 } // namespace treesem

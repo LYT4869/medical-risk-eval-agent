@@ -5,6 +5,7 @@
 #include "api/ApiException.h"
 #include "api/HttpErrorMapper.h"
 #include "application/BusinessException.h"
+#include "application/AuthService.h"
 #include "infrastructure/support/ValueSupport.h"
 
 namespace treesem
@@ -28,6 +29,10 @@ http::ResponseWriter safeBusinessWork(Work&& work)
     {
         return HttpErrorMapper::from(error);
     }
+    catch (const application::AuthException& error)
+    {
+        return HttpErrorMapper::from(error);
+    }
     catch (...) { return HttpErrorMapper::internalError(); }
 }
 
@@ -42,7 +47,10 @@ BusinessController::BusinessController(
     persistence::ITreeSemStore& store,
     service::BlockingTaskScheduler& databaseScheduler,
     bool cookieSecure,
-    long sessionTtlSeconds)
+    long sessionTtlSeconds,
+    persistence::ISecurityStore* securityStore,
+    bool authRequired,
+    const application::AuditService* audit)
     : sessions_(sessions)
     , explanations_(explanations)
     , history_(history)
@@ -52,6 +60,9 @@ BusinessController::BusinessController(
     , databaseScheduler_(databaseScheduler)
     , cookieSecure_(cookieSecure)
     , sessionTtlSeconds_(sessionTtlSeconds)
+    , securityStore_(securityStore)
+    , authRequired_(authRequired)
+    , audit_(audit)
 {}
 
 http::ResponseWriter BusinessController::decoratePublicSession(
@@ -88,7 +99,55 @@ application::ResolvedSession BusinessController::resolveRequestSession(
             application::BusinessException::Kind::InvalidSession,
             "session is required for this request");
     }
-    return sessions_.resolve(supplied, access);
+    auto resolved = sessions_.resolve(supplied, access);
+    if (authRequired_)
+    {
+        const std::string actor = request.getHeader("X-TreeSem-Actor-Id");
+        const std::string role = request.getHeader("X-TreeSem-Actor-Role");
+        const auto activeUser = securityStore_ == nullptr
+            ? std::nullopt : securityStore_->findUserById(actor);
+        if (!activeUser.has_value() || activeUser->status != "active" ||
+            domain::toString(activeUser->role) != role)
+            throw application::AuthException(
+                application::AuthException::Kind::InvalidToken,
+                "account is no longer active");
+        if (role == "admin")
+        {
+            if (audit_ != nullptr)
+                audit_->record(actor, role, request.getHeader("X-Request-Id"),
+                    "clinical.read", "session", resolved.session.sessionId,
+                    "denied", "admin_has_no_clinical_access");
+            throw application::AuthException(
+                application::AuthException::Kind::Forbidden,
+                "administrators cannot access clinical resources");
+        }
+        const auto subject = actor.empty() || securityStore_ == nullptr
+            ? std::nullopt
+            : securityStore_->sessionSubjectForActor(
+                resolved.session.sessionId, actor);
+        const std::string runId = request.getHeader("X-TreeSem-Agent-Run-Id");
+        const bool invalidDoctor = role == "doctor" && subject.has_value() &&
+            !securityStore_->hasActiveAssignment(actor, *subject);
+        const bool invalidRun = internal &&
+            (runId.empty() || !securityStore_->isAgentRunRunning(
+                runId, resolved.session.sessionId));
+        if (!subject.has_value() || invalidDoctor || invalidRun)
+        {
+            if (audit_ != nullptr)
+                audit_->record(actor, role, request.getHeader("X-Request-Id"),
+                    "clinical.read", "session", resolved.session.sessionId,
+                    "denied", invalidRun ? "agent_run_inactive"
+                                               : "ownership_or_assignment_denied");
+            throw application::BusinessException(
+                application::BusinessException::Kind::NotFound,
+                "session is not owned by actor");
+        }
+        if (audit_ != nullptr)
+            audit_->record(actor, role, request.getHeader("X-Request-Id"),
+                "clinical.read", "session", resolved.session.sessionId,
+                "allowed", internal ? "agent_tool" : "authenticated");
+    }
+    return resolved;
 }
 
 void BusinessController::getPredictionImpl(
@@ -151,8 +210,7 @@ void BusinessController::getHistory(
                             application::BusinessException::Kind::NotFound,
                             "session was not found");
                     }
-                    (void)sessions_.resolve(
-                        headerSession, application::SessionAccess::Internal);
+                    resolved = resolveRequestSession(request, false);
                 }
                 else
                 {

@@ -7,6 +7,8 @@
 #include "http/HttpResponse.h"
 #include "model/ModelException.h"
 #include "application/BusinessException.h"
+#include "client/IAgentClient.h"
+#include "application/AuthService.h"
 
 namespace treesem
 {
@@ -25,6 +27,8 @@ public:
     static http::ResponseWriter from(const ApiException& error);
     static http::ResponseWriter from(const model::ModelException& error);
     static http::ResponseWriter from(const application::BusinessException& error);
+    static http::ResponseWriter from(const client::AgentClientException& error);
+    static http::ResponseWriter from(const application::AuthException& error);
     static http::ResponseWriter internalError();
 
 private:

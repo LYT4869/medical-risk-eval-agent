@@ -57,6 +57,7 @@ def start(server, bundle, port):
         "TREESEM_MODEL_BACKEND": "onnx",
         "TREESEM_SERVING_BUNDLE_DIR": bundle,
         "TREESEM_STORAGE_BACKEND": "mysql",
+        "TREESEM_AUTH_MODE": "development",
         "TREESEM_DB_NAME": environment.get("TREESEM_TEST_DB_NAME", "treesem_test"),
     })
     if not environment.get("TREESEM_DB_PASSWORD"):

@@ -10,10 +10,23 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd "${script_dir}/.." && pwd)"
 
-MYSQL_PWD="${TREESEM_DB_PASSWORD}" mysql \
-  --host="${TREESEM_DB_HOST}" \
-  --port="${TREESEM_DB_PORT}" \
-  --user="${TREESEM_DB_USER}" \
-  --database="${TREESEM_DB_NAME}" \
-  --protocol=TCP \
-  < "${repository_dir}/db/migrations/001_m4_core.sql"
+for migration in "${repository_dir}"/db/migrations/*.sql; do
+  version="$(basename "${migration}" .sql)"
+  if [[ "${version}" != "001_m4_core" ]]; then
+    applied="$(MYSQL_PWD="${TREESEM_DB_PASSWORD}" mysql \
+      --host="${TREESEM_DB_HOST}" --port="${TREESEM_DB_PORT}" \
+      --user="${TREESEM_DB_USER}" --database="${TREESEM_DB_NAME}" \
+      --protocol=TCP --batch --skip-column-names \
+      --execute="SELECT COUNT(*) FROM schema_migrations WHERE version='${version}'")"
+    if [[ "${applied}" == "1" ]]; then
+      continue
+    fi
+  fi
+  MYSQL_PWD="${TREESEM_DB_PASSWORD}" mysql \
+    --host="${TREESEM_DB_HOST}" \
+    --port="${TREESEM_DB_PORT}" \
+    --user="${TREESEM_DB_USER}" \
+    --database="${TREESEM_DB_NAME}" \
+    --protocol=TCP \
+    < "${migration}"
+done
