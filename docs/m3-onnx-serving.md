@@ -22,7 +22,7 @@ PPH seed42 的 1489 个 reference 样本比较了 PyTorch Bundle Reference、Pyt
 - Python ORT 相对 PyTorch最大概率误差：`1.19e-7`。
 - C++ ORT 相对 Python黄金实现最大概率/置信度误差：`1.79e-7`。
 - label、cluster ID、tree leaf、decision path、重要特征 index/order：100% 一致。
-- Accuracy `0.9019476`、F1 `0.0394737`、AUC `0.4324580` 在 Python/C++ 间完全一致。
+- 当前可信 Artifact 复现 Accuracy `0.9637340`、Positive F1 `0.625`、AUC `0.9287899`；旧低指标来自过期评测记录，详见 M11 质量审计。
 
 这里的指标仅证明迁移没有改变当前模型语义，不表示医疗效果达标。模型质量评审和 Serving 工程正确性是两个独立问题。
 

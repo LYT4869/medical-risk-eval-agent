@@ -1,6 +1,6 @@
 # treeSem 服务平台架构
 
-## 当前 M6 架构
+## 当前 M11 架构
 
 当前可运行链路是：
 
@@ -74,6 +74,9 @@ Client
 - RAG 只提供模型知识、可信临床参考和患者教育，不生成预测事实。
 - Patient、Doctor、Admin 使用资源级授权；Admin 默认不能读取临床内容。
 - RabbitMQ 仅在压测证明存在批量、长任务、状态查询或跨进程重试需求后加入。
+- RequestContext 在 responder 创建前注入，W3C Trace 跨 Agent、领域 Tool 和 MCP 传播。
+- Metrics 只使用稳定 operation 和结果类型，禁止 user、session、prediction、request 等高基数 label。
+- Bundle v2 固定数据、标签、split、Scaler 和指标证据；v1 继续兼容。
 
 ## 请求线程时序
 
@@ -127,6 +130,9 @@ EventLoop          Worker              ONNX / Python fallback
 - scoped Capability JWT、Agent service credential、Origin/Cookie 安全与最小化审计。
 - 版本化医疗知识索引、混合检索、官方 MCP Streamable HTTP、引用校验和知识权限隔离。
 - 声明式可信 Skill Catalog、渐进式 Prompt 加载、Tool 收窄和 Run 版本追踪。
+- 跨服务 Trace、安全 JSON 日志、低基数 Prometheus Metrics 和确定性 Agent Evaluation。
+- 非 root 多阶段镜像、Compose 离线演示、Artifact 预检和轻量 Web 页面。
+- Bundle v2 质量审计、五种子稳健性报告及显式模型发布/回滚记录。
 - 超时、过载、下游故障映射和敏感响应日志治理。
 
 简历中应表述为“基于 Muduo/Kama-HTTPServer 二次开发”，不表述为从零自研完整 HTTP 框架。

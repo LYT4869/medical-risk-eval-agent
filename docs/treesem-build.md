@@ -265,3 +265,55 @@ ctest --test-dir build --output-on-failure
 ```
 
 该配置会额外运行 1489 样本 Python/C++ 全量一致性、C++ 原生树、损坏 Bundle fail-fast、shadow、Adapter 下线和 ONNX 多 Worker 并发测试。
+
+## 13. M9 Trace、Metrics 与 Agent Evaluation
+
+```bash
+export TREESEM_OBSERVABILITY_ENABLED=true
+export TREESEM_METRICS_ENABLED=true
+export TREESEM_TRACE_SAMPLE_RATE=1.0
+export TREESEM_SLOW_REQUEST_MS=1000
+
+PYTHONPATH=PythonServices/TreeSemAgent \
+  python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py \
+  --mode deterministic --output build/reports/m9-agent-evaluation.json
+
+python3 scripts/trace_query.py <trace_id> <log-file-or-directory>
+```
+
+production 还必须设置至少 32 字节的 `TREESEM_METRICS_BEARER_TOKEN`。k6 安装后可执行 `k6 run load/k6/prediction.js` 或 `mixed.js`。
+
+## 14. M10 Compose 演示
+
+```bash
+python3 scripts/prepare_demo.py
+docker compose config --quiet
+docker compose up -d --build
+python3 scripts/demo_flow.py
+
+# 可选
+docker compose --profile observability up -d
+```
+
+默认只暴露 `127.0.0.1:3000`。Scripted LLM 只能用于 local 离线演示；真实模式需要在 `.env` 中设置 `TREESEM_AGENT_LLM_MODE=real` 及 OpenAI-compatible 配置。
+
+## 15. M11 Bundle v2 与模型审计
+
+新导出默认生成 Bundle v2：
+
+```bash
+PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
+/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+  -m treesem_adapter.export_bundle \
+  --artifact <trusted.pt> --raw-file <pph.csv> \
+  --output-dir build/m11-bundles --include-reference-dataset \
+  --training-code-commit <training-commit>
+
+PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
+/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+  scripts/model_quality_audit.py \
+  --artifact <trusted.pt> --raw-file <pph.csv> --bundle <bundle-v2> \
+  --cpp-dump build/onnx_predictions_dump
+```
+
+生产 Bundle 不使用 `--include-reference-dataset`。发布记录由 `scripts/promote_bundle.py promote --bundle <dir>` 创建；确认 `TREESEM_SERVING_BUNDLE_DIR` 后重启服务，不进行运行时热切换。

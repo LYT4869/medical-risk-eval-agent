@@ -13,8 +13,9 @@
 | M6 | Doctor/Patient/Admin 权限、安全和审计 | 已完成 |
 | M7 | 医疗知识 RAG 与 MCP Server | 已完成 |
 | M8 | 医疗领域 Skill 和渐进加载 | 已完成 |
-| M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 待执行 |
-| M10 | Docker、Demo、项目文档和面试材料 | 待执行 |
+| M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 已完成（k6 实测需安装工具） |
+| M10 | Docker、Demo、项目文档和面试材料 | 已实现；容器实测需 Docker daemon 权限 |
+| M11 | 模型质量复现、Bundle v2、发布与回滚 | 已完成 |
 
 ## M0 Definition of Done
 
@@ -108,7 +109,7 @@
 - [x] C++ 签发独立 Knowledge Capability，Patient/Doctor scope 在服务端隔离。
 - [x] Agent 校验本轮 citation ID，API 与 MySQL 只保存引用元数据和 index version。
 - [x] MCP 故障不影响预测主链，知识计算使用独立有界执行器。
-- [x] 43 条离线评测集和可重复评测脚本已提供。
+- [x] 42 条离线评测集和可重复评测脚本已提供。
 
 ## M8 Definition of Done
 
@@ -119,6 +120,34 @@
 - [x] Skill ID、版本与 Catalog 版本随 Agent Run 持久化并支持幂等重放。
 - [x] 无 Skill 时保持 M5 Agent 行为兼容。
 
+## M9 Definition of Done
+
+- [x] W3C Trace 和 request ID 跨 C++、Agent、领域 Tool 与 MCP 传播。
+- [x] 异步 before/after middleware 使用同一个不可变请求上下文。
+- [x] C++、Agent 和 Knowledge 提供低基数、有界内存的 Prometheus Metrics。
+- [x] 60 条 Agent 确定性评测 100% 通过，真实 LLM 无凭据时明确 `not_run`。
+- [x] k6 预测/混合流量、故障注入和统一 `verify-full` 入口已提供。
+- [x] RabbitMQ ADR 已形成；同步主链暂不引入 MQ。
+- [ ] 当前机器未安装 k6，完整负载曲线须在安装后执行。
+
+## M10 Definition of Done
+
+- [x] Backend、Adapter、Agent、Knowledge 与 Demo Web 独立非 root 镜像定义完成。
+- [x] 完整 Compose、只读 Artifact、内部网络和可选 Prometheus/Grafana 已配置。
+- [x] Artifact 预检、离线/真实 LLM 模式和一键演示流程已实现。
+- [x] 静态 Web 覆盖认证、预测、解释、历史、比较、Chat、citation 和 Doctor feedback。
+- [x] Compose 配置静态验证通过，`.env` 以 0600 生成且被 Git 忽略。
+- [ ] 当前账户无 Docker daemon 权限，镜像构建和进程级 Compose E2E 尚不能在本机执行。
+
+## M11 Definition of Done
+
+- [x] 论文/Artifact/Bundle/C++ Serving 的指标溯源工具已提供。
+- [x] 当前 seed42 复现 Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`。
+- [x] Bundle v2 固定数据、标签、split、scaler、环境和指标证据，Loader 兼容 v1/v2。
+- [x] v2 本机导出及 Python/C++ ONNX parity 通过，最大概率差 `1.19e-7`。
+- [x] 五种子同配置历史实验报告可重建并包含稳定性与置信区间。
+- [x] 模型发布/回滚使用显式记录、完整校验和服务重启，不引入热更新。
+
 ## 当前停止线
 
-M0～M8 代码、测试和文档已完成。下一步是 M9 Trace、完整 Agent/RAG Evaluation 与 RabbitMQ 决策门；部署演示属于 M10。模型质量问题继续作为独立工作流处理，不阻塞 Serving 与 Agent 工程架构。
+M0～M11 的代码与文档实现已收口。环境内可运行的 C++、Python、Bundle 与 ONNX 验证需要保持全绿；Docker Compose 真实演示和 k6 完整压测需在具备 Docker daemon 权限及 k6 的机器补跑，不能把静态配置检查冒充运行验收。

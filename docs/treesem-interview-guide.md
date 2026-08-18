@@ -1079,7 +1079,67 @@ RAG 先做离线检索评测：Recall@5、MRR@10、无答案准确率、citation
 
 ---
 
-# K. 面试官常见连续追问链
+# K. M9～M11 可观测性、部署与模型治理
+
+## K1. 一次 Agent 请求跨了多个进程，你怎么定位问题【P0】
+
+Gateway 为入口生成 request ID 和 W3C Trace，上游有合法 `traceparent` 时继续同一 Trace；调用 Python Agent、回调领域 Tool 和 MCP 时分别创建子 Span。每段只记录稳定 operation、耗时、结果和错误码。我先用 trace ID 还原单请求时序，再用 Metrics 判断它是个例还是系统性问题。例如总耗时高而模型 Span 正常、Agent Tool Span 长，就继续看 Agent 调度队列和 MCP/LLM 分段，而不是只看一条“请求慢”日志。
+
+## K2. Trace、日志和 Metrics 各解决什么问题【P0】
+
+Metrics 回答“系统整体是否异常、异常规模多大”，适合告警和趋势；Trace 回答“一次请求在哪一跳耗时或失败”；日志补充离散事件和安全错误原因。三者通过稳定 operation 和 trace ID 关联，但 request ID、用户 ID、Prediction ID 只进入 Trace/日志，不能进入 Metrics label。否则每个请求都会创建新时序，Prometheus 内存和查询成本失控。
+
+## K3. 异步框架里为什么容易把 Trace 上下文弄丢【P1】
+
+请求从 EventLoop 进入 Worker，再通过回调回到连接所属 Loop，线程本地变量不能自然跨越这条边界。我的做法是把不可变请求上下文放入请求副本，并让一次性 responder 捕获这个副本。中间件必须先生成上下文，再构造 responder；否则 after middleware 看到的是注入前副本。下游只传显式 header，不依赖隐式线程局部状态。
+
+## K4. 线上 p99 上升时你具体看什么【P0】
+
+先按固定路由和状态码确认影响范围，再拆成 EventLoop、调度排队、执行、数据库连接等待、模型、LLM 和检索。队列深而执行时间正常是容量/突发问题；数据库 acquire 上升是连接池或 SQL 问题；Agent 总耗时高但 Tool 正常通常看 LLM；只有单一 Trace 慢可能是长尾依赖。止损优先限流、快速 503、关闭非核心 shadow/RAG 或回滚，之后再用同口径压测复现。
+
+## K5. Agent 为什么要分 Fake LLM 和真实 LLM 两套评测【P0】
+
+Fake LLM 能固定 Tool 顺序、错误恢复和边界条件，适合作为 100% CI 硬门槛；它证明 Agent 工程协议正确，但不能证明真实模型会稳定选 Tool。真实 LLM 评测覆盖路由、参数、no-answer、表达和多次波动，保存模型与 Prompt/Skill/Index 版本。grounding、citation、跨角色泄漏和关键医疗边界仍是硬门槛，不能为了提高总体成功率而放松。
+
+## K6. 突发十倍请求时系统怎样避免雪崩【P0】
+
+模型、数据库、Agent 和认证使用隔离有界池，队列满立即返回不同语义的 503，避免无限占用内存；连接池获取和所有下游调用有超时，总 deadline 限制重试。健康检查不进入慢依赖，所以 EventLoop 仍能响应。客户端还应做带抖动的有限退避，避免失败后立即重试形成放大。压测除了 p99/QPS，还要观察队列、拒绝、RSS、连接等待以及负载停止后是否恢复。
+
+## K7. 为什么项目没有为了“技术栈丰富”引入 RabbitMQ【P0】
+
+即时预测和交互式 Chat 都要求同步结果，MQ 不会减少 ONNX 或 LLM 的实际耗时，只会新增任务状态、重复消费、幂等、重试、死信和补偿。当前有界调度池已经建立容量和背压边界。只有批量离线任务、超过 HTTP 生命周期、重启续跑或跨机器扩容 Worker 出现时，MQ 的持久任务价值才超过复杂度。这是根据业务语义和压测作出的 ADR，而不是否定 MQ 本身。
+
+## K8. Docker 化时怎样避免把模型、数据和密钥打进镜像【P1】
+
+构建上下文通过 `.dockerignore` 排除 Artifact、原始数据、报告和 `.env`；镜像只含程序与固定依赖。Bundle、知识索引和模型缓存在运行时只读挂载，Secret 由环境注入且日志脱敏。C++ 使用多阶段构建缩小运行镜像，所有服务非 root，数据库和内部服务只在 Compose 内网，外部只访问 nginx Gateway。
+
+## K9. `/health`、`/ready` 和 Compose `depends_on` 有什么区别【P1】
+
+`/health` 只表示进程和主线程还活着，不能同步探测所有依赖；`/ready` 表示当前是否适合接流量，例如 Backend 能从数据库池执行 `SELECT 1`。Compose 的健康依赖只解决本地启动顺序，不替代运行期 readiness、重试和故障恢复。Knowledge 下线不会让 C++ 核心 `/ready` 失败，因为 RAG 是可降级能力；Bundle/ONNX 损坏则启动直接失败。
+
+## K10. 如何证明 ONNX 部署正确，又如何评价模型质量【P0】
+
+部署正确看同一输入在 PyTorch、Python ORT 和 C++ ORT 的数值及 label、cluster、tree path parity；当前 1489 样本最大概率差约 `1.79e-7`。模型质量看带真实标签的 Accuracy、F1、AUC、AUPRC、Sensitivity、Specificity 和校准。Parity 好只能说明迁移没改模型，不能说明模型医学上足够好。两者必须使用不同的验收问题和证据。
+
+## K11. 为什么这个数据不能只看 Accuracy【P0】
+
+测试集混淆矩阵是 `[[1390,40],[14,45]]`，负类远多于正类，所以 `0.9637` Accuracy 会掩盖正类表现。Positive F1 是 `0.625`，Sensitivity 约 `0.763`，AUPRC 约 `0.739`，它们更能反映少数正类的召回、精确率折中和排序质量。AUC 可用于整体排序，但类别极不平衡时还要看 AUPRC；Brier/ECE 用来观察概率是否校准。
+
+## K12. 怎样防止数据版本或划分变化造成“指标对不上”【P0】
+
+Bundle v2 同时记录原 CSV、Artifact、Feature Schema、Scaler checksum，label 编码以及 train/test index fingerprint。Exporter 按 Artifact 的 seed、stratify 和 test size 重建划分，对全部 1489 个样本推理，并把复算指标与 Artifact 快照比较；标签数、顺序或核心指标不一致直接拒绝导出。训练 commit 无法确认时显式写 null，不能猜一个版本来制造可追溯假象。
+
+## K13. 多 seed 怎么评估，为什么不能挑测试集最好的 seed【P1】
+
+固定同一实验配置运行 19/21/42/60/99，报告均值、标准差、bootstrap 区间、校准和特征选择稳定性。它反映结果对随机初始化和数据划分的敏感程度。候选模型与阈值只能根据训练/验证规则选择，测试集用于最终一次报告；从五个测试结果挑最好 seed 会把测试集变成调参集，指标产生乐观偏差。
+
+## K14. 模型怎样发布和回滚，为什么不做热更新【P1】
+
+候选必须经过 Bundle checksum、标签指标、Python/C++ parity、shadow 和全量业务安全回归，再更新 Bundle 配置并重启。发布记录保存 current、previous 和 manifest SHA；分类、cluster、路径、Schema、延迟或内存异常就回滚上一目录。单机面试项目没有必须零停机热切换的需求，重启方案减少 Session 竞争、半数请求使用不同模型和资源释放等复杂状态，更容易证明正确。
+
+---
+
+# L. 面试官常见连续追问链
 
 这些不是新知识点，而是训练如何连续回答。每条都应脱离代码讲五分钟。
 
@@ -1165,7 +1225,7 @@ RAG 先做离线检索评测：Recall@5、MRR@10、无答案准确率、citation
 
 ---
 
-# L. 简历表述、高风险说法与自测
+# M. 简历表述、高风险说法与自测
 
 ## 1. 推荐项目表述
 
@@ -1231,13 +1291,13 @@ RAG 先做离线检索评测：Recall@5、MRR@10、无答案准确率、citation
 
 ## 4. 推荐复习节奏
 
-第一轮只学习所有 P0，能用自己的话说出主链；第二轮让同学或 AI 沿 K 节连续追问；第三轮
+第一轮只学习所有 P0，能用自己的话说出主链；第二轮让同学或 AI 沿 L 节连续追问；第三轮
 补 P1 原理和权衡；P2 只在目标岗位特别重视网络底层或性能时准备。面试前优先复述和画图，
 不要继续无限增加问题数量。
 
 ---
 
-# M. 技术资料
+# N. 技术资料
 
 以下资料用于校正技术事实，不要求面试前逐篇通读：
 

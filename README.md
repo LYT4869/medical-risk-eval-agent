@@ -1,8 +1,26 @@
-# Kama-HTTPServer
+# treeSem 可解释医疗 Agent 平台
 
-## treeSem 二次开发
+本项目基于 Kama-HTTPServer/Muduo 二次开发，将 treeSem 模型封装为 C++ ONNX Runtime 服务，并在统一 Gateway 后提供 MySQL 业务持久化、医疗 Agent、RAG/MCP、可信 Skill、Patient/Doctor/Admin 资源权限、Trace/Metrics 和可重复评测。它是面向工程与面试展示的辅助解释系统，不输出诊断或治疗结论。
 
-本分支在 Kama-HTTPServer/Muduo 基础上构建 treeSem 可解释医疗模型服务平台。当前已经完成 HTTP 核心修复、异步响应、三个隔离的有界任务池、C++ 分层业务服务、Serving Bundle、C++ ONNX Runtime 默认主链、MySQL 持久化，以及可调用领域 Tool 的医疗 Agent、Patient/Doctor/Admin 资源级授权、Capability 和安全审计。
+```text
+Browser -> C++ Gateway -> ONNX treeSem / MySQL
+                    \-> Python Agent -> Native Tools
+                                    \-> Knowledge MCP / RAG
+```
+
+当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。60 条确定性 Agent 场景全部通过。完整证据不手工写死在代码中，由质量审计和评测脚本生成。
+
+## 快速演示
+
+```bash
+make prepare-demo
+make demo
+make demo-flow
+```
+
+默认使用仅限 local 的 Scripted LLM，仍会真实经过 ONNX、MySQL、Tool、MCP、Skill 和权限链。真实模型模式使用 `make demo-real` 并在 `.env` 中配置 OpenAI-compatible 服务。Artifact 不自动下载；预检会验证 Bundle、ONNX、知识索引和 checksum。
+
+## 文档导航
 
 - [架构与能力归属](docs/architecture.md)
 - [M0/M1 API 契约](docs/api-contract.md)
@@ -18,9 +36,32 @@
 - [M6 身份、RBAC、Capability 与安全审计](docs/m6-security.md)
 - [M7 医疗知识 RAG 与 MCP](docs/m7-rag-mcp.md)
 - [M8 可信 Skill 与渐进加载](docs/m8-skills.md)
+- [M9 Trace、Metrics、Evaluation 与容量决策](docs/m9-observability-evaluation.md)
+- [M10 部署、Web 演示与验证边界](docs/m10-deployment-demo.md)
+- [M11 模型质量、Bundle v2 与发布治理](docs/m11-model-quality.md)
+- [RabbitMQ 选型 ADR](docs/adr/0001-rabbitmq-decision.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
+
+## 能力归属
+
+- 原 Kama/Muduo：Reactor 网络层、HTTP 基础解析与框架骨架。
+- 本项目增强：严格解析与动态异步路由、跨线程一次性回包、隔离有界调度池、分层 Backend、ONNX Serving、MySQL/Session、Agent/RAG/MCP/Skill、RBAC/Capability/审计、可观测性、评测与部署包装。
+- 未宣称内容：生产医疗合规、临床有效性证明、通用 Skill 市场、Multi-Agent、模型热更新和分布式 MQ 主链。
+
+## 验证入口
+
+```bash
+make verify       # C++ 注册测试 + 60 条确定性 Agent Evaluation
+make verify-full  # 具备私有 Artifact、Docker 和 k6 的本地完整门槛
+```
+
+当前开发账户无法访问 Docker daemon，仓库已通过 Compose 静态配置验证，但容器真实 E2E 需要在有 Docker 权限的环境补跑。详见 [M10 验证边界](docs/m10-deployment-demo.md)。
+
+---
+
+## 上游 Kama-HTTPServer 项目说明
 
 > **本项目目前只在[知识星球](https://programmercarl.com/other/kstar.html)答疑并维护**。
 
