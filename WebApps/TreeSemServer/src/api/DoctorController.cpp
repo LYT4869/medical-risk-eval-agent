@@ -60,7 +60,7 @@ domain::ActorContext DoctorController::doctor(
     domain::ActorContext actor;
     actor.userId = request.getHeader("X-TreeSem-Actor-Id");
     actor.role = domain::parseUserRole(request.getHeader("X-TreeSem-Actor-Role"));
-    actor.requestId = infrastructure::generateOpaqueId("req_");
+    actor.requestId = request.requestContext().requestId;
     actor.subjectUserId = patientId;
     const auto activeUser = securityStore_.findUserById(actor.userId);
     if (!activeUser.has_value() || activeUser->status != "active" ||
@@ -144,7 +144,10 @@ void DoctorController::chat(http::HttpRequest request, http::AsyncResponder resp
                           "agent.chat", "patient", patient,
                           "allowed", "active_assignment");
             auto result = agent_->chat(parsed.message, parsed.idempotencyKey,
-                session.session.sessionId, application::SessionAccess::Internal, actor);
+                session.session.sessionId, application::SessionAccess::Internal, actor,
+                client::TraceCarrier{request.requestContext().requestId,
+                    request.requestContext().traceId,
+                    request.requestContext().spanId});
             return cookie(HttpErrorMapper::success(ChatJsonCodec::serialize(result)),
                           session, cookieSecure_, sessionTtlSeconds_);
         });

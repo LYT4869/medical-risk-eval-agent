@@ -60,6 +60,17 @@ nlohmann::json encodeRequest(const AgentRequest& request)
         request.knowledgeCapabilityToken.has_value()
         ? nlohmann::json(*request.knowledgeCapabilityToken)
         : nlohmann::json(nullptr);
+    if (request.trace.has_value())
+    {
+        root["request_id"] = request.trace->requestId;
+        root["traceparent"] = "00-" + request.trace->traceId + "-" +
+            request.trace->parentSpanId + "-01";
+    }
+    else
+    {
+        root["request_id"] = nullptr;
+        root["traceparent"] = nullptr;
+    }
     return root;
 }
 
@@ -234,6 +245,16 @@ AgentResponse PythonAgentClient::run(const AgentRequest& request) const
     const std::string secretHeader = "X-TreeSem-Agent-Token: " + config_.serviceSecret;
     if (!config_.serviceSecret.empty())
         headers = curl_slist_append(headers, secretHeader.c_str());
+    std::string requestIdHeader;
+    std::string traceParentHeader;
+    if (request.trace.has_value())
+    {
+        requestIdHeader = "X-Request-Id: " + request.trace->requestId;
+        traceParentHeader = "traceparent: 00-" + request.trace->traceId + "-" +
+            request.trace->parentSpanId + "-01";
+        headers = curl_slist_append(headers, requestIdHeader.c_str());
+        headers = curl_slist_append(headers, traceParentHeader.c_str());
+    }
     curl_easy_setopt(handle, CURLOPT_URL, config_.url.c_str());
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handle, CURLOPT_POST, 1L);

@@ -7,6 +7,7 @@ import time
 from .llm_client import LlmClient, LlmError
 from .policy import PolicyViolation, ResponsePolicy
 from .prompt import SYSTEM_PROMPT
+from .observability import TraceState, metrics, trace_event
 from .schemas import AgentRunRequest, AgentRunResponse, SkillUse
 from .skills import SkillActivation
 from .tool_registry import ToolRegistry
@@ -33,6 +34,28 @@ class AgentLoop:
         self._policy = policy or ResponsePolicy()
 
     async def run(self, request: AgentRunRequest) -> AgentRunResponse:
+        trace = TraceState.from_headers(request.request_id, request.traceparent)
+        started = time.monotonic()
+        metrics.increment("treesem_agent_runs_total", result="started")
+        try:
+            result = await self._run_steps(request, trace)
+            metrics.increment("treesem_agent_runs_total", result="completed")
+            metrics.observe("treesem_agent_run_duration_seconds",
+                            time.monotonic() - started, result="completed")
+            trace_event(trace, "agent.run", started, "success",
+                        step_count=result.step_count,
+                        tool_count=len(result.tools_used))
+            return result
+        except Exception as exc:
+            code = "timeout" if isinstance(exc, AgentTimeout) else "execution_failed"
+            metrics.increment("treesem_agent_runs_total", result=code)
+            metrics.observe("treesem_agent_run_duration_seconds",
+                            time.monotonic() - started, result=code)
+            trace_event(trace, "agent.run", started, "error", error_code=code)
+            raise
+
+    async def _run_steps(self, request: AgentRunRequest,
+                         trace: TraceState) -> AgentRunResponse:
         deadline = time.monotonic() + self._total_timeout
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in request.recent_messages)
@@ -41,7 +64,7 @@ class AgentLoop:
         messages.append({"role": "user", "content": request.message})
         context = ToolContext(request.session_id, request.capability_token,
                               request.knowledge_capability_token,
-                              request.actor_role)
+                              request.actor_role, trace)
         catalog_prompt = self._tools.skill_catalog_prompt(context.actor_role)
         if catalog_prompt:
             messages.insert(1, {"role": "system", "content": catalog_prompt})
@@ -108,6 +131,8 @@ class AgentLoop:
                         raise AgentExecutionError("tool call limit reached")
                 result = await self._tools.execute(
                     call.name, call.arguments, context, active_skill)
+                metrics.increment("treesem_agent_tool_results_total",
+                                  tool=call.name, result=result.usage.status)
                 usages.append(result.usage)
                 available_ids.update(result.prediction_ids)
                 available_citations.update(result.citations)

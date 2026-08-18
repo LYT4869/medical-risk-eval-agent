@@ -32,7 +32,8 @@ public:
                     const std::string& idempotencyKey,
                     const std::optional<std::string>& suppliedSession,
                     SessionAccess access,
-                    const std::optional<domain::ActorContext>& actor = std::nullopt) const;
+                    const std::optional<domain::ActorContext>& actor = std::nullopt,
+                    const std::optional<client::TraceCarrier>& trace = std::nullopt) const;
     domain::ChatPage history(const std::string& sessionId,
                              std::size_t limit,
                              const std::optional<domain::ChatCursor>& cursor) const;

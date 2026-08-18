@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "observability/MetricsRegistry.h"
+
 #include <cppconn/connection.h>
 
 namespace treesem
@@ -27,6 +29,7 @@ struct MySqlConnectionConfig
     int connectTimeoutSeconds{1};
     int readTimeoutSeconds{2};
     int writeTimeoutSeconds{2};
+    std::shared_ptr<http::observability::MetricsRegistry> metrics;
 };
 
 class MySqlConnectionPool
@@ -77,6 +80,7 @@ private:
     std::size_t liveConnections_{0};
     std::size_t borrowedConnections_{0};
     bool stopping_{false};
+    std::shared_ptr<http::observability::MetricsRegistry> metrics_;
 };
 
 } // namespace infrastructure

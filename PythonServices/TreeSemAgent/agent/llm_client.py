@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -102,3 +103,106 @@ class ScriptedLlmClient:
         if not self.turns:
             raise LlmError("script exhausted")
         return self.turns.pop(0)
+
+
+class ScriptedDemoClient:
+    """Local-only deterministic model used by the reproducible interview demo."""
+
+    @staticmethod
+    def _tool_names(messages: list[dict[str, Any]]) -> list[str]:
+        names: list[str] = []
+        for message in messages:
+            for call in message.get("tool_calls", []):
+                names.append(call.get("function", {}).get("name", ""))
+        return names
+
+    @staticmethod
+    def _tool_payloads(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        values: list[dict[str, Any]] = []
+        for message in messages:
+            if message.get("role") != "tool":
+                continue
+            try:
+                value = json.loads(message.get("content", "{}"))
+                if isinstance(value, dict): values.append(value)
+            except ValueError:
+                pass
+        return values
+
+    async def close(self) -> None:
+        return None
+
+    async def complete(self, messages: list[dict[str, Any]],
+                       tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+        del timeout
+        user = next((str(item.get("content", "")) for item in reversed(messages)
+                     if item.get("role") == "user"), "")
+        called = self._tool_names(messages)
+        available = {item["function"]["name"] for item in tools}
+        prediction_match = re.search(r"pred_[0-9a-f]{32}", json.dumps(messages))
+        prediction_id = prediction_match.group(0) if prediction_match else None
+
+        def call(name: str, arguments: dict[str, Any]) -> LlmTurn:
+            return LlmTurn(tool_calls=[LlmToolCall(
+                id=f"demo_{len(called)}", name=name, arguments=arguments)])
+
+        if not called:
+            if "activate_skill" in available:
+                if any(word in user.lower() for word in ("比较", "compare", "上一次")):
+                    return call("activate_skill", {"skill_id": "compare_prediction_history"})
+                if any(word in user.lower() for word in ("解释", "explain")):
+                    return call("activate_skill", {"skill_id": "explain_prediction"})
+                if not any(word in user.lower() for word in ("预测", "predict")):
+                    return call("activate_skill", {"skill_id": "pph_evidence_education"})
+            if any(word in user.lower() for word in ("预测", "predict")) and "predict_sample" in available:
+                return call("predict_sample", {"sample_index": 0})
+            if any(word in user.lower() for word in ("解释", "explain")) and prediction_id and "get_explanation" in available:
+                return call("get_explanation", {"prediction_id": prediction_id})
+            if any(word in user.lower() for word in ("比较", "compare", "上一次")) and "get_prediction_history" in available:
+                return call("get_prediction_history", {"limit": 5})
+            if "search_medical_knowledge" in available:
+                return call("search_medical_knowledge", {
+                    "query": user[:500], "scope": "all", "top_k": 5})
+        if "activate_skill" in called:
+            if (any(word in user.lower() for word in ("解释", "explain")) and
+                    prediction_id and "get_explanation" in available and
+                    "get_explanation" not in called):
+                return call("get_explanation", {"prediction_id": prediction_id})
+            if (any(word in user.lower() for word in ("比较", "compare", "上一次")) and
+                    "get_prediction_history" in available and
+                    "get_prediction_history" not in called):
+                return call("get_prediction_history", {"limit": 5})
+            if ("search_medical_knowledge" in available and
+                    "search_medical_knowledge" not in called):
+                return call("search_medical_knowledge", {
+                    "query": user[:500], "scope": "all", "top_k": 5})
+        if "get_prediction_history" in called and "compare_predictions" not in called:
+            ids = re.findall(r"pred_[0-9a-f]{32}", json.dumps(self._tool_payloads(messages)))
+            unique = list(dict.fromkeys(ids))
+            if len(unique) >= 2 and "compare_predictions" in available:
+                return call("compare_predictions", {
+                    "prediction_id_a": unique[0], "prediction_id_b": unique[1]})
+
+        payloads = self._tool_payloads(messages)
+        prediction_ids = list(dict.fromkeys(re.findall(
+            r"pred_[0-9a-f]{32}", json.dumps(payloads))))
+        citation_ids = list(dict.fromkeys(re.findall(
+            r"cite_[0-9a-f]{20}", json.dumps(payloads))))
+        citations = " ".join(citation_ids)
+        answer = "这是可复现离线演示回答。模型结果仅用于辅助解释，不能替代医生判断。"
+        if "compare_predictions" in called:
+            answer = "两次结果的差异来自后端确定性比较接口；不能仅凭模型变化判断病情进展。"
+        elif "get_explanation" in called:
+            answer = "解释来自已保存的重要特征和决策路径；重要性表示模型关联，不代表因果关系。"
+        elif "predict_sample" in called:
+            answer = "演示预测已经由 treeSem 工具完成。"
+        elif "search_medical_knowledge" in called:
+            answer = "以下说明来自受控知识库，不能替代个体化医疗判断。"
+        if citations:
+            answer += " 引用：" + citations
+        content = json.dumps({"answer": answer,
+                              "grounding_prediction_ids": prediction_ids,
+                              "grounding_source_ids": citation_ids}, ensure_ascii=False)
+        return LlmTurn(content=content,
+                       grounding_prediction_ids=prediction_ids,
+                       grounding_source_ids=citation_ids)

@@ -1,4 +1,6 @@
 import os
+import hmac
+import time
 from typing import Annotated, Literal
 
 from pydantic import Field
@@ -6,6 +8,7 @@ from pydantic import Field
 from .retrieval.index import (CrossEncoderReranker, HybridRetriever, KnowledgeIndex,
                               SentenceTransformerQueryEmbedding)
 from .service import KnowledgeOverloaded, KnowledgeService
+from .observability import TraceState, metrics, trace_event
 
 
 def _positive(name: str, default: int) -> int:
@@ -62,6 +65,10 @@ def create_mcp(service: KnowledgeService | None = None):
         raise RuntimeError("the official MCP Python SDK is required") from exc
     owned = service is None
     service = service or create_service()
+    metrics_token = os.getenv("TREESEM_METRICS_BEARER_TOKEN", "")
+    if (os.getenv("TREESEM_DEPLOYMENT_ENV", "local") == "production" and
+            len(metrics_token) < 32):
+        raise RuntimeError("production metrics require a bearer token")
     mcp = FastMCP(
         "treeSem Medical Knowledge", stateless_http=True, json_response=True,
         host=os.getenv("TREESEM_KNOWLEDGE_HOST", "127.0.0.1"),
@@ -81,9 +88,19 @@ def create_mcp(service: KnowledgeService | None = None):
             scope: Literal["model", "clinical", "all"] = "all",
             top_k: Annotated[int, Field(ge=1, le=6)] = 5) -> dict:
         """Search curated treeSem and authoritative PPH knowledge with citations."""
+        request = ctx.request_context.request
+        trace = TraceState.from_headers(
+            request.headers.get("x-request-id", ""),
+            request.headers.get("traceparent", ""))
+        started = time.monotonic()
         try:
-            return await service.search(bearer(ctx), query, scope, top_k)
+            result = await service.search(bearer(ctx), query, scope, top_k)
+            trace_event(trace, started, "success",
+                        retrieval_mode=result.get("retrieval_mode", "unknown"),
+                        result_count=len(result.get("results", [])))
+            return result
         except KnowledgeOverloaded as exc:
+            trace_event(trace, started, "error", error_code="knowledge_overloaded")
             raise RuntimeError("knowledge_overloaded") from exc
 
     # The pinned SDK builds a Pydantic argument model with extra="ignore".
@@ -113,6 +130,15 @@ def create_mcp(service: KnowledgeService | None = None):
     async def ready(_: Request):
         return JSONResponse({"status": "ready",
                              "index_version": service.retriever.index.version})
+
+    @mcp.custom_route("/internal/metrics", methods=["GET"])
+    async def service_metrics(request: Request):
+        expected = f"Bearer {metrics_token}"
+        if metrics_token and not hmac.compare_digest(
+                request.headers.get("authorization", "").encode(), expected.encode()):
+            return JSONResponse({"error": "metrics_authentication_required"}, status_code=401)
+        from starlette.responses import PlainTextResponse
+        return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4")
 
     if owned:
         original_close = service.close

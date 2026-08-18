@@ -179,21 +179,27 @@ bool HttpServer::handleAsyncRequest(const muduo::net::TcpConnectionPtr& conn,
         return false;
     }
 
-    AsyncResponder responder =
-        makeAsyncResponder(conn, req, closeConnection);
     HttpRequest mutableReq = req;
+    mutableReq.mutableRequestContext().routePattern =
+        router_.matchingRoutePattern(req.method(), req.path()).value_or("unmatched");
 
+    AsyncResponder responder;
     try
     {
         middlewareChain_.processBefore(mutableReq);
+        responder = makeAsyncResponder(conn, mutableReq, closeConnection);
         router_.routeAsync(mutableReq, responder);
     }
     catch (const HttpResponse& response)
     {
+        if (!responder)
+            responder = makeAsyncResponder(conn, mutableReq, closeConnection);
         responder([response](HttpResponse* target) { *target = response; });
     }
     catch (...)
     {
+        if (!responder)
+            responder = makeAsyncResponder(conn, mutableReq, closeConnection);
         responder([](HttpResponse* response) {
             response->setStatusCode(HttpResponse::k500InternalServerError);
             response->setStatusMessage("Internal Server Error");
@@ -219,25 +225,25 @@ AsyncResponder HttpServer::makeAsyncResponder(
          closeConnection](ResponseWriter writer) {
         if (!writer)
         {
-            LOG_ERROR << "Ignoring an empty asynchronous response writer";
-            return;
+            LOG_ERROR << "Replacing an empty asynchronous response writer";
+            writer = [](HttpResponse* response) {
+                response->setStatusCode(HttpResponse::k500InternalServerError);
+                response->setStatusMessage("Internal Server Error");
+                response->setContentType("application/json; charset=utf-8");
+                response->setBody(
+                    R"({"error":"response_build_failed","message":"The server could not build the response."})");
+            };
         }
 
         conn->getLoop()->queueInLoop(
             [this, conn, request, httpVersion, closeConnection,
              writer = std::move(writer)]() {
-                if (!conn->connected())
-                {
-                    return;
-                }
-
                 HttpResponse response(closeConnection);
                 response.setVersion(httpVersion);
                 try
                 {
                     writer(&response);
                     response.setVersion(httpVersion);
-                    middlewareChain_.processAfter(request, response);
                 }
                 catch (...)
                 {
@@ -249,6 +255,8 @@ AsyncResponder HttpServer::makeAsyncResponder(
                     response.setBody(
                         R"({"error":"response_build_failed","message":"The server could not build the response."})");
                 }
+                middlewareChain_.processAfter(request, response);
+                if (!conn->connected()) return;
                 sendResponse(conn, &response);
             });
         });
@@ -272,10 +280,12 @@ void HttpServer::sendResponse(const muduo::net::TcpConnectionPtr& conn,
 // 执行请求对应的路由处理函数
 void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
 {
+    HttpRequest mutableReq = req;
+    mutableReq.mutableRequestContext().routePattern =
+        router_.matchingRoutePattern(req.method(), req.path()).value_or("unmatched");
     try
     {
         // 处理请求前的中间件
-        HttpRequest mutableReq = req;
         middlewareChain_.processBefore(mutableReq);
 
         // 路由处理
@@ -298,6 +308,7 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
     {
         // 处理中间件抛出的响应（如CORS预检请求）
         *resp = res;
+        middlewareChain_.processAfter(mutableReq, *resp);
     }
     catch (const std::exception&)
     {
@@ -307,6 +318,7 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         resp->setContentType("application/json; charset=utf-8");
         resp->setBody(
             R"({"error":"internal_error","message":"The server could not complete the request."})");
+        middlewareChain_.processAfter(mutableReq, *resp);
     }
 }
 

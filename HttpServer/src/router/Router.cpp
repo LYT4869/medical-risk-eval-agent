@@ -138,6 +138,30 @@ bool Router::hasAsyncCallback(HttpRequest::Method method, const std::string& pat
         });
 }
 
+std::optional<std::string> Router::matchingRoutePattern(
+    HttpRequest::Method method, const std::string& path) const
+{
+    const RouteKey key{method, path};
+    if (handlers_.count(key) != 0 || callbacks_.count(key) != 0 ||
+        asyncCallbacks_.count(key) != 0)
+    {
+        return path;
+    }
+    const auto dynamicMatch = [&](const auto& routes) -> std::optional<std::string> {
+        for (const auto& route : routes)
+        {
+            if (route.method_ == method && std::regex_match(path, route.pathRegex_))
+            {
+                return route.pathPattern_;
+            }
+        }
+        return std::nullopt;
+    };
+    if (auto result = dynamicMatch(asyncRegexCallbacks_)) return result;
+    if (auto result = dynamicMatch(regexHandlers_)) return result;
+    return dynamicMatch(regexCallbacks_);
+}
+
 bool Router::routeAsync(const HttpRequest& req, const AsyncResponder& responder) const
 {
     const auto callback = asyncCallbacks_.find(RouteKey{req.method(), req.path()});

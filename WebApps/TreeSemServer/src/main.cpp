@@ -10,6 +10,7 @@
 #include <muduo/base/Logging.h>
 
 #include "api/HealthController.h"
+#include "api/MetricsController.h"
 #include "api/BusinessController.h"
 #include "api/PredictionController.h"
 #include "api/ChatController.h"
@@ -25,6 +26,8 @@
 #include "client/PythonAgentClient.h"
 #include "config/TreeSemServerConfig.h"
 #include "http/HttpServer.h"
+#include "middleware/ObservabilityMiddleware.h"
+#include "observability/MetricsRegistry.h"
 #include "infrastructure/model/RemoteTreeSemModelService.h"
 #include "infrastructure/model/RoutingModelServices.h"
 #if defined(TREESEM_HAS_ONNXRUNTIME)
@@ -52,6 +55,7 @@ int main(int argc, char* argv[])
 
         const treesem::config::TreeSemServerConfig config =
             treesem::config::TreeSemServerConfig::load(argc, argv);
+        auto metrics = std::make_shared<http::observability::MetricsRegistry>();
         treesem::client::PythonModelClientConfig clientConfig;
         clientConfig.predictUrl = config.modelAdapterUrl;
         clientConfig.connectTimeoutMs = config.modelConnectTimeoutMs;
@@ -89,7 +93,7 @@ int main(int argc, char* argv[])
             {
                 fallbackModelService = std::make_unique<
                     treesem::infrastructure::FallbackModelService>(
-                    *onnxModelService, remoteModelService);
+                    *onnxModelService, remoteModelService, metrics);
                 selectedModelService = fallbackModelService.get();
                 fallbackEnabled = true;
             }
@@ -97,7 +101,7 @@ int main(int argc, char* argv[])
             {
                 shadowModelService = std::make_unique<
                     treesem::infrastructure::ShadowModelService>(
-                    *onnxModelService, remoteModelService);
+                    *onnxModelService, remoteModelService, metrics);
                 selectedModelService = shadowModelService.get();
             }
         }
@@ -109,6 +113,10 @@ int main(int argc, char* argv[])
         }
 #endif
 
+        treesem::infrastructure::InstrumentedModelService instrumentedModelService(
+            *selectedModelService, metrics);
+        selectedModelService = &instrumentedModelService;
+
         std::unique_ptr<treesem::persistence::ITreeSemStore> store;
         if (config.storageBackend == treesem::config::StorageBackend::Memory)
         {
@@ -118,8 +126,10 @@ int main(int argc, char* argv[])
         else
         {
 #if defined(TREESEM_HAS_MYSQL)
+            auto mysqlConfig = treesem::infrastructure::MySqlStoreConfig::from(config);
+            mysqlConfig.connection.metrics = metrics;
             store = std::make_unique<treesem::infrastructure::MySqlTreeSemStore>(
-                treesem::infrastructure::MySqlStoreConfig::from(config));
+                std::move(mysqlConfig));
 #else
             throw std::invalid_argument(
                 "this build has no MySQL support; use TREESEM_STORAGE_BACKEND=memory");
@@ -175,15 +185,15 @@ int main(int argc, char* argv[])
         treesem::service::BlockingTaskScheduler predictionScheduler(
             config.inferenceWorkerCount,
             config.inferenceQueueCapacity,
-            treesem::service::predictionSchedulerErrors());
+            treesem::service::predictionSchedulerErrors(), metrics, "prediction");
         treesem::service::BlockingTaskScheduler databaseScheduler(
             config.databaseWorkerCount,
             config.databaseQueueCapacity,
-            treesem::service::databaseSchedulerErrors());
+            treesem::service::databaseSchedulerErrors(), metrics, "database");
 #if defined(TREESEM_HAS_AUTH)
         treesem::service::BlockingTaskScheduler authScheduler(
             config.authWorkerCount, config.authQueueCapacity,
-            treesem::service::authenticationSchedulerErrors());
+            treesem::service::authenticationSchedulerErrors(), metrics, "authentication");
         treesem::api::AuthController authController(
             authService, sessionService, *securityStore, authScheduler,
             config.refreshCookieSecure,
@@ -209,7 +219,7 @@ int main(int argc, char* argv[])
                 config.knowledgeEnabled && configuredJwtService != nullptr);
             agentScheduler = std::make_unique<treesem::service::BlockingTaskScheduler>(
                 config.agentWorkerCount, config.agentQueueCapacity,
-                treesem::service::agentSchedulerErrors());
+                treesem::service::agentSchedulerErrors(), metrics, "agent");
             chatController = std::make_unique<treesem::api::ChatController>(
                 *agentService, sessionService, *agentScheduler, databaseScheduler,
                 config.cookieSecure, config.sessionTtlSeconds,
@@ -244,11 +254,17 @@ int main(int argc, char* argv[])
             config.storageBackend == treesem::config::StorageBackend::MySql
                 ? config.databasePoolSize : 0,
             config.sessionTtlSeconds});
+        treesem::api::MetricsController metricsController(
+            metrics, config.metricsBearerToken);
 
         http::HttpServer server(config.listenPort, "TreeSemServer");
+        if (config.observabilityEnabled)
+            server.addMiddleware(std::make_shared<http::middleware::ObservabilityMiddleware>(
+                metrics, "treesem-backend", config.traceSampleRate,
+                config.slowRequestMs));
 #if defined(TREESEM_HAS_AUTH)
         server.addMiddleware(std::make_shared<treesem::security::SecurityMiddleware>(
-            jwtService, config.authRequired, config.allowedOrigins));
+            jwtService, config.authRequired, config.allowedOrigins, metrics));
 #endif
         server.Get(
             "/health",
@@ -256,6 +272,12 @@ int main(int argc, char* argv[])
                                 http::HttpResponse* response) {
                 healthController.handle(request, response);
             });
+        if (config.metricsEnabled)
+            server.Get("/internal/metrics",
+                [&metricsController](const http::HttpRequest& request,
+                                     http::HttpResponse* response) {
+                    metricsController.handle(request, response);
+                });
         const http::AsyncHttpCallback predictionHandler =
             [&predictionController](http::HttpRequest request,
                                     http::AsyncResponder responder) {

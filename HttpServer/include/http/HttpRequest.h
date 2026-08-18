@@ -6,6 +6,8 @@
 
 #include <muduo/base/Timestamp.h>
 
+#include "RequestContext.h"
+
 namespace http
 {
 
@@ -54,6 +56,11 @@ public:
     // normalization as headers parsed from the wire.
     void setHeader(const std::string& field, const std::string& value);
 
+    void setRequestContext(RequestContext context)
+    { requestContext_ = std::move(context); }
+    RequestContext& mutableRequestContext() { return requestContext_; }
+    const RequestContext& requestContext() const { return requestContext_; }
+
     const std::map<std::string, std::string>& headers() const
     { return headers_; }
 
@@ -87,6 +94,7 @@ private:
     std::map<std::string, std::string>           headers_; // 请求头
     std::string                                  content_; // 请求体
     uint64_t                                     contentLength_ { 0 }; // 请求体长度
-};  
+    RequestContext                               requestContext_;
+};
 
 } // namespace http

@@ -46,8 +46,10 @@ std::string requiredTool(const http::HttpRequest& request)
 }
 
 SecurityMiddleware::SecurityMiddleware(
-    const JwtService& jwt, bool required, std::string allowedOrigins)
-    : jwt_(jwt), required_(required), allowedOrigins_(std::move(allowedOrigins)) {}
+    const JwtService& jwt, bool required, std::string allowedOrigins,
+    std::shared_ptr<http::observability::MetricsRegistry> metrics)
+    : jwt_(jwt), required_(required), allowedOrigins_(std::move(allowedOrigins)),
+      metrics_(std::move(metrics)) {}
 
 void SecurityMiddleware::before(http::HttpRequest& request)
 {
@@ -68,8 +70,13 @@ void SecurityMiddleware::before(http::HttpRequest& request)
             if (end == std::string::npos) break;
             begin = end + 1;
         }
-        if (!allowed) reject(http::HttpResponse::k403Forbidden,
-            "forbidden", "The request origin is not allowed.");
+        if (!allowed)
+        {
+            if (metrics_) metrics_->increment("treesem_authorization_denials_total",
+                {{"reason", "origin"}});
+            reject(http::HttpResponse::k403Forbidden,
+                "forbidden", "The request origin is not allowed.");
+        }
     }
     if (request.method() == http::HttpRequest::kOptions)
     {
@@ -88,14 +95,19 @@ void SecurityMiddleware::before(http::HttpRequest& request)
     }
     if (!required_) return;
     const std::string path = request.path();
-    if (path == "/health" || path == "/ready" ||
+    if (path == "/health" || path == "/ready" || path == "/internal/metrics" ||
         path.rfind("/api/v1/auth/", 0) == 0) return;
     const auto now = domain::TimePoint(std::chrono::microseconds(
         infrastructure::epochMicroseconds(std::chrono::system_clock::now())));
     const bool internal = path.rfind("/internal/", 0) == 0;
     const std::string token = bearer(request);
-    if (token.empty()) reject(http::HttpResponse::k401Unauthorized,
-        "authentication_required", "Authentication is required.");
+    if (token.empty())
+    {
+        if (metrics_) metrics_->increment("treesem_authentication_total",
+            {{"result", "missing"}});
+        reject(http::HttpResponse::k401Unauthorized,
+            "authentication_required", "Authentication is required.");
+    }
     try
     {
         if (internal)
@@ -105,12 +117,18 @@ void SecurityMiddleware::before(http::HttpRequest& request)
             if (tool.empty() || std::find(capability.allowedTools.begin(),
                     capability.allowedTools.end(), tool) == capability.allowedTools.end() ||
                 request.getHeader("X-TreeSem-Session-Id") != capability.sessionId)
+            {
+                if (metrics_) metrics_->increment("treesem_authorization_denials_total",
+                    {{"reason", "capability_scope"}});
                 reject(http::HttpResponse::k403Forbidden, "capability_forbidden",
                        "The capability does not permit this tool call.");
+            }
             request.setHeader("X-TreeSem-Actor-Id", capability.actorId);
             request.setHeader("X-TreeSem-Actor-Role", domain::toString(capability.actorRole));
             request.setHeader("X-TreeSem-Subject-Id", capability.subjectUserId);
             request.setHeader("X-TreeSem-Agent-Run-Id", capability.runId);
+            if (metrics_) metrics_->increment("treesem_authentication_total",
+                {{"result", "capability_success"}});
         }
         else
         {
@@ -118,14 +136,22 @@ void SecurityMiddleware::before(http::HttpRequest& request)
             request.setHeader("X-TreeSem-Actor-Id", actor.userId);
             request.setHeader("X-TreeSem-Actor-Role", domain::toString(actor.role));
             request.setHeader("X-TreeSem-Subject-Id", actor.userId);
+            if (metrics_) metrics_->increment("treesem_authentication_total",
+                {{"result", "access_success"}});
         }
     }
     catch (const http::HttpResponse&) { throw; }
     catch (...)
     {
         if (internal)
+        {
+            if (metrics_) metrics_->increment("treesem_authorization_denials_total",
+                {{"reason", "invalid_capability"}});
             reject(http::HttpResponse::k403Forbidden, "capability_forbidden",
                    "The internal capability is invalid, expired, or out of scope.");
+        }
+        if (metrics_) metrics_->increment("treesem_authentication_total",
+            {{"result", "invalid"}});
         reject(http::HttpResponse::k401Unauthorized, "invalid_access_token",
                "The authentication token is invalid or expired.");
     }

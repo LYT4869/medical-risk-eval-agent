@@ -28,6 +28,9 @@ class AgentRunRequest(StrictModel):
     capability_token: str | None = Field(default=None, max_length=8192)
     knowledge_capability_token: str | None = Field(default=None, max_length=8192)
     actor_role: Literal["patient", "doctor"] = "patient"
+    request_id: str | None = Field(default=None, pattern=r"^req_[0-9a-f]{32}$")
+    traceparent: str | None = Field(
+        default=None, pattern=r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
 
     @field_validator("message")
     @classmethod

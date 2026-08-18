@@ -10,6 +10,13 @@
 namespace treesem::client
 {
 
+struct TraceCarrier
+{
+    std::string requestId;
+    std::string traceId;
+    std::string parentSpanId;
+};
+
 struct AgentRequest
 {
     std::string runId;
@@ -21,6 +28,7 @@ struct AgentRequest
     std::optional<std::string> capabilityToken;
     std::string actorRole{"patient"};
     std::optional<std::string> knowledgeCapabilityToken;
+    std::optional<TraceCarrier> trace;
 };
 
 struct AgentResponse

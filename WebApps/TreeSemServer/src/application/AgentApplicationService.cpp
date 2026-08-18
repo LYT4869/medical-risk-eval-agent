@@ -32,7 +32,8 @@ AgentApplicationService::AgentApplicationService(
 ChatResult AgentApplicationService::chat(
     const std::string& message, const std::string& idempotencyKey,
     const std::optional<std::string>& suppliedSession, SessionAccess access,
-    const std::optional<domain::ActorContext>& actor) const
+    const std::optional<domain::ActorContext>& actor,
+    const std::optional<client::TraceCarrier>& trace) const
 {
     ResolvedSession resolved = sessions_.resolve(suppliedSession, access);
     const auto startedAt = nowUtc();
@@ -76,6 +77,7 @@ ChatResult AgentApplicationService::chat(
         request.currentPredictionId = resolved.session.currentPredictionId;
         request.actorRole = actor.has_value()
             ? domain::toString(actor->role) : "patient";
+        request.trace = trace;
         if (actor.has_value() && jwt_ != nullptr)
         {
             security::CapabilityContext capability;

@@ -132,7 +132,8 @@ class ToolRegistry:
                     raise ToolExecutionError("knowledge tool is unavailable")
                 args = KnowledgeSearchArgs.model_validate(arguments)
                 raw = await self._knowledge.search(
-                    context.knowledge_capability_token, args.query, args.scope, args.top_k)
+                    context.knowledge_capability_token, args.query, args.scope,
+                    args.top_k, context.trace)
                 parsed = KnowledgeToolOutput.model_validate(raw)
                 if any(not math.isfinite(item.score) for item in parsed.results):
                     raise ToolExecutionError("knowledge tool returned a non-finite score")

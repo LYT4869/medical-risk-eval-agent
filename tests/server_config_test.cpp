@@ -97,6 +97,11 @@ int main()
         "TREESEM_KNOWLEDGE_JWT_SECRET",
         "TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS",
         "TREESEM_DEPLOYMENT_ENV",
+        "TREESEM_OBSERVABILITY_ENABLED",
+        "TREESEM_METRICS_ENABLED",
+        "TREESEM_METRICS_BEARER_TOKEN",
+        "TREESEM_TRACE_SAMPLE_RATE",
+        "TREESEM_SLOW_REQUEST_MS",
     });
 
     char program[] = "treesem_server";
@@ -125,6 +130,10 @@ int main()
     assert(config.sessionTtlSeconds == 3600);
     assert(!config.cookieSecure);
     assert(!config.refreshCookieSecure);
+    assert(config.observabilityEnabled);
+    assert(config.metricsEnabled);
+    assert(config.traceSampleRate == 1.0);
+    assert(config.slowRequestMs == 1000);
 
     ::setenv("TREESEM_MODEL_ADAPTER_URL", "http://adapter/v1/predict", 1);
     ::setenv("TREESEM_MODEL_CONNECT_TIMEOUT_MS", "250", 1);
@@ -228,6 +237,14 @@ int main()
     assertInvalid([&]() {
         treesem::config::TreeSemServerConfig::load(1, defaultArguments);
     });
+    ::setenv("TREESEM_REFRESH_COOKIE_SECURE", "true", 1);
+    ::unsetenv("TREESEM_METRICS_BEARER_TOKEN");
+    assertInvalid([&]() {
+        treesem::config::TreeSemServerConfig::load(1, defaultArguments);
+    });
+    ::setenv("TREESEM_METRICS_BEARER_TOKEN",
+             "metrics-secret-for-config-test-at-least-32-bytes", 1);
+    (void)treesem::config::TreeSemServerConfig::load(1, defaultArguments);
     ::setenv("TREESEM_DEPLOYMENT_ENV", "local", 1);
     ::setenv("TREESEM_AUTH_MODE", "development", 1);
     ::setenv("TREESEM_STORAGE_BACKEND", "mysql", 1);

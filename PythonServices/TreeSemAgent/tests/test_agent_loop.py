@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from agent.llm_client import ScriptedLlmClient
+from agent.llm_client import ScriptedDemoClient, ScriptedLlmClient
 from agent.loop import AgentExecutionError, AgentLoop
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn, PredictionContext, RecentMessage
 from agent.tool_registry import ToolRegistry
@@ -57,6 +57,26 @@ def request():
 
 
 class AgentLoopTest(unittest.TestCase):
+    def test_offline_demo_activates_explanation_skill_then_calls_tool(self):
+        prediction_id = "pred_" + "a" * 32
+        client = ScriptedDemoClient()
+        messages = [{"role": "user", "content": f"解释 {prediction_id}"}]
+        activate = [{"type": "function", "function": {
+            "name": "activate_skill", "parameters": {}}}]
+        first = asyncio.run(client.complete(messages, activate, 1.0))
+        self.assertEqual(first.tool_calls[0].name, "activate_skill")
+        self.assertEqual(first.tool_calls[0].arguments["skill_id"],
+                         "explain_prediction")
+        messages.extend([
+            {"role": "assistant", "tool_calls": [{"function": {
+                "name": "activate_skill"}}]},
+            {"role": "tool", "content": '{"status":"activated"}'},
+        ])
+        explanation = [{"type": "function", "function": {
+            "name": "get_explanation", "parameters": {}}}]
+        second = asyncio.run(client.complete(messages, explanation, 1.0))
+        self.assertEqual(second.tool_calls[0].name, "get_explanation")
+
     def test_tool_then_grounded_answer(self):
         prediction_id = "pred_" + "a" * 32
         llm = ScriptedLlmClient([

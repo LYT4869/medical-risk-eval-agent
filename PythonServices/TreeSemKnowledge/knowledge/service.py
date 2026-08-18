@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from .auth import verify_knowledge_token
 from .retrieval import HybridRetriever
+from .observability import metrics
 
 
 class KnowledgeOverloaded(RuntimeError):
@@ -27,10 +29,12 @@ class KnowledgeService:
 
     async def search(self, token: str, query: str, scope: str = "all",
                      top_k: int = 5) -> dict:
+        started = time.monotonic()
         claims = verify_knowledge_token(token, self._secret)
         try:
             await asyncio.wait_for(self._slots.acquire(), timeout=0.05)
         except asyncio.TimeoutError as exc:
+            metrics.increment("treesem_knowledge_requests_total", result="overloaded")
             raise KnowledgeOverloaded("knowledge queue is full") from exc
         try:
             loop = asyncio.get_running_loop()
@@ -38,6 +42,15 @@ class KnowledgeService:
                 self._executor,
                 lambda: self.retriever.search(
                     query, claims.actor_role, set(claims.scopes), scope, top_k))
-            return result.json()
+            body = result.json()
+            mode = str(body.get("retrieval_mode", "unknown"))
+            metrics.increment("treesem_knowledge_requests_total",
+                              result="success", mode=mode)
+            metrics.observe("treesem_knowledge_duration_seconds",
+                            time.monotonic() - started, mode=mode)
+            return body
+        except Exception:
+            metrics.increment("treesem_knowledge_requests_total", result="error")
+            raise
         finally:
             self._slots.release()

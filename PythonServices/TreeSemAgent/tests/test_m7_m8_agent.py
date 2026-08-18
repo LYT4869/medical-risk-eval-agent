@@ -16,7 +16,7 @@ class FakeKnowledge:
     def __init__(self):
         self.calls = []
 
-    async def search(self, token, query, scope, top_k):
+    async def search(self, token, query, scope, top_k, trace=None):
         self.calls.append((token, query, scope, top_k))
         return {
             "index_version": "knowledge-test",

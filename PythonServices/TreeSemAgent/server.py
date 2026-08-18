@@ -7,13 +7,16 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import PlainTextResponse
 
-from agent.llm_client import OpenAiCompatibleClient, OpenAiCompatibleConfig
+from agent.llm_client import (OpenAiCompatibleClient, OpenAiCompatibleConfig,
+                              ScriptedDemoClient)
 from agent.loop import AgentExecutionError, AgentLoop, AgentTimeout
 from agent.schemas import AgentRunRequest, AgentRunResponse
 from agent.skills import SkillCatalog
 from agent.tool_registry import ToolRegistry
 from agent.tools import BackendToolClient, McpKnowledgeClient
+from agent.observability import metrics
 
 
 def _integer(name: str, default: int) -> int:
@@ -33,6 +36,10 @@ def _boolean(name: str, default: bool) -> bool:
 def create_app(loop: AgentLoop | None = None) -> FastAPI:
     backend_url = os.getenv("TREESEM_AGENT_BACKEND_URL", "http://127.0.0.1:8080")
     service_secret = os.getenv("TREESEM_AGENT_SERVICE_SECRET", "")
+    metrics_token = os.getenv("TREESEM_METRICS_BEARER_TOKEN", "")
+    if (os.getenv("TREESEM_DEPLOYMENT_ENV", "local") == "production" and
+            len(metrics_token) < 32):
+        raise RuntimeError("production metrics require a bearer token")
     owned = loop is None
     llm = None
     backend = None
@@ -41,16 +48,24 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
     if loop is None:
         if len(service_secret) < 32:
             raise RuntimeError("TREESEM_AGENT_SERVICE_SECRET must contain at least 32 characters")
-        base_url = os.getenv("TREESEM_AGENT_LLM_BASE_URL", "").strip()
-        model = os.getenv("TREESEM_AGENT_LLM_MODEL", "").strip()
-        if not base_url or not model:
-            raise RuntimeError("TREESEM_AGENT_LLM_BASE_URL and TREESEM_AGENT_LLM_MODEL are required")
-        llm = OpenAiCompatibleClient(OpenAiCompatibleConfig(
-            base_url=base_url, model=model,
-            api_key=os.getenv("TREESEM_AGENT_LLM_API_KEY", ""),
-            connect_timeout_seconds=_integer("TREESEM_AGENT_LLM_CONNECT_TIMEOUT_MS", 1000) / 1000,
-            request_timeout_seconds=_integer("TREESEM_AGENT_LLM_REQUEST_TIMEOUT_MS", 20000) / 1000,
-        ))
+        llm_mode = os.getenv("TREESEM_AGENT_LLM_MODE", "real")
+        if llm_mode == "scripted_demo":
+            if os.getenv("TREESEM_DEPLOYMENT_ENV", "local") != "local":
+                raise RuntimeError("scripted_demo LLM is restricted to local deployments")
+            llm = ScriptedDemoClient()
+        elif llm_mode == "real":
+            base_url = os.getenv("TREESEM_AGENT_LLM_BASE_URL", "").strip()
+            model = os.getenv("TREESEM_AGENT_LLM_MODEL", "").strip()
+            if not base_url or not model:
+                raise RuntimeError("TREESEM_AGENT_LLM_BASE_URL and TREESEM_AGENT_LLM_MODEL are required")
+            llm = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                base_url=base_url, model=model,
+                api_key=os.getenv("TREESEM_AGENT_LLM_API_KEY", ""),
+                connect_timeout_seconds=_integer("TREESEM_AGENT_LLM_CONNECT_TIMEOUT_MS", 1000) / 1000,
+                request_timeout_seconds=_integer("TREESEM_AGENT_LLM_REQUEST_TIMEOUT_MS", 20000) / 1000,
+            ))
+        else:
+            raise RuntimeError("TREESEM_AGENT_LLM_MODE must be real or scripted_demo")
         backend = BackendToolClient(backend_url)
         knowledge_enabled = _boolean("TREESEM_KNOWLEDGE_ENABLED", True)
         if knowledge_enabled:
@@ -86,7 +101,8 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict:
-        result = {"status": "ok", "service": "treeSem-agent"}
+        result = {"status": "ok", "service": "treeSem-agent",
+                  "llm_backend": os.getenv("TREESEM_AGENT_LLM_MODE", "real")}
         if skills is not None:
             result.update({"skill_count": skills.count,
                            "skill_catalog_version": skills.version})
@@ -103,6 +119,14 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
         if knowledge is not None and not await knowledge.ready():
             raise HTTPException(status_code=503, detail="knowledge MCP unavailable")
         return {"status": "ready"}
+
+    @app.get("/internal/metrics", response_class=PlainTextResponse)
+    async def service_metrics(authorization: str = Header(default="")) -> str:
+        expected = f"Bearer {metrics_token}"
+        if metrics_token and not hmac.compare_digest(
+                authorization.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="metrics authentication required")
+        return metrics.render()
 
     @app.post("/v1/agent/runs", response_model=AgentRunResponse)
     async def run_agent(request: AgentRunRequest,

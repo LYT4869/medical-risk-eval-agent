@@ -1,5 +1,6 @@
 #include "service/BlockingTaskScheduler.h"
 
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -33,8 +34,12 @@ void respondWithError(const http::AsyncResponder& responder,
 BlockingTaskScheduler::BlockingTaskScheduler(
     std::size_t workerCount,
     std::size_t queueCapacity,
-    SchedulerErrorPolicy errorPolicy)
+    SchedulerErrorPolicy errorPolicy,
+    std::shared_ptr<http::observability::MetricsRegistry> metrics,
+    std::string schedulerName)
     : errorPolicy_(std::move(errorPolicy))
+    , metrics_(std::move(metrics))
+    , schedulerName_(std::move(schedulerName))
     , workers_(workerCount, queueCapacity)
 {
     if (errorPolicy_.queueFullCode.empty() || errorPolicy_.stoppedCode.empty() ||
@@ -42,6 +47,8 @@ BlockingTaskScheduler::BlockingTaskScheduler(
     {
         throw std::invalid_argument("scheduler error codes must not be empty");
     }
+    if (metrics_ && schedulerName_.empty())
+        throw std::invalid_argument("instrumented scheduler requires a stable name");
 }
 
 BlockingTaskScheduler::SubmitResult BlockingTaskScheduler::schedule(
@@ -57,8 +64,13 @@ BlockingTaskScheduler::SubmitResult BlockingTaskScheduler::schedule(
         throw std::invalid_argument("responder must not be empty");
     }
 
+    const auto taskMetrics = metrics_;
+    const std::string taskSchedulerName = schedulerName_;
+    auto* const workerPool = &workers_;
     const SubmitResult result = workers_.trySubmit(
-        [job = std::move(job), responder, policy = errorPolicy_]() {
+        [taskMetrics, taskSchedulerName, workerPool,
+         job = std::move(job), responder, policy = errorPolicy_]() {
+            const auto started = std::chrono::steady_clock::now();
             try
             {
                 http::ResponseWriter writer = job();
@@ -77,7 +89,33 @@ BlockingTaskScheduler::SubmitResult BlockingTaskScheduler::schedule(
                     policy.taskFailedCode,
                     policy.taskFailedMessage);
             }
+            if (taskMetrics)
+            {
+                const double seconds = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - started).count();
+                taskMetrics->observe("treesem_scheduler_task_duration_seconds",
+                                     {{"scheduler", taskSchedulerName}}, seconds);
+                const std::size_t active = workerPool->activeTasks();
+                taskMetrics->setGauge("treesem_scheduler_active_tasks",
+                    {{"scheduler", taskSchedulerName}},
+                    static_cast<double>(active > 0 ? active - 1 : 0));
+                taskMetrics->setGauge("treesem_scheduler_queue_depth",
+                    {{"scheduler", taskSchedulerName}},
+                    static_cast<double>(workerPool->queuedTasks()));
+            }
         });
+
+    if (metrics_)
+    {
+        std::string outcome = "accepted";
+        if (result == SubmitResult::QueueFull) outcome = "queue_full";
+        else if (result == SubmitResult::Stopped) outcome = "stopped";
+        metrics_->increment("treesem_scheduler_submissions_total",
+            {{"scheduler", schedulerName_}, {"result", outcome}});
+        metrics_->setGauge("treesem_scheduler_queue_depth",
+            {{"scheduler", schedulerName_}},
+            static_cast<double>(workers_.queuedTasks()));
+    }
 
     if (result == SubmitResult::QueueFull)
     {
@@ -109,6 +147,11 @@ void BlockingTaskScheduler::shutdown()
 {
     workers_.shutdown();
 }
+
+std::size_t BlockingTaskScheduler::queuedTasks() const { return workers_.queuedTasks(); }
+std::size_t BlockingTaskScheduler::activeTasks() const { return workers_.activeTasks(); }
+std::size_t BlockingTaskScheduler::workerCount() const noexcept { return workers_.workerCount(); }
+std::size_t BlockingTaskScheduler::queueCapacity() const noexcept { return workers_.queueCapacity(); }
 
 SchedulerErrorPolicy predictionSchedulerErrors()
 {

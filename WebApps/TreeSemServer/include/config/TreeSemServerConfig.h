@@ -75,6 +75,11 @@ struct TreeSemServerConfig
     std::string allowedOrigins{"http://127.0.0.1:3000"};
     std::size_t authWorkerCount{2};
     std::size_t authQueueCapacity{32};
+    bool observabilityEnabled{true};
+    bool metricsEnabled{true};
+    std::string metricsBearerToken;
+    double traceSampleRate{1.0};
+    long slowRequestMs{1000};
 
     static TreeSemServerConfig load(int argc, char* argv[]);
 };

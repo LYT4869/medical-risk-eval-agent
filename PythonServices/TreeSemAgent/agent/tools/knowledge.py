@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Protocol
+
+from ..observability import TraceState, metrics, trace_event
 
 
 class KnowledgeToolError(RuntimeError):
@@ -11,7 +14,7 @@ class KnowledgeToolError(RuntimeError):
 
 class KnowledgeClient(Protocol):
     async def search(self, token: str, query: str, scope: str,
-                     top_k: int) -> dict[str, Any]: ...
+                     top_k: int, trace: TraceState | None = None) -> dict[str, Any]: ...
 
     async def ready(self) -> bool: ...
 
@@ -26,7 +29,7 @@ class McpKnowledgeClient:
         self._maximum = maximum_response_bytes
 
     async def _call(self, token: str, query: str, scope: str,
-                    top_k: int) -> dict[str, Any]:
+                    top_k: int, trace: TraceState | None = None) -> dict[str, Any]:
         try:
             import httpx
             from mcp import ClientSession  # type: ignore[import-not-found]
@@ -34,6 +37,9 @@ class McpKnowledgeClient:
         except ModuleNotFoundError as exc:
             raise KnowledgeToolError("official MCP SDK is unavailable") from exc
         headers = {"Authorization": f"Bearer {token}"}
+        if trace:
+            headers.update({"X-Request-Id": trace.request_id,
+                            "traceparent": trace.traceparent})
         async with httpx.AsyncClient(headers=headers, timeout=self._timeout) as client:
             async with streamable_http_client(self._url, http_client=client) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
@@ -55,16 +61,31 @@ class McpKnowledgeClient:
                     return body
 
     async def search(self, token: str, query: str, scope: str,
-                     top_k: int) -> dict[str, Any]:
+                     top_k: int, trace: TraceState | None = None) -> dict[str, Any]:
         error: Exception | None = None
         for attempt in range(2):
+            child = trace.child() if trace else None
+            started = time.monotonic()
             try:
-                return await asyncio.wait_for(
-                    self._call(token, query, scope, top_k), self._timeout)
+                result = await asyncio.wait_for(
+                    self._call(token, query, scope, top_k, child), self._timeout)
+                mode = str(result.get("retrieval_mode", "unknown"))
+                metrics.increment("treesem_agent_knowledge_calls_total", result="success", mode=mode)
+                metrics.observe("treesem_agent_knowledge_duration_seconds",
+                                time.monotonic() - started, mode=mode)
+                if child:
+                    trace_event(child, "agent.mcp.search_medical_knowledge",
+                                started, "success", retrieval_mode=mode)
+                return result
             except (OSError, asyncio.TimeoutError, KnowledgeToolError) as exc:
                 error = exc
+                if child:
+                    trace_event(child, "agent.mcp.search_medical_knowledge",
+                                started, "error", error_code="knowledge_unavailable")
                 if attempt == 0:
                     await asyncio.sleep(0.03)
+        metrics.increment("treesem_agent_knowledge_calls_total",
+                          result="error", mode="unavailable")
         raise KnowledgeToolError("knowledge MCP is unavailable") from error
 
     async def ready(self) -> bool:

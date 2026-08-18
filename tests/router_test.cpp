@@ -76,6 +76,10 @@ int main()
     assert(router.hasAsyncCallback(dynamicRequest.method(), dynamicRequest.path()));
     assert(router.routeAsync(dynamicRequest, responder));
     assert(dynamicAsyncCalled);
+    assert(router.matchingRoutePattern(dynamicRequest.method(), dynamicRequest.path()) ==
+           "/predictions/:prediction_id/explanation");
+    assert(router.matchingRoutePattern(asyncRequest.method(), asyncRequest.path()) ==
+           "/predict");
 
     bool rejectedDuplicate = false;
     try

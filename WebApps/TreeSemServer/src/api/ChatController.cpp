@@ -59,7 +59,10 @@ void ChatController::chat(http::HttpRequest request, http::AsyncResponder respon
     const auto supplied = BusinessJsonCodec::sessionId(request, application::SessionAccess::Public);
     const std::string actorId = request.getHeader("X-TreeSem-Actor-Id");
     const std::string actorRole = request.getHeader("X-TreeSem-Actor-Role");
-    agentScheduler_.schedule([parsed = std::move(parsed), supplied, actorId, actorRole, this]() {
+    const client::TraceCarrier trace{request.requestContext().requestId,
+        request.requestContext().traceId, request.requestContext().spanId};
+    agentScheduler_.schedule([parsed = std::move(parsed), supplied, actorId, actorRole,
+                              trace, this]() {
         return safe([&]() {
             std::optional<domain::ActorContext> actor;
             if (authRequired_)
@@ -94,14 +97,14 @@ void ChatController::chat(http::HttpRequest request, http::AsyncResponder respon
                         application::BusinessException::Kind::NotFound, "session not found");
                 }
                 actor = domain::ActorContext{actorId, domain::parseUserRole(actorRole), 0,
-                    supplied, subject, infrastructure::generateOpaqueId("req_")};
+                    supplied, subject, trace.requestId};
                 if (audit_ != nullptr)
                     audit_->record(actorId, actorRole, actor->requestId,
                         "agent.chat", "session", *supplied,
                         "allowed", "authenticated");
             }
             const auto result = service_.chat(parsed.message, parsed.idempotencyKey,
-                supplied, application::SessionAccess::Public, actor);
+                supplied, application::SessionAccess::Public, actor, trace);
             return withCookie(HttpErrorMapper::success(ChatJsonCodec::serialize(result)),
                               result.session, sessionTtlSeconds_, cookieSecure_);
         });

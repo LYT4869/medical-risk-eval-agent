@@ -1,6 +1,7 @@
 #include "config/TreeSemServerConfig.h"
 
 #include <cerrno>
+#include <cmath>
 #include <climits>
 #include <cstdlib>
 #include <stdexcept>
@@ -82,6 +83,17 @@ bool parseBoolean(const std::string& value, const std::string& name)
     if (value == "true" || value == "1") return true;
     if (value == "false" || value == "0") return false;
     throw std::invalid_argument(name + " must be true or false");
+}
+
+double parseUnitDouble(const std::string& value, const std::string& name)
+{
+    char* end = nullptr;
+    errno = 0;
+    const double parsed = std::strtod(value.c_str(), &end);
+    if (errno == ERANGE || end == value.c_str() || *end != '\0' ||
+        !std::isfinite(parsed) || parsed < 0.0 || parsed > 1.0)
+        throw std::invalid_argument(name + " must be a number in the range 0..1");
+    return parsed;
 }
 
 } // namespace
@@ -254,6 +266,21 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
         "TREESEM_AUTH_WORKERS", config.authWorkerCount);
     config.authQueueCapacity = parsePositiveSize(
         "TREESEM_AUTH_QUEUE_CAPACITY", config.authQueueCapacity);
+    config.observabilityEnabled = parseBoolean(environmentOr(
+        "TREESEM_OBSERVABILITY_ENABLED",
+        config.observabilityEnabled ? "true" : "false"),
+        "TREESEM_OBSERVABILITY_ENABLED");
+    config.metricsEnabled = parseBoolean(environmentOr(
+        "TREESEM_METRICS_ENABLED", config.metricsEnabled ? "true" : "false"),
+        "TREESEM_METRICS_ENABLED");
+    config.metricsBearerToken = environmentOr(
+        "TREESEM_METRICS_BEARER_TOKEN", config.metricsBearerToken);
+    config.traceSampleRate = parseUnitDouble(environmentOr(
+        "TREESEM_TRACE_SAMPLE_RATE", std::to_string(config.traceSampleRate)),
+        "TREESEM_TRACE_SAMPLE_RATE");
+    config.slowRequestMs = parsePositiveLong(environmentOr(
+        "TREESEM_SLOW_REQUEST_MS", std::to_string(config.slowRequestMs)),
+        "TREESEM_SLOW_REQUEST_MS");
     if (config.authRequired &&
         (config.accessJwtSecret.size() < 32 ||
          config.capabilityJwtSecret.size() < 32 ||
@@ -279,6 +306,10 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
          config.allowedOrigins.find('*') != std::string::npos))
         throw std::invalid_argument(
             "production requires auth, secure cookies and exact CORS origins");
+    if (config.deploymentEnvironment == "production" && config.metricsEnabled &&
+        config.metricsBearerToken.size() < 32)
+        throw std::invalid_argument(
+            "production metrics require TREESEM_METRICS_BEARER_TOKEN of at least 32 bytes");
     if (config.databaseHost.empty() || config.databaseName.empty() ||
         config.databaseUser.empty())
     {

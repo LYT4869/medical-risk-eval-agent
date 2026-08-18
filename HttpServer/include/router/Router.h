@@ -5,6 +5,7 @@
 #include <memory>
 #include <functional>
 #include <regex>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -70,6 +71,8 @@ public:
                        const AsyncHttpCallback& callback);
 
     bool hasAsyncCallback(HttpRequest::Method method, const std::string& path) const;
+    std::optional<std::string> matchingRoutePattern(
+        HttpRequest::Method method, const std::string& path) const;
     bool routeAsync(const HttpRequest& req, const AsyncResponder& responder) const;
 
     // 注册动态路由处理器

@@ -67,7 +67,9 @@ set(KAMA_HTTP_CORE_SOURCES
     HttpServer/src/http/HttpResponse.cpp
     HttpServer/src/http/HttpServer.cpp
     HttpServer/src/middleware/MiddlewareChain.cpp
+    HttpServer/src/middleware/ObservabilityMiddleware.cpp
     HttpServer/src/middleware/cors/CorsMiddleware.cpp
+    HttpServer/src/observability/MetricsRegistry.cpp
     HttpServer/src/router/Router.cpp
     HttpServer/src/session/Session.cpp
     HttpServer/src/session/SessionManager.cpp
@@ -96,6 +98,7 @@ target_compile_options(kama_http_core PRIVATE -Wall -Wextra -Wpedantic)
 add_library(treesem_runtime STATIC
     WebApps/TreeSemServer/src/api/ApiException.cpp
     WebApps/TreeSemServer/src/api/HealthController.cpp
+    WebApps/TreeSemServer/src/api/MetricsController.cpp
     WebApps/TreeSemServer/src/api/HttpErrorMapper.cpp
     WebApps/TreeSemServer/src/api/PredictionController.cpp
     WebApps/TreeSemServer/src/api/PredictionJsonCodec.cpp
@@ -261,6 +264,10 @@ if(KAMA_BUILD_TESTS)
     add_executable(async_responder_test tests/async_responder_test.cpp)
     target_link_libraries(async_responder_test PRIVATE kama_http_core)
     add_test(NAME async_responder_test COMMAND async_responder_test)
+
+    add_executable(observability_test tests/observability_test.cpp)
+    target_link_libraries(observability_test PRIVATE treesem_runtime)
+    add_test(NAME observability_test COMMAND observability_test)
 
     add_executable(bounded_worker_pool_test tests/bounded_worker_pool_test.cpp)
     target_link_libraries(bounded_worker_pool_test PRIVATE treesem_runtime)

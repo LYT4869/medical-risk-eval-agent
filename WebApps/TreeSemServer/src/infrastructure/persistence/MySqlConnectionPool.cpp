@@ -69,7 +69,7 @@ void MySqlConnectionPool::Lease::release() noexcept
 }
 
 MySqlConnectionPool::MySqlConnectionPool(MySqlConnectionConfig config)
-    : config_(std::move(config))
+    : config_(std::move(config)), metrics_(config_.metrics)
 {
     if (config_.host.empty() || config_.database.empty() || config_.user.empty() ||
         config_.poolSize == 0 || config_.acquireTimeout.count() <= 0)
@@ -139,6 +139,7 @@ std::unique_ptr<sql::Connection> MySqlConnectionPool::createConnection() const
 
 MySqlConnectionPool::Lease MySqlConnectionPool::acquire()
 {
+    const auto started = std::chrono::steady_clock::now();
     const auto deadline = std::chrono::steady_clock::now() + config_.acquireTimeout;
     std::unique_lock<std::mutex> lock(mutex_);
     while (true)
@@ -154,6 +155,18 @@ MySqlConnectionPool::Lease MySqlConnectionPool::acquire()
             auto connection = std::move(available_.back());
             available_.pop_back();
             ++borrowedConnections_;
+            if (metrics_)
+            {
+                metrics_->increment("treesem_database_acquire_total",
+                                    {{"result", "success"}});
+                metrics_->observe("treesem_database_acquire_duration_seconds", {},
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - started).count());
+                metrics_->setGauge("treesem_database_connections",
+                    {{"state", "borrowed"}}, static_cast<double>(borrowedConnections_));
+                metrics_->setGauge("treesem_database_connections",
+                    {{"state", "idle"}}, static_cast<double>(available_.size()));
+            }
             lock.unlock();
             try
             {
@@ -206,6 +219,9 @@ MySqlConnectionPool::Lease MySqlConnectionPool::acquire()
         }
         if (availableCondition_.wait_until(lock, deadline) == std::cv_status::timeout)
         {
+            if (metrics_)
+                metrics_->increment("treesem_database_acquire_total",
+                                    {{"result", "timeout"}});
             throw application::BusinessException(
                 application::BusinessException::Kind::DatabaseBusy,
                 "timed out waiting for a MySQL connection");
@@ -248,6 +264,13 @@ void MySqlConnectionPool::release(
     }
     availableCondition_.notify_one();
     drainedCondition_.notify_all();
+    if (metrics_)
+    {
+        metrics_->setGauge("treesem_database_connections",
+            {{"state", "borrowed"}}, static_cast<double>(borrowedConnections_));
+        metrics_->setGauge("treesem_database_connections",
+            {{"state", "idle"}}, static_cast<double>(available_.size()));
+    }
 }
 
 void MySqlConnectionPool::shutdown()
