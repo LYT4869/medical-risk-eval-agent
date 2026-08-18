@@ -4,10 +4,10 @@
 探究路径组织，而不是按源码文件、类名、函数名或变量名组织。回答时应描述场景、设计、
 关键不变量、权衡和验证，不能把面试变成源码背诵。
 
-当前版本覆盖已经完成的 M0～M3：Kama/Muduo HTTP 框架、C++ 异步 Backend、
-treeSem Serving Bundle、Python 黄金实现、ONNX Runtime C++ 主链、fallback、shadow
-和一致性验证。MySQL、医疗权限、Agent、RAG/MCP、Skill 等模块将在真正实现并验证后，
-继续维护到同一文档中，不提前把规划写成已完成功能。
+当前版本覆盖已经完成的 M0～M6：Kama/Muduo HTTP 框架、异步 C++ Backend、
+Serving Bundle、ONNX Runtime 主链、MySQL 事务业务层、医疗 Agent Core、原生领域 Tool、
+Patient/Doctor/Admin 资源授权、Capability 和安全审计。RAG/MCP、Skill 与完整 Agent 评测
+仍是后续模块，不提前写成已完成功能。
 
 ---
 
@@ -27,7 +27,7 @@ treeSem Serving Bundle、Python 黄金实现、ONNX Runtime C++ 主链、fallbac
 | 组合二 | 异步边界、线程池、生命周期、超时、过载保护 | 已可学习 | 2 |
 | 组合三 | Serving Bundle、ONNX、C++ 推理、一致性与灰度 | 已可学习 | 3 |
 | 组合四 | 测试、压测、可观测性、C++ 工程基础 | 已可学习 | 4 |
-| 组合五 | MySQL、RBAC、Agent、RAG/MCP、Skill、安全评测 | 后续实现后补充 | 5 |
+| 组合五 | MySQL、RBAC、Agent、RAG/MCP、Skill、安全评测 | MySQL/RBAC/Agent 已可学习 | 5 |
 
 ### 项目题回答公式
 
@@ -68,6 +68,9 @@ treeSem Serving Bundle、Python 黄金实现、ONNX Runtime C++ 主链、fallbac
   原生实现。
 - 支持 ONNX 主链、Python fallback 和 shadow 对比；在 1489 个参考样本上验证连续值、
   label、cluster、叶节点和决策路径一致性。
+- 实现 MySQL 事务业务层、匿名 Session、预测历史、确定性比较和反馈幂等。
+- 实现 Python Agent Loop、五个结构化领域 Tool、grounding 校验和 Run/Chat 持久化。
+- 实现 Argon2id、Access/Refresh Token、资源级 RBAC、Agent Capability 和最小化安全审计。
 
 ### 必须谨慎表述的能力
 
@@ -75,7 +78,7 @@ treeSem Serving Bundle、Python 黄金实现、ONNX Runtime C++ 主链、fallbac
 |---|---|---|
 | HTTP 框架 | 基于 Kama/Muduo 二次开发，并增加 treeSem 所需异步能力 | HTTP 框架全部从零实现 |
 | Reactor/epoll | 底层使用 Muduo 的 Reactor 网络模型，我能解释并正确使用 | epoll、TCP 栈全部是我自己写的 |
-| TLS/Session/CORS | 原框架有相关组件，但尚未作为 treeSem 医疗主链完成生产验证 | 当前系统已有完整医疗安全体系 |
+| TLS/Session/CORS | M6 已接入 Session 归属、Origin/Cookie 防护和应用层鉴权；TLS 仍建议由成熟入口终止 | 当前系统已经满足完整医疗合规 |
 | HTTP/1.1 | 支持请求行、Header、Content-Length body 和基本 keep-alive | 完整实现 RFC、chunked 和 pipelining |
 | ONNX 加速 | 当前环境下 C++ 主链延迟和吞吐有改善 | 在所有机器和负载下一定更快 |
 | 模型一致性 | 证明 C++ 部署没有改变当前模型语义 | 证明模型医学质量优秀或可直接临床使用 |
@@ -358,9 +361,10 @@ Python 下游响应大小，但 HTTP 入口的请求行、Header 和 body 上限
 
 Cookie 是浏览器保存并随请求携带的小段数据；Session 通常只把随机 ID 放在 Cookie，状态在
 服务端；JWT 把签名声明放在 token 中，服务端可少查一次会话，但撤销、过期和权限变更更复杂。
-原 Kama 框架包含内存 Session 组件，但当前 treeSem 主链还没有接入医疗认证。后续会结合
-MySQL/RBAC、Secure/HttpOnly/SameSite Cookie、会话过期与审计实现，不能把原组件直接说成
-完整安全方案。
+原 Kama 框架包含内存 Session 组件；treeSem 另外实现了 MySQL 业务 Session，并在 M6 将它
+绑定到 Access JWT 的 actor 和资源 subject。Refresh Token 使用 HttpOnly/SameSite Cookie，
+普通业务 Access Token 走 Authorization Header。Session 是业务上下文，JWT 是身份凭证，
+二者仍不能混为一谈。
 
 ## B15. CORS、TLS 和反向代理在这个项目中怎么理解【P1】
 
@@ -1393,9 +1397,9 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 | “支持 HTTP/1.1” | “支持当前接口需要的 HTTP/1.0/1.1 基本解析、Content-Length 和 keep-alive；不支持 chunked，pipelining 尚不完整。” |
 | “框架有 SSL 所以数据安全” | “原框架存在 SSL 组件，但 treeSem 尚未完成生产验证；正式入口应使用成熟 TLS 终止和应用层鉴权。” |
 | “Accuracy 90% 很高” | “类别不平衡下 Accuracy 可能误导；当前 F1/AUC 明显异常，已划入独立模型质量审计。” |
-| “Session 就是用户登录” | “M4 Session 只是匿名业务上下文；认证身份、RBAC 和审计在 M6 实现。” |
+| “Session 就是用户登录” | “Session 是业务上下文，M6 再把它绑定到认证 actor/subject；身份由 Access Token 和账户状态表示。” |
 | “用了 PreparedStatement 就安全了” | “它主要防 SQL 注入；越权、凭据、加密、审计和数据保留仍需单独治理。” |
-| “医生已经审核了结果” | “M4 只记录未认证 reviewer reference，`reviewer_verified` 固定为 false。” |
+| “医生已经审核了结果” | “M4 legacy 反馈仍是未认证记录；M6 只有 active assignment Doctor 的 Public feedback 才由服务端写 `reviewer_verified=true`。” |
 
 ---
 
@@ -1426,19 +1430,214 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 - [ ] 讲清 Cookie/Internal Header、匿名 Session 与认证用户的区别。
 - [ ] 讲清 keyset pagination 与幂等 key + payload hash。
 - [ ] 说明 `/health`、`/ready` 以及 MySQL 故障后的恢复边界。
+- [ ] 画出 C++ Gateway → Python Agent → scoped Tool → C++ Internal API 的重入链。
+- [ ] 讲清 Agent 的 step/tool/deadline/repeated-call 四类终止条件。
+- [ ] 解释为什么 GET Tool 可有限重试，而预测 Tool 不自动重试。
+- [ ] 讲清 grounding、Tool 事实边界和为什么不保存思维链。
+- [ ] 区分 Session、Access JWT、Refresh Token 和 Capability JWT。
+- [ ] 讲清 Refresh Rotation、并发刷新和旧 Token 重用后的 Family 撤销。
+- [ ] 用 Patient/Doctor/Admin 举例说明 RBAC 与资源级授权的区别。
+- [ ] 解释 Doctor assignment、Admin 非临床边界和横向越权为何返回 404。
+- [ ] 解释审计最小化、fail closed，以及当前为什么不能宣称医疗合规。
 - [ ] 给出继续生产化的前三优先级，而不是罗列技术名词。
 - [ ] 能把任意场景按“现象→指标→分段定位→止损→根因→改进”回答。
 
 ---
 
-# M. 后续模块维护入口
+# M. M5 Agent Core 高频题组
+
+## M1. 为什么 C++ 做 Gateway、Python 做 Agent【P0】
+
+**参考回答：**
+
+C++ 已经承载 Session、MySQL、ONNX 和资源授权，是业务事实源；Python 生态更适合 LLM 协议和快速迭代。拆分后，Python 只负责 Agent Loop 和 Tool 编排，不能直连模型或数据库。这样既保留 C++ 主链，也避免 LLM 绕开事务和权限。代价是多一次进程间 HTTP，需要超时、有界队列和契约校验。
+
+## M2. Agent 怎么判断任务结束【P0】
+
+**参考回答：**
+
+正常终止是 LLM 返回符合协议的 final answer。保护性终止还包括 5 个 step、8 次 Tool、25 秒总 deadline、连续两次完全相同 Tool Call，以及上游取消。不能只相信模型“说自己完成了”，必须由协议状态和资源预算共同约束。
+
+## M3. 为什么同时限制 step、Tool 次数和总时间【P0】
+
+**参考回答：**
+
+三者限制不同失控维度：step 防循环，Tool 次数防单轮调用爆炸，总 deadline 覆盖 LLM、Tool 和重试的端到端时间。只有单次 HTTP timeout 会让多次调用累加到不可接受的尾延迟。
+
+## M4. Tool Registry 解决了什么【P0】
+
+**参考回答：**
+
+Registry 是能力白名单和协议边界。每个 Tool 有独立 Pydantic 输入/输出 Schema，Registry 负责名称解析、参数校验、调用和结构化错误。`session_id` 不属于模型参数，而由 Run Context 注入，防止 LLM 自己切换患者。
+
+## M5. 为什么概率差和路径变化不让 LLM 算【P0】
+
+**参考回答：**
+
+这些属于可确定计算，交给 C++ Comparison Service 能保证精度、字段语义和可测试性。LLM 只负责解释结果，不能成为业务事实源；否则同一输入可能给出不同差值，也很难做审计和回归。
+
+## M6. Tool 调用失败为什么还注回 LLM【P1】
+
+**参考回答：**
+
+未知 Tool、参数错误和业务错误转换为有限的结构化 Tool Error，允许模型修正一次，而不是泄露异常栈或立刻把整个请求变成 500。但重复相同错误、超过预算或下游不可用会终止，避免无限自愈循环。
+
+## M7. 哪些 Tool 可以重试【P0】
+
+**参考回答：**
+
+只对 GET 类 Tool 的连接中断自动重试一次；创建预测有副作用，不自动重试。Chat 和反馈通过幂等键处理客户端重放。能否重试取决于操作语义、失败发生点和幂等保障，而不是看到超时就统一重试。
+
+## M8. Python Agent 回调同一个 C++ 服务会不会死锁【P0】
+
+**参考回答：**
+
+通过舱壁避免：等待 Python/LLM 的 Agent Worker 与处理 ONNX 的 Prediction Worker、处理查询的 Database Worker 分离；EventLoop 不等待这些操作。Python 回调 Internal API 会进入另一个有界池，所以不会占着唯一 Worker 等自己。仍需合理设置各池容量，防止资源环形饥饿。
+
+## M9. 如何降低 Agent 幻觉【P0】
+
+**参考回答：**
+
+不承诺消灭幻觉，而是缩小事实生成面。系统提示明确边界；预测数值只能来自 Tool；ResponsePolicy 校验回答引用的 prediction ID 是否来自本轮成功结果；Tool 失败时禁止猜测。后续 M9 还要用离线问题集评估 Tool 选择、引用正确率和医疗拒答。
+
+## M10. 为什么不保存思维链【P0】
+
+**参考回答：**
+
+思维链不是业务事实，可能包含敏感推断、提示词和不稳定中间内容，保存后扩大隐私与攻击面。当前只保存用户消息、助手最终回答和 Tool 名称/状态/耗时/引用 ID 的摘要，足以做产品历史、可靠性分析和基础审计。
+
+## M11. Agent 幂等怎么做【P1】
+
+**参考回答：**
+
+唯一约束是 `(session_id, idempotency_key)`，同时保存规范 payload 的 SHA-256。相同 key 和 payload 返回原 Run；同 key 不同 payload 返回 409；running 返回明确冲突；failed 不伪造结果，客户端用新 key 重试。用户消息和 Run 创建、助手消息和 Run 完成分别处于短事务。
+
+## M12. 为什么现在不用 LangChain/LangGraph【P1】
+
+**参考回答：**
+
+本项目只需要一个可解释的短循环、五个 Tool 和明确预算，直接实现能展示协议、状态机、重试和终止条件，也减少框架隐式行为。复杂工作流、持久图状态或人工中断增多时再评估框架；当前不把“没用框架”说成普遍更优。
+
+## M13. MCP 为什么放到 M7【P1】
+
+**参考回答：**
+
+当前五个 Tool 是同一业务域内的受控 API，用原生 Registry 更直接。MCP 的价值是统一接入独立外部工具/知识服务；M7 医疗知识 RAG 恰好需要跨服务协议、来源和权限过滤。先把普通函数包装成 MCP 只会增加协议层，不能自动提升 Agent 能力。
+
+## M14. 上下文为什么只取最近 12 条【P1】
+
+**参考回答：**
+
+这是有界窗口，控制 token、延迟和成本，并避免历史无限增长拖慢请求。当前还附带结构化 current prediction 摘要。更长会话需要摘要/记忆的正确性评测，尤其要避免“新长期记忆刚写入就被压缩丢失”；这属于后续 Memory/Evaluation，而不是简单调大窗口。
+
+## M15. 如何评估 Agent 质量【P0】
+
+**参考回答：**
+
+CI 先用 Fake LLM 验证确定性状态机和故障语义；真实质量要分层看：Tool 选择正确率、参数正确率、grounding 引用率、任务完成率、拒答安全性、步数/延迟/成本和人工医疗复核。不能只看最终回答“读起来不错”。完整 Trace/Evaluation 在 M9。
+
+---
+
+# N. M6 认证、RBAC 与安全高频题组
+
+## N1. 匿名 Session 和认证身份有什么区别【P0】
+
+**参考回答：**
+
+Session 表示一次业务上下文和 current prediction，不证明用户是谁；Access Token 证明当前 actor。M6 把 Session 绑定 owner 和 subject：Patient 两者相同，Doctor 操作患者时 owner 是 Doctor、subject 是 Patient。授权同时检查 token、Session 归属和资源 subject。
+
+## N2. 为什么 Access Token 用 JWT，Refresh Token 用不透明随机值【P0】
+
+**参考回答：**
+
+短期 Access JWT 适合每次请求快速验证角色和主体，减少数据库读取；长期 Refresh Token 需要撤销、轮换和重用检测，因此用随机值并只存哈希更易控制服务端状态。两者都用 JWT 会让长期撤销和 family 管理变复杂。
+
+## N3. Refresh Rotation 和重用检测怎么工作【P0】
+
+**参考回答：**
+
+刷新在事务里锁定旧记录，只有未消费、未撤销、未过期状态能生成 replacement。并发请求只有一个成功；旧 Token 再出现说明可能被窃取，服务端撤销整个 family，包括最新 replacement，要求重新登录。数据库只保存 Token SHA-256。
+
+## N4. 为什么密码用 Argon2id【P0】
+
+**参考回答：**
+
+它是内存困难型 KDF，提高 GPU/ASIC 批量破解成本。当前使用 32-byte 随机盐、64 MiB、3 次迭代、parallelism 1，并把计算放到独立 Auth Scheduler，避免阻塞 EventLoop。参数要按目标机器基准调整，不是越大越安全。
+
+## N5. RBAC 为什么还不够【P0】
+
+**参考回答：**
+
+角色只说明“Doctor 可以访问患者”，还必须做资源级授权：该 Doctor 是否有 active assignment、Prediction 的 subject 是否是这个 Patient、Session 是否属于当前 actor/subject。只在路由层检查 role 会产生典型的 IDOR 横向越权。
+
+## N6. 为什么 Admin 默认不能看临床内容【P0】
+
+**参考回答：**
+
+遵循最小权限和职责分离。Admin 管账户、assignment 和审计元数据，不等于医疗参与者。代码显式拒绝 Admin 进入 prediction/chat 链，而不是因为前端没有按钮。确需 break-glass 时应另做强审计和审批，不默认放开。
+
+## N7. 跨用户资源为什么常返回 404 而不是 403【P1】
+
+**参考回答：**
+
+若返回 403，攻击者能区分 ID 是否真实存在。对于“资源不存在”和“存在但不属于你”，统一 404 可减少枚举信息；明确的角色不允许，例如 Patient 调 Admin API，则返回 403。
+
+## N8. Capability JWT 解决什么问题【P0】
+
+**参考回答：**
+
+它是给本次 Agent Run 的最小权限委托，绑定 actor、role、session、subject、run、allowed tools 和两分钟过期时间。LLM 无法自己选择患者；Token 不能跨 Run/Session/Tool 使用。业务层还检查 Run 仍为 running 和 assignment 仍有效，弥补 JWT 在到期前不可主动撤销的问题。
+
+## N9. Agent service secret 和 Capability 有什么区别【P1】
+
+**参考回答：**
+
+service secret 认证“调用 `/v1/agent/runs` 的是 C++ 服务”；Capability 授权“Python 在这个 Run 中能调用哪些 C++ Tool、代表谁、访问哪个患者”。一个是服务身份，一个是请求级委托，不能互相替代，并且与 Access JWT 使用不同密钥/audience。
+
+## N10. 为什么审计失败要 fail closed【P0】
+
+**参考回答：**
+
+对安全写操作和临床访问，如果业务成功但审计丢失，会形成不可追踪的访问窗口。因此审计持久化失败返回 503，不完成敏感操作。代价是审计库故障会影响可用性，所以生产上需要高可用、容量和告警；不能静默忽略。
+
+## N11. 审计里为什么不存完整请求和回答【P0】
+
+**参考回答：**
+
+审计目标是回答谁在何时对哪个资源做了什么、结果如何，不是复制业务数据。保存临床特征、聊天、Token 或邮箱会把审计库变成更大的敏感数据源。当前只保留 ID、动作、outcome 和 reason code。
+
+## N12. CORS 是不是认证或 CSRF 防护【P0】
+
+**参考回答：**
+
+不是。CORS 约束浏览器读取跨源响应，不阻止非浏览器客户端。身份靠 Token，授权靠资源策略。Refresh Cookie 使用 SameSite=Strict，并对有 Origin 的 Refresh/Logout 做精确 Origin 校验；Access Token 只走 Authorization Header，减少自动携带 Cookie 的 CSRF 面。
+
+## N13. 如何防账户枚举和暴力登录【P1】
+
+**参考回答：**
+
+不存在用户和密码错误返回相同文案；未知邮箱也执行 dummy Argon2 hash，缩小时序差异；连续 5 次失败锁定 15 分钟；未知邮箱使用有界限流。Argon2 在独立有界 Auth Scheduler 中，队列满拒绝，避免攻击拖垮 EventLoop 和无限占内存。
+
+## N14. Access JWT 的账户禁用为什么不是立即全局生效【P1】
+
+**参考回答：**
+
+短期 JWT 的取舍是普通请求无需查库，所以已签发 Token 最长可存活 15 分钟；Refresh 和高风险动作会查询账户状态。若要求即时撤销，需要引入 token version/cache 或每次查库，会增加一致性和可用性成本。当前要如实说明这个边界。
+
+## N15. 当前为什么不能宣称医疗合规【P0】
+
+**参考回答：**
+
+项目展示了身份、资源授权、最小化审计和敏感日志治理，但没有完成组织制度、密钥托管、字段级加密、mTLS、备份恢复、数据保留/删除、漏洞管理和正式合规审计。工程安全能力不等于 HIPAA、等保或临床准入。
+
+---
+
+# O. 后续模块维护入口
 
 以下只记录未来题库位置，不代表已经实现：
 
 | 后续模块 | 实现完成后新增的核心题组 |
 |---|---|
-| 医疗 RBAC | Doctor/Patient/Admin、资源级授权、最小权限、审计、越权与脱敏 |
-| Agent Core | Agent Loop、终止条件、结构化 tool call、状态机、超时和预算 |
 | RAG/MCP | 检索链、chunk/embedding/rerank、MCP 边界、来源引用、权限过滤 |
 | Skill | 本地可信目录、渐进加载、版本、冲突、能力复用与安全审核 |
 | Agent 安全与评测 | prompt injection、工具权限、PHI、防越权、离线集、轨迹评测、人工复核 |
@@ -1448,7 +1647,7 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 
 ---
 
-# N. 资料来源
+# P. 资料来源
 
 技术结论优先参考规范与官方文档；社区面经仅用于观察提问方向，不作为技术事实依据。
 
@@ -1477,6 +1676,13 @@ HTTP 边界映射，避免各层重复拼错误 JSON。Worker 最外层仍 catch
 - [MySQL 8.0 InnoDB Transaction Model](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-model.html)
 - [MySQL 8.0 Transaction Isolation Levels](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)
 - [MySQL 8.0 Prepared Statements](https://dev.mysql.com/doc/refman/8.0/en/sql-prepared-statements.html)
+
+## Agent 与应用安全
+
+- [RFC 7519: JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519.html)
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
 
 ## 真实面试提问方向（仅作方向参考）
 

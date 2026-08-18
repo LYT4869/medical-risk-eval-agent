@@ -9,8 +9,8 @@
 | M2 | Serving Bundle、Python 黄金实现、反归一化 | 已完成 |
 | M3 | C++ ONNX Runtime 默认模型主链 | 已完成 |
 | M4 | C++ 业务服务、Session、MySQL、医生反馈 | 已完成 |
-| M5 | Python Agent Core 与领域 Tool | 待执行 |
-| M6 | Doctor/Patient/Admin 权限、安全和审计 | 待执行 |
+| M5 | Python Agent Core 与领域 Tool | 已完成 |
+| M6 | Doctor/Patient/Admin 权限、安全和审计 | 已完成 |
 | M7 | 医疗知识 RAG 与 MCP Server | 待执行 |
 | M8 | 医疗领域 Skill 和渐进加载 | 待执行 |
 | M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 待执行 |
@@ -80,6 +80,26 @@
 - [x] 内存业务 E2E 与 M0～M3 全量回归通过。
 - [x] 隔离 MySQL 8.0.42 的 migration、重启持久化、故障恢复 E2E 与性能记录完成。
 
+## M5 Definition of Done
+
+- [x] Python Agent Core 可独立运行，LLM 使用 OpenAI-compatible 协议并可由 Fake Client 完整测试。
+- [x] Agent Loop 具备 step、Tool call、重复调用和总 deadline 终止条件。
+- [x] 五个结构化领域 Tool 只通过 C++ Internal API 获取预测事实。
+- [x] C++ Agent Scheduler 与推理、数据库 Scheduler 隔离，EventLoop 不等待 LLM。
+- [x] Agent Run、最终消息、Tool 摘要和幂等状态持久化，不保存思维链或完整 Tool Result。
+- [x] grounding policy 拒绝引用本轮 Tool 未返回的 prediction ID。
+- [x] Python Agent 故障不影响 ONNX 预测主链。
+
+## M6 Definition of Done
+
+- [x] required 为默认认证模式，development 显式保留匿名回归链。
+- [x] Argon2id、Access JWT、Refresh Token 强制轮换与旧 Token 重用检测已实现。
+- [x] Patient 资源所有权、Doctor active assignment 和 Admin 非临床边界在服务端执行。
+- [x] Internal Tool 使用绑定 actor/session/subject/run/scope 的短期 Capability JWT。
+- [x] 认证、assignment、临床访问和审计查询使用不含敏感正文的安全审计。
+- [x] 002/003 migration、内存认证 E2E、MySQL 重启持久化和完整 M0～M4 回归通过。
+- [x] CORS Origin、Cookie、no-store、安全 Header、日志敏感字段和长度上限有明确约束。
+
 ## 当前停止线
 
-M0～M4 代码与文档已完成。下一步进入 M5 Python Agent Core 和确定性领域 Tool；尚未加入 Agent、MCP/RAG、Skill、医疗身份认证或 RBAC。
+M0～M6 代码、测试和文档已完成。下一步是 M7 医疗知识 RAG/MCP；Skill、完整 Trace/Evaluation 和部署演示仍分别属于 M8～M10。模型质量问题继续作为独立工作流处理，不阻塞 Serving 与 Agent 工程架构。

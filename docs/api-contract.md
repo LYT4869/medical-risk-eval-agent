@@ -1,6 +1,6 @@
-# treeSem M4 API 契约
+# treeSem M6 API 契约
 
-本契约描述 M4 已实现的模型与持久化业务链路。未知的医疗单位保持 `null`，不根据字段名猜测。
+本契约描述模型、持久化、Agent、认证和权限链路。未知的医疗单位保持 `null`，不根据字段名猜测。
 
 ## C++ Backend
 
@@ -30,7 +30,7 @@
 
 ### `POST /internal/v1/predictions`
 
-为后续 Agent Tool Adapter 保留的内部预测入口。M0/M1 中与公开入口使用同一业务服务；路径名称本身不构成安全隔离。
+Agent Tool Adapter 使用的内部预测入口。required 模式必须携带 C++ 为当前 Agent Run 签发的 Capability JWT；路径名称和裸 Session Header 都不构成授权。
 
 两个预测入口使用相同模型请求和响应契约。Public 使用 `treeSemSession` Cookie；Internal 必须提供 `X-TreeSem-Session-Id`。成功响应额外包含 `prediction_id`、`session_id` 和 UTC `created_at`。
 
@@ -107,11 +107,57 @@
 
 History 的 `limit` 范围是 1～100，cursor 是 opaque base64url keyset cursor。比较请求包含 `prediction_id_a` 和 `prediction_id_b`，差值由 C++ 确定性计算，不重新推理。
 
-内部反馈要求 Session Header 和 8～64 字符 `Idempotency-Key`。首次创建返回 201；相同 key 与 payload 重放返回 200；key 相同而 payload 不同返回 409。`reviewer_verified` 在 M4 永远为 false，且没有 public feedback 路由。
+M4 legacy 内部反馈只在 development 模式可用，`reviewer_verified=false`。required 模式的医生反馈使用认证 Public API，reviewer 从 Access Token 上下文填写，客户端不能伪造。
 
 ### `GET /ready`
 
 该异步接口经 Database Scheduler 获取连接并执行 `SELECT 1`。成功返回 200；队列满、连接池超时或数据库不可用返回 503。`/health` 始终不查询数据库。
+
+## Agent API
+
+### `POST /api/v1/chat`
+
+要求 `Idempotency-Key: <8-64 characters>`：
+
+```json
+{"message":"解释一下刚才的预测结果"}
+```
+
+响应包含 `run_id`、最终 `message_id`、`session_id`、answer、step count、Tool 名称/状态摘要和经过校验的 `grounding_prediction_ids`。数据库不保存思维链、Tool 参数或完整 Tool Result。
+
+### `GET /api/v1/chat/history?limit=20&cursor=...`
+
+只返回最终 user/assistant 消息，使用 keyset cursor，最大 100 条。
+
+Python Agent 内部接口为 `POST /v1/agent/runs`、`GET /health`、`GET /ready`。Run 请求必须携带 C++ 与 Python 共享的 service credential；Tool 调用必须携带当前 Run 的 Capability JWT。
+
+## 认证和权限 API
+
+认证：
+
+- `POST /api/v1/auth/register`（只创建 Patient）
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
+
+Access Token 通过 `Authorization: Bearer` 传递。Refresh Token 只通过 `treeSemRefresh` HttpOnly Cookie 传递并强制轮换。
+
+Admin：
+
+- `POST /api/v1/admin/doctors`
+- `POST|GET /api/v1/admin/doctor-patient-assignments`
+- `DELETE /api/v1/admin/doctor-patient-assignments/:assignment_id`
+- `GET /api/v1/admin/audit-events?limit=50&cursor=...`
+
+Doctor：
+
+- `POST /api/v1/doctor/patients/:patient_id/predictions`
+- `POST /api/v1/doctor/patients/:patient_id/chat`
+- `GET /api/v1/doctor/patients/:patient_id/history`
+- `POST /api/v1/predictions/:prediction_id/feedback`
+
+Doctor API 每次检查 active assignment。跨用户/跨患者资源查询统一返回 404；Admin 不能读取预测或聊天内容。
 
 ## Python Model Adapter
 
@@ -142,6 +188,13 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | 404 | `resource_not_found` | Session/Prediction 不存在或跨 Session 查询 |
 | 409 | `session_conflict` | Session 在推理期间过期或并发状态冲突 |
 | 409 | `idempotency_conflict` | 幂等键被不同 payload 重用 |
+| 409 | `agent_run_in_progress` | 相同幂等 Run 仍在执行 |
+| 401 | `authentication_required` | 业务 Public API 未携带 Access Token |
+| 401 | `invalid_access_token` | Access Token 非法或过期 |
+| 401 | `invalid_refresh_token` | Refresh Token 非法、过期或发生重用 |
+| 403 | `forbidden` | 当前角色不允许该操作 |
+| 403 | `capability_forbidden` | Internal Capability 非法、过期或 scope 不匹配 |
+| 429 | `authentication_rate_limited` | 登录失败锁定或认证频率过高 |
 | 500 | `model_inference_failed` | 严格 ONNX 模式的本地推理异常 |
 | 500 | `internal_error` | 未分类内部异常 |
 | 502 | `model_adapter_unavailable` | Adapter 无法连接或传输失败 |
@@ -151,6 +204,12 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | 503 | `database_overloaded` | 数据库有界队列已满 |
 | 503 | `database_busy` | 连接池获取超时 |
 | 503 | `database_unavailable` | MySQL 不可用 |
+| 503 | `agent_overloaded` | Agent 有界队列已满 |
+| 503 | `authentication_overloaded` | Auth 有界队列已满 |
+| 503 | `audit_unavailable` | 安全审计无法持久化 |
+| 502 | `agent_unavailable` | Python Agent 无法连接 |
+| 502 | `invalid_agent_response` | Python Agent 返回非法响应 |
+| 504 | `agent_timeout` | Agent 总调用超时 |
 | 500 | `persistence_error` | 数据损坏或未分类持久化失败 |
 | 503 | `service_stopping` | Worker Pool 已停止接单 |
 | 504 | `model_adapter_timeout` | 连接或请求超过配置超时 |
@@ -174,6 +233,13 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | `TREESEM_DB_ACQUIRE_TIMEOUT_MS` | `500` |
 | `TREESEM_SESSION_TTL_SECONDS` | `3600` |
 | `TREESEM_COOKIE_SECURE` | `false` |
+| `TREESEM_AGENT_ENABLED` | `true` |
+| `TREESEM_AGENT_URL` | `http://127.0.0.1:8091` |
+| `TREESEM_AGENT_WORKERS` / Queue | `4` / `64` |
+| `TREESEM_AUTH_MODE` | `required` |
+| Access / Refresh / Capability TTL | `900` / `604800` / `120` seconds |
+| `TREESEM_AUTH_WORKERS` / Queue | `2` / `32` |
+| `TREESEM_ALLOWED_ORIGINS` | `http://127.0.0.1:3000` |
 | Python Adapter host | `127.0.0.1` |
 | Python Adapter port | `18081` |
 

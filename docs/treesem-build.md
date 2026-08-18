@@ -39,7 +39,7 @@ tar -xzf ../deps/onnxruntime-linux-x64-1.20.1.tgz -C ../deps
 先安装 MySQL Connector/C++ JDBC 兼容包：
 
 ```bash
-sudo apt-get install libmysqlcppconn-dev
+sudo apt-get install libmysqlcppconn-dev libargon2-dev
 ```
 
 ```bash
@@ -49,6 +49,7 @@ cmake -S . -B build \
   -DNLOHMANN_JSON_ROOT="/home/data/liyingting/miniconda3" \
   -DKAMA_ENABLE_ONNXRUNTIME=ON \
   -DKAMA_ENABLE_MYSQL=ON \
+  -DKAMA_ENABLE_AUTH=ON \
   -DONNXRUNTIME_ROOT="$PWD/../deps/onnxruntime-linux-x64-1.20.1"
 cmake --build build -j2
 ctest --test-dir build --output-on-failure
@@ -129,7 +130,7 @@ curl -i -X POST http://127.0.0.1:18080/api/v1/predictions \
 {"status":"ok","service":"treeSem-backend","model_version":"pph-seed42-1a299a474ce5","configured_backend":"onnx_fallback","primary_backend":"onnx","fallback_enabled":true}
 ```
 
-`/internal/v1/predictions` 与公开预测接口使用同一套模型代理，可供后续 Agent 内部调用。当前阶段只完成 C++ 到 Python 的预测闭环，不包含 Python Agent 回调 C++ 的重入链路。
+`/internal/v1/*` 与公开接口复用同一业务事实源。required 模式下只能由持有当前 Run Capability 的 Python Agent 调用，裸 Session Header 会被拒绝。
 
 可以通过环境变量覆盖默认配置：
 
@@ -163,7 +164,51 @@ TREESEM_DB_PASSWORD="$TREESEM_DB_PASSWORD" \
 
 真实凭据只放环境变量或未提交的 `.env`，不能写进日志或仓库。完整 M4 API、测试库和重启持久化测试见 [M4 文档](m4-business-persistence.md)。
 
-## 9. 运行真实 Bundle/ONNX 测试
+## 9. 启动 M5 Python Agent
+
+使用独立 Python 3.10 环境：
+
+```bash
+python3.10 -m venv .venv-agent
+. .venv-agent/bin/activate
+pip install -r PythonServices/TreeSemAgent/requirements.txt
+
+export PYTHONPATH="$PWD/PythonServices/TreeSemAgent"
+export TREESEM_AGENT_LLM_BASE_URL=http://127.0.0.1:8000/v1
+export TREESEM_AGENT_LLM_MODEL=your-openai-compatible-model
+export TREESEM_AGENT_BACKEND_URL=http://127.0.0.1:18080
+export TREESEM_AGENT_SERVICE_SECRET='replace-with-a-distinct-32-byte-secret'
+uvicorn server:app --host 127.0.0.1 --port 8091
+```
+
+Python `/ready` 只探测 C++ Tool Backend，不发起付费 LLM 请求。CI 使用 Fake LLM，不依赖外网。
+
+## 10. required 认证模式
+
+```bash
+export TREESEM_AUTH_MODE=required
+export TREESEM_DEPLOYMENT_ENV=local
+export TREESEM_ACCESS_JWT_SECRET='replace-with-at-least-32-random-bytes'
+export TREESEM_CAPABILITY_JWT_SECRET='replace-with-a-different-32-byte-secret'
+export TREESEM_AGENT_SERVICE_SECRET='replace-with-a-third-distinct-secret'
+export TREESEM_ALLOWED_ORIGINS=http://127.0.0.1:3000
+export TREESEM_REFRESH_COOKIE_SECURE=false
+```
+
+三种 Secret 必须不同。生产环境还要求 Secure Refresh Cookie 且禁止通配 Origin。旧匿名 E2E 只能显式设置 `TREESEM_AUTH_MODE=development`。
+
+创建首个管理员：
+
+```bash
+export TREESEM_BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+export TREESEM_BOOTSTRAP_ADMIN_PASSWORD='a-long-bootstrap-password'
+export TREESEM_BOOTSTRAP_ADMIN_DISPLAY_NAME='Local Admin'
+./build/treesem-admin bootstrap
+```
+
+仅数据库中没有 Admin 时允许 bootstrap。完整 Agent 与安全边界分别见 [M5 文档](m5-agent-core.md)和 [M6 文档](m6-security.md)。
+
+## 11. 运行真实 Bundle/ONNX 测试
 
 配置以下可选参数后，CTest 会额外执行确定性重复导出、checksum 篡改、反归一化和三输入等价性测试：
 

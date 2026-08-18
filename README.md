@@ -2,7 +2,7 @@
 
 ## treeSem 二次开发
 
-本分支在 Kama-HTTPServer/Muduo 基础上构建 treeSem 可解释医疗模型服务平台。当前已经完成 HTTP 核心修复、异步响应、双有界任务池、C++ 分层业务服务、带版本/checksum 的 Serving Bundle、C++ ONNX Runtime 默认主链，以及匿名 Session、MySQL 持久化、历史/比较和内部医生反馈。
+本分支在 Kama-HTTPServer/Muduo 基础上构建 treeSem 可解释医疗模型服务平台。当前已经完成 HTTP 核心修复、异步响应、三个隔离的有界任务池、C++ 分层业务服务、Serving Bundle、C++ ONNX Runtime 默认主链、MySQL 持久化，以及可调用领域 Tool 的医疗 Agent、Patient/Doctor/Admin 资源级授权、Capability 和安全审计。
 
 - [架构与能力归属](docs/architecture.md)
 - [M0/M1 API 契约](docs/api-contract.md)
@@ -14,6 +14,8 @@
 - [M3 本机性能记录](docs/m3-performance.md)
 - [M4 业务服务、Session 与 MySQL](docs/m4-business-persistence.md)
 - [M4 本机性能记录与待测边界](docs/m4-performance.md)
+- [M5 医疗 Agent Core 与领域 Tool](docs/m5-agent-core.md)
+- [M6 身份、RBAC、Capability 与安全审计](docs/m6-security.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
@@ -88,7 +90,7 @@ HTTP 框架抽象了网络通信的复杂性，使开发人员能够专注于构
 
 * 模板渲染：添加支持渲染 HTML 模板以简化动态网页的创建。通过模板引擎，开发者可以轻松生成动态内容，提高开发效率。
 * WebSocket 支持：扩展框架以支持 WebSocket 连接，实现实时通信。WebSocket 的引入将增强应用的互动性和响应速度，适用于聊天应用、实时更新等场景。
-* 身份验证和授权：集成 OAuth 和 JWT 等认证方式，增强系统的安全性和用户管理能力。
+* 第三方身份联邦：当前已实现本地账户、JWT/Refresh Rotation 和资源级 RBAC；生产化可进一步接入 OIDC/OAuth 身份提供方。
 * 负载均衡和分布式支持：通过引入负载均衡策略和分布式架构，提升系统的可扩展性和可靠性，支持大规模应用的部署。
 
 ### 项目难点
