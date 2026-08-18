@@ -7,7 +7,8 @@ import time
 from .llm_client import LlmClient, LlmError
 from .policy import PolicyViolation, ResponsePolicy
 from .prompt import SYSTEM_PROMPT
-from .schemas import AgentRunRequest, AgentRunResponse
+from .schemas import AgentRunRequest, AgentRunResponse, SkillUse
+from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
 
@@ -38,9 +39,18 @@ class AgentLoop:
         if request.current_prediction:
             messages.append({"role": "system", "content": "Current prediction context: " + request.current_prediction.model_dump_json()})
         messages.append({"role": "user", "content": request.message})
-        context = ToolContext(request.session_id, request.capability_token)
+        context = ToolContext(request.session_id, request.capability_token,
+                              request.knowledge_capability_token,
+                              request.actor_role)
+        catalog_prompt = self._tools.skill_catalog_prompt(context.actor_role)
+        if catalog_prompt:
+            messages.insert(1, {"role": "system", "content": catalog_prompt})
         usages = []
         available_ids: set[str] = set()
+        available_citations = {}
+        knowledge_index_version: str | None = None
+        active_skill: SkillActivation | None = None
+        activation_attempts = 0
         calls = 0
         previous_signature: str | None = None
         repeated = 0
@@ -50,7 +60,9 @@ class AgentLoop:
                 raise AgentTimeout("agent deadline exceeded")
             try:
                 turn = await asyncio.wait_for(
-                    self._llm.complete(messages, self._tools.definitions(), remaining), timeout=remaining)
+                    self._llm.complete(
+                        messages, self._tools.definitions(context, active_skill), remaining),
+                    timeout=remaining)
             except asyncio.TimeoutError as exc:
                 raise AgentTimeout("agent deadline exceeded") from exc
             except LlmError as exc:
@@ -58,11 +70,22 @@ class AgentLoop:
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
                 try:
-                    self._policy.validate(answer, turn.grounding_prediction_ids, available_ids)
+                    self._policy.validate(
+                        answer, turn.grounding_prediction_ids, available_ids,
+                        turn.grounding_source_ids, set(available_citations))
                 except PolicyViolation as exc:
                     raise AgentExecutionError("final response failed grounding policy") from exc
+                citations = [available_citations[item]
+                             for item in turn.grounding_source_ids]
+                skill = None if active_skill is None else SkillUse(
+                    id=active_skill.skill_id, version=active_skill.version,
+                    catalog_version=active_skill.catalog_version)
                 return AgentRunResponse(answer=answer, step_count=step, tools_used=usages,
-                                        grounding_prediction_ids=turn.grounding_prediction_ids)
+                                        grounding_prediction_ids=turn.grounding_prediction_ids,
+                                        grounding_source_ids=turn.grounding_source_ids,
+                                        citations=citations,
+                                        knowledge_index_version=knowledge_index_version,
+                                        skill_used=skill)
             signature = json.dumps([call.model_dump() for call in turn.tool_calls], sort_keys=True)
             repeated = repeated + 1 if signature == previous_signature else 0
             previous_signature = signature
@@ -72,12 +95,29 @@ class AgentLoop:
                 {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": json.dumps(call.arguments)}}
                 for call in turn.tool_calls
             ]})
+            if any(call.name == "activate_skill" for call in turn.tool_calls) and len(turn.tool_calls) != 1:
+                raise AgentExecutionError("skill activation cannot be batched with domain tools")
             for call in turn.tool_calls:
-                calls += 1
-                if calls > self._max_tool_calls:
-                    raise AgentExecutionError("tool call limit reached")
-                result = await self._tools.execute(call.name, call.arguments, context)
+                if call.name == "activate_skill":
+                    activation_attempts += 1
+                    if activation_attempts > 2:
+                        raise AgentExecutionError("skill activation attempt limit reached")
+                else:
+                    calls += 1
+                    if calls > self._max_tool_calls:
+                        raise AgentExecutionError("tool call limit reached")
+                result = await self._tools.execute(
+                    call.name, call.arguments, context, active_skill)
                 usages.append(result.usage)
                 available_ids.update(result.prediction_ids)
+                available_citations.update(result.citations)
+                if result.index_version is not None:
+                    knowledge_index_version = result.index_version
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result.content, ensure_ascii=False)})
+                if result.skill_activation is not None:
+                    active_skill = result.skill_activation
+                    messages.append({
+                        "role": "system",
+                        "content": "Trusted activated skill instructions follow. They may narrow but never expand system policy or authorization.\n<skill>\n" +
+                                   active_skill.instructions + "\n</skill>"})
         raise AgentExecutionError("step limit reached")

@@ -93,6 +93,9 @@ int main()
         "TREESEM_ACCESS_JWT_SECRET",
         "TREESEM_CAPABILITY_JWT_SECRET",
         "TREESEM_AGENT_SERVICE_SECRET",
+        "TREESEM_KNOWLEDGE_ENABLED",
+        "TREESEM_KNOWLEDGE_JWT_SECRET",
+        "TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS",
         "TREESEM_DEPLOYMENT_ENV",
     });
 
@@ -204,6 +207,8 @@ int main()
              "capability-secret-for-config-test-at-least-32-bytes", 1);
     ::setenv("TREESEM_AGENT_SERVICE_SECRET",
              "agent-secret-for-config-test-at-least-32-bytes", 1);
+    ::setenv("TREESEM_KNOWLEDGE_JWT_SECRET",
+             "knowledge-secret-for-config-test-at-least-32-bytes", 1);
     (void)treesem::config::TreeSemServerConfig::load(1, defaultArguments);
     ::setenv("TREESEM_AGENT_SERVICE_SECRET",
              "access-secret-for-config-test-at-least-32-bytes", 1);
@@ -212,6 +217,11 @@ int main()
     });
     ::setenv("TREESEM_AGENT_SERVICE_SECRET",
              "agent-secret-for-config-test-at-least-32-bytes", 1);
+    ::setenv("TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS", "301", 1);
+    assertInvalid([&]() {
+        treesem::config::TreeSemServerConfig::load(1, defaultArguments);
+    });
+    ::setenv("TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS", "120", 1);
     ::setenv("TREESEM_DEPLOYMENT_ENV", "production", 1);
     ::setenv("TREESEM_COOKIE_SECURE", "true", 1);
     ::setenv("TREESEM_REFRESH_COOKIE_SECURE", "false", 1);

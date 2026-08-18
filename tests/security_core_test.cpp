@@ -13,6 +13,7 @@ int main()
     using namespace treesem;
     const std::string accessSecret = "access-secret-for-tests-at-least-32-bytes";
     const std::string capabilitySecret = "capability-secret-for-tests-at-least-32-bytes";
+    const std::string knowledgeSecret = "knowledge-secret-for-tests-at-least-32-bytes";
     security::PasswordHasher passwords;
     const std::string encoded = passwords.hash("correct horse battery staple");
     assert(passwords.verify(encoded, "correct horse battery staple"));
@@ -20,7 +21,8 @@ int main()
 
     infrastructure::InMemoryTreeSemStore store;
     security::JwtService jwt({accessSecret, capabilitySecret,
-        std::chrono::seconds(900), std::chrono::seconds(120)});
+        std::chrono::seconds(900), std::chrono::seconds(120),
+        knowledgeSecret, std::chrono::seconds(120)});
     application::AuthService auth(store, passwords, jwt,
         std::chrono::seconds(900), std::chrono::seconds(604800));
     const auto patient = auth.registerPatient(
@@ -55,6 +57,15 @@ int main()
     const auto decoded = jwt.verifyCapability(token, now);
     assert(decoded.sessionId == capability.sessionId);
     assert(decoded.allowedTools.size() == 1);
+
+    security::KnowledgeCapabilityContext knowledge{
+        actor.userId, actor.role, capability.sessionId, actor.userId,
+        capability.runId, {"model_public", "clinical_patient"}};
+    const auto knowledgeToken = jwt.issueKnowledgeCapability(knowledge, now);
+    const auto decodedKnowledge = jwt.verifyKnowledgeCapability(
+        knowledgeToken, now);
+    assert(decodedKnowledge.allowedScopes == knowledge.allowedScopes);
+    assert(decodedKnowledge.runId == capability.runId);
 
     security::SecurityMiddleware middleware(jwt, true, "http://127.0.0.1:3000");
     http::HttpRequest allowed;

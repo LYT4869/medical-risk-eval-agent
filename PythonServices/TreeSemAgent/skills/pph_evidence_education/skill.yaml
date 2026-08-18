@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "pph_evidence_education",
+  "version": "1.0.0",
+  "display_name": "PPH Evidence Education",
+  "description": "Answer general postpartum-haemorrhage education questions from curated cited sources.",
+  "audiences": ["patient", "doctor"],
+  "intent_examples": ["什么是产后出血", "有哪些需要尽快就医的表现", "Summarize the PPH guidance"],
+  "required_tools": ["search_medical_knowledge"],
+  "required_knowledge_scopes": ["clinical_patient"],
+  "instruction_files": {
+    "patient": "instructions.patient.md",
+    "doctor": "instructions.doctor.md"
+  }
+}

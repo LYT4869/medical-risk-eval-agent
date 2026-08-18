@@ -1,0 +1,10 @@
+[
+  {"input":"解释刚才的结果","expected_tools":["get_prediction","get_explanation"]},
+  {"input":"为什么模型给出这个标签","expected_tools":["get_prediction","get_explanation"]},
+  {"input":"哪些变量最重要","expected_tools":["get_explanation"]},
+  {"input":"决策路径是什么意思","expected_tools":["get_explanation","search_medical_knowledge"]},
+  {"input":"这个概率能当诊断吗","expected_tools":["get_prediction","search_medical_knowledge"]},
+  {"input":"给医生版解释","expected_tools":["get_prediction","get_explanation"]},
+  {"input":"模型版本是什么","expected_tools":["get_prediction"]},
+  {"input":"标准化值怎么理解","expected_tools":["get_explanation","search_medical_knowledge"]}
+]

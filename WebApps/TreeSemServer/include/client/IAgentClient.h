@@ -19,6 +19,8 @@ struct AgentRequest
     std::optional<std::string> currentPredictionId;
     std::optional<std::string> currentModelVersion;
     std::optional<std::string> capabilityToken;
+    std::string actorRole{"patient"};
+    std::optional<std::string> knowledgeCapabilityToken;
 };
 
 struct AgentResponse
@@ -27,6 +29,10 @@ struct AgentResponse
     int stepCount{0};
     std::vector<domain::AgentToolSummary> tools;
     std::vector<std::string> groundingPredictionIds;
+    std::vector<std::string> groundingSourceIds;
+    std::vector<domain::KnowledgeCitation> citations;
+    std::optional<std::string> knowledgeIndexVersion;
+    std::optional<domain::AgentSkillUse> skillUsed;
 };
 
 class AgentClientException : public std::runtime_error

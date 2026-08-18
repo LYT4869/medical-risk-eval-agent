@@ -207,6 +207,19 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
         "TREESEM_AGENT_MESSAGE_MAX_CHARS", config.agentMessageMaxCharacters);
     config.agentResponseMaxBytes = parsePositiveSize(
         "TREESEM_AGENT_RESPONSE_MAX_BYTES", config.agentResponseMaxBytes);
+    config.knowledgeEnabled = parseBoolean(environmentOr(
+        "TREESEM_KNOWLEDGE_ENABLED",
+        config.knowledgeEnabled ? "true" : "false"),
+        "TREESEM_KNOWLEDGE_ENABLED");
+    config.knowledgeJwtSecret = environmentOr(
+        "TREESEM_KNOWLEDGE_JWT_SECRET", config.knowledgeJwtSecret);
+    config.knowledgeTokenTtlSeconds = parsePositiveLong(environmentOr(
+        "TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS",
+        std::to_string(config.knowledgeTokenTtlSeconds)),
+        "TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS");
+    if (config.knowledgeTokenTtlSeconds > 300)
+        throw std::invalid_argument(
+            "TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS must not exceed 300");
     if (config.agentEnabled && config.agentUrl.empty())
         throw std::invalid_argument("TREESEM_AGENT_URL must not be empty when agent is enabled");
     const std::string authMode = environmentOr("TREESEM_AUTH_MODE", "required");
@@ -245,11 +258,21 @@ TreeSemServerConfig TreeSemServerConfig::load(int argc, char* argv[])
         (config.accessJwtSecret.size() < 32 ||
          config.capabilityJwtSecret.size() < 32 ||
          config.agentServiceSecret.size() < 32 ||
+         (config.knowledgeEnabled && config.knowledgeJwtSecret.size() < 32) ||
          config.accessJwtSecret == config.capabilityJwtSecret ||
          config.accessJwtSecret == config.agentServiceSecret ||
-         config.capabilityJwtSecret == config.agentServiceSecret))
+         config.capabilityJwtSecret == config.agentServiceSecret ||
+         (config.knowledgeEnabled &&
+          (config.knowledgeJwtSecret == config.accessJwtSecret ||
+           config.knowledgeJwtSecret == config.capabilityJwtSecret ||
+           config.knowledgeJwtSecret == config.agentServiceSecret))))
         throw std::invalid_argument(
-            "required auth needs three distinct secrets of at least 32 bytes");
+            "enabled security features need distinct secrets of at least 32 bytes");
+    if (!config.authRequired && config.knowledgeEnabled &&
+        !config.knowledgeJwtSecret.empty() &&
+        config.knowledgeJwtSecret.size() < 32)
+        throw std::invalid_argument(
+            "TREESEM_KNOWLEDGE_JWT_SECRET must be at least 32 bytes");
     if (config.deploymentEnvironment == "production" &&
         (!config.authRequired || !config.cookieSecure ||
          !config.refreshCookieSecure ||

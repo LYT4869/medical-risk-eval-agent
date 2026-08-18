@@ -138,18 +138,29 @@ int main(int argc, char* argv[])
             "treesem-development-access-secret-change-me";
         const std::string developmentCapabilitySecret =
             "treesem-development-capability-secret-change-me";
-        treesem::security::JwtService jwtService({
-            config.authRequired ? config.accessJwtSecret : developmentAccessSecret,
-            config.authRequired ? config.capabilityJwtSecret : developmentCapabilitySecret,
-            std::chrono::seconds(config.accessTokenTtlSeconds),
-            std::chrono::seconds(config.capabilityTokenTtlSeconds)});
+        const std::string developmentKnowledgeSecret =
+            "treesem-development-knowledge-secret-change-me";
+        treesem::security::JwtConfig jwtConfig;
+        jwtConfig.accessSecret = config.authRequired
+            ? config.accessJwtSecret : developmentAccessSecret;
+        jwtConfig.capabilitySecret = config.authRequired
+            ? config.capabilityJwtSecret : developmentCapabilitySecret;
+        jwtConfig.accessTtl = std::chrono::seconds(config.accessTokenTtlSeconds);
+        jwtConfig.capabilityTtl =
+            std::chrono::seconds(config.capabilityTokenTtlSeconds);
+        jwtConfig.knowledgeSecret = config.knowledgeJwtSecret.empty()
+            ? developmentKnowledgeSecret : config.knowledgeJwtSecret;
+        jwtConfig.knowledgeTtl =
+            std::chrono::seconds(config.knowledgeTokenTtlSeconds);
+        treesem::security::JwtService jwtService(std::move(jwtConfig));
         treesem::security::PasswordHasher passwordHasher;
         treesem::application::AuthService authService(
             *securityStore, passwordHasher, jwtService,
             std::chrono::seconds(config.accessTokenTtlSeconds),
             std::chrono::seconds(config.refreshTokenTtlSeconds));
         treesem::application::AuditService auditService(*securityStore);
-        configuredJwtService = config.authRequired ? &jwtService : nullptr;
+        configuredJwtService = (config.authRequired || config.knowledgeEnabled)
+            ? &jwtService : nullptr;
         auditServicePtr = config.authRequired ? &auditService : nullptr;
 #else
         if (config.authRequired)
@@ -194,7 +205,8 @@ int main(int argc, char* argv[])
                 std::move(agentClientConfig));
             agentService = std::make_unique<treesem::application::AgentApplicationService>(
                 *agentClient, *store, sessionService, config.agentContextMessages,
-                configuredJwtService);
+                configuredJwtService,
+                config.knowledgeEnabled && configuredJwtService != nullptr);
             agentScheduler = std::make_unique<treesem::service::BlockingTaskScheduler>(
                 config.agentWorkerCount, config.agentQueueCapacity,
                 treesem::service::agentSchedulerErrors());

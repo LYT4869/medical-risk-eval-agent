@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "src_treesem_serving",
+      "title": "treeSem Serving Model",
+      "publisher": "treeSem project",
+      "source_type": "project_documentation",
+      "audience": "both",
+      "knowledge_scope": "model_public",
+      "version": "M7",
+      "published_at": "2026-08-18",
+      "original_url": "treesem://project/serving-model",
+      "local_path": "model/treesem-serving.md",
+      "license_note": "Project-owned documentation",
+      "sha256": "d1ac23f935386ba3d858a2bf849d21a16dacda797710ba019bf761eab489bece",
+      "ingested_at": "2026-08-18T00:00:00Z"
+    }
+  ]
+}

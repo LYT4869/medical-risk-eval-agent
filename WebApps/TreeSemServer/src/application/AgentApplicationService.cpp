@@ -19,11 +19,14 @@ domain::TimePoint nowUtc()
 AgentApplicationService::AgentApplicationService(
     const client::IAgentClient& agent, persistence::ITreeSemStore& store,
     const SessionService& sessions, std::size_t contextMessages,
-    const security::JwtService* jwt)
+    const security::JwtService* jwt, bool knowledgeEnabled)
     : agent_(agent), store_(store), sessions_(sessions),
-      contextMessages_(contextMessages), jwt_(jwt)
+      contextMessages_(contextMessages), jwt_(jwt),
+      knowledgeEnabled_(knowledgeEnabled)
 {
     if (contextMessages_ == 0) throw std::invalid_argument("chat context limit must be positive");
+    if (knowledgeEnabled_ && jwt_ == nullptr)
+        throw std::invalid_argument("knowledge requires a JWT service");
 }
 
 ChatResult AgentApplicationService::chat(
@@ -71,6 +74,8 @@ ChatResult AgentApplicationService::chat(
             request.recentMessages.back().messageId == user.messageId)
             request.recentMessages.pop_back();
         request.currentPredictionId = resolved.session.currentPredictionId;
+        request.actorRole = actor.has_value()
+            ? domain::toString(actor->role) : "patient";
         if (actor.has_value() && jwt_ != nullptr)
         {
             security::CapabilityContext capability;
@@ -82,6 +87,25 @@ ChatResult AgentApplicationService::chat(
             capability.allowedTools = {"predict_sample", "get_prediction",
                 "get_explanation", "get_prediction_history", "compare_predictions"};
             request.capabilityToken = jwt_->issueCapability(capability, startedAt);
+        }
+        if (knowledgeEnabled_)
+        {
+            security::KnowledgeCapabilityContext capability;
+            capability.actorId = actor.has_value() ? actor->userId : "anonymous";
+            capability.actorRole = actor.has_value()
+                ? actor->role : domain::UserRole::Patient;
+            capability.sessionId = run.sessionId;
+            capability.subjectUserId = actor.has_value()
+                ? actor->subjectUserId.value_or(actor->userId) : "anonymous";
+            capability.runId = run.runId;
+            capability.allowedScopes = {"model_public", "clinical_patient"};
+            if (capability.actorRole == domain::UserRole::Doctor)
+            {
+                capability.allowedScopes.push_back("model_technical");
+                capability.allowedScopes.push_back("clinical_professional");
+            }
+            request.knowledgeCapabilityToken =
+                jwt_->issueKnowledgeCapability(capability, startedAt);
         }
         if (request.currentPredictionId.has_value())
         {
@@ -100,6 +124,10 @@ ChatResult AgentApplicationService::chat(
         run.stepCount = response.stepCount;
         run.tools = response.tools;
         run.groundingPredictionIds = response.groundingPredictionIds;
+        run.groundingSourceIds = response.groundingSourceIds;
+        run.citations = response.citations;
+        run.knowledgeIndexVersion = response.knowledgeIndexVersion;
+        run.skillUsed = response.skillUsed;
         run.finalMessageId = assistant.messageId;
         run.completedAt = completedAt;
         store_.completeAgentRun(run, assistant);

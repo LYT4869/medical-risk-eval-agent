@@ -1,6 +1,10 @@
 #include "client/PythonAgentClient.h"
 
+#include <algorithm>
+#include <cctype>
 #include <mutex>
+#include <regex>
+#include <set>
 #include <utility>
 
 #include <curl/curl.h>
@@ -51,7 +55,41 @@ nlohmann::json encodeRequest(const AgentRequest& request)
     else root["current_prediction"] = nullptr;
     root["capability_token"] = request.capabilityToken.has_value()
         ? nlohmann::json(*request.capabilityToken) : nlohmann::json(nullptr);
+    root["actor_role"] = request.actorRole;
+    root["knowledge_capability_token"] =
+        request.knowledgeCapabilityToken.has_value()
+        ? nlohmann::json(*request.knowledgeCapabilityToken)
+        : nlohmann::json(nullptr);
     return root;
+}
+
+bool validOpaqueId(const std::string& value, const std::string& prefix)
+{
+    return value.size() > prefix.size() && value.size() <= 128 &&
+        value.compare(0, prefix.size(), prefix) == 0 &&
+        std::all_of(value.begin() + static_cast<std::ptrdiff_t>(prefix.size()),
+                    value.end(), [](unsigned char c) {
+                        return std::isalnum(c) || c == '_' || c == '-';
+                    });
+}
+
+bool validCitationId(const std::string& value)
+{
+    return value.size() == 25 && value.compare(0, 5, "cite_") == 0 &&
+        std::all_of(value.begin() + 5, value.end(), [](unsigned char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        });
+}
+
+std::optional<std::string> optionalText(const nlohmann::json& value,
+                                        const char* key,
+                                        std::size_t maximum)
+{
+    if (!value.contains(key) || value.at(key).is_null()) return std::nullopt;
+    if (!value.at(key).is_string()) throw std::runtime_error("invalid text field");
+    auto result = value.at(key).get<std::string>();
+    if (result.size() > maximum) throw std::runtime_error("text field too long");
+    return result;
 }
 
 AgentResponse decodeResponse(const std::string& body)
@@ -85,6 +123,84 @@ AgentResponse decodeResponse(const std::string& body)
             if (!item.is_string()) throw std::runtime_error("invalid grounding id");
             result.groundingPredictionIds.push_back(item.get<std::string>());
         }
+        if (root.contains("grounding_source_ids"))
+        {
+            if (!root.at("grounding_source_ids").is_array())
+                throw std::runtime_error("invalid source grounding ids");
+            for (const auto& item : root.at("grounding_source_ids"))
+            {
+                if (!item.is_string() ||
+                    !validCitationId(item.get<std::string>()))
+                    throw std::runtime_error("invalid source grounding id");
+                result.groundingSourceIds.push_back(item.get<std::string>());
+            }
+        }
+        if (root.contains("citations"))
+        {
+            if (!root.at("citations").is_array() ||
+                root.at("citations").size() > 48)
+                throw std::runtime_error("invalid citations");
+            std::set<std::string> seen;
+            for (const auto& item : root.at("citations"))
+            {
+                if (!item.is_object() || !item.at("citation_id").is_string() ||
+                    !item.at("source_id").is_string() ||
+                    !item.at("title").is_string() || !item.at("section").is_string() ||
+                    !item.at("publisher").is_string() || !item.at("url").is_string())
+                    throw std::runtime_error("invalid citation");
+                domain::KnowledgeCitation citation;
+                citation.citationId = item.at("citation_id").get<std::string>();
+                citation.sourceId = item.at("source_id").get<std::string>();
+                citation.title = item.at("title").get<std::string>();
+                citation.section = item.at("section").get<std::string>();
+                citation.publisher = item.at("publisher").get<std::string>();
+                citation.url = item.at("url").get<std::string>();
+                citation.publishedAt = optionalText(item, "published_at", 64);
+                if (!validCitationId(citation.citationId) ||
+                    !validOpaqueId(citation.sourceId, "src_") ||
+                    citation.title.size() > 512 || citation.section.size() > 512 ||
+                    citation.publisher.size() > 256 || citation.url.size() > 2048 ||
+                    !seen.insert(citation.citationId).second)
+                    throw std::runtime_error("invalid citation value");
+                if (item.contains("page") && !item.at("page").is_null())
+                {
+                    if (!item.at("page").is_number_integer())
+                        throw std::runtime_error("invalid citation page");
+                    citation.page = item.at("page").get<int>();
+                    if (*citation.page < 1) throw std::runtime_error("invalid citation page");
+                }
+                result.citations.push_back(std::move(citation));
+            }
+        }
+        result.knowledgeIndexVersion = optionalText(
+            root, "knowledge_index_version", 128);
+        if (root.contains("skill_used") && !root.at("skill_used").is_null())
+        {
+            const auto& skill = root.at("skill_used");
+            if (!skill.is_object() || !skill.at("id").is_string() ||
+                !skill.at("version").is_string() ||
+                !skill.at("catalog_version").is_string())
+                throw std::runtime_error("invalid skill metadata");
+            domain::AgentSkillUse used{
+                skill.at("id").get<std::string>(),
+                skill.at("version").get<std::string>(),
+                skill.at("catalog_version").get<std::string>()};
+            if (used.id.size() > 64 || used.version.size() > 32 ||
+                used.catalogVersion.size() > 128)
+                throw std::runtime_error("invalid skill metadata value");
+            result.skillUsed = std::move(used);
+        }
+        const std::set<std::string> grounded(result.groundingSourceIds.begin(),
+                                             result.groundingSourceIds.end());
+        std::set<std::string> described;
+        for (const auto& citation : result.citations)
+        {
+            described.insert(citation.citationId);
+            if (grounded.count(citation.citationId) == 0)
+                throw std::runtime_error("ungrounded citation metadata");
+        }
+        if (grounded != described)
+            throw std::runtime_error("citation metadata is incomplete");
         return result;
     }
     catch (const std::exception& error)

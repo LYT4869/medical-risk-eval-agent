@@ -1,0 +1,31 @@
+{
+  "index_version": "knowledge-6f9bf6633fd5b6b9",
+  "question_count": 42,
+  "source_count": 4,
+  "chunk_count": 35,
+  "embedding": {
+    "model": "intfloat/multilingual-e5-small",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+  },
+  "reranker": {
+    "model": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+    "revision": "1427fd652930e4ba29e8149678df786c240d8825"
+  },
+  "calibrated_thresholds": {
+    "reranker_min_score": -5.5,
+    "all_scope_reranker_min_score": -2.0,
+    "rrf_min_score": 0.03
+  },
+  "metrics": {
+    "recall_at_5": 0.9375,
+    "mrr_at_10": 0.9270833333333333,
+    "negative_no_answer": 1.0,
+    "cross_audience_leakage": 0
+  },
+  "acceptance": {
+    "recall_at_5": 0.85,
+    "mrr_at_10": 0.75,
+    "negative_no_answer": 0.9,
+    "cross_audience_leakage": 0
+  }
+}

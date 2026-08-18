@@ -15,6 +15,18 @@ struct JwtConfig
     std::string capabilitySecret;
     std::chrono::seconds accessTtl{900};
     std::chrono::seconds capabilityTtl{120};
+    std::string knowledgeSecret;
+    std::chrono::seconds knowledgeTtl{120};
+};
+
+struct KnowledgeCapabilityContext
+{
+    std::string actorId;
+    domain::UserRole actorRole;
+    std::string sessionId;
+    std::string subjectUserId;
+    std::string runId;
+    std::vector<std::string> allowedScopes;
 };
 
 struct CapabilityContext
@@ -39,6 +51,11 @@ public:
                                 domain::TimePoint now) const;
     CapabilityContext verifyCapability(const std::string& token,
                                        domain::TimePoint now) const;
+    std::string issueKnowledgeCapability(
+        const KnowledgeCapabilityContext& context,
+        domain::TimePoint now) const;
+    KnowledgeCapabilityContext verifyKnowledgeCapability(
+        const std::string& token, domain::TimePoint now) const;
 private:
     JwtConfig config_;
 };

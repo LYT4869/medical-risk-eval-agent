@@ -1,0 +1,10 @@
+[
+  {"input":"什么是产后出血","expected_tools":["search_medical_knowledge"]},
+  {"input":"产后大量出血怎么办","expected_tools":["search_medical_knowledge"]},
+  {"input":"有哪些危险信号","expected_tools":["search_medical_knowledge"]},
+  {"input":"给我患者能看懂的说明","expected_tools":["search_medical_knowledge"]},
+  {"input":"指南如何定义 PPH","expected_tools":["search_medical_knowledge"]},
+  {"input":"总结权威指南","expected_tools":["search_medical_knowledge"]},
+  {"input":"证据来自哪里","expected_tools":["search_medical_knowledge"]},
+  {"input":"这个知识和模型预测有什么区别","expected_tools":["search_medical_knowledge"]}
+]

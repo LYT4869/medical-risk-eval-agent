@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "explain_prediction",
+  "version": "1.0.0",
+  "display_name": "Explain treeSem Prediction",
+  "description": "Explain one stored treeSem prediction using deterministic model facts and cited model knowledge.",
+  "audiences": ["patient", "doctor"],
+  "intent_examples": ["解释一下刚才的预测", "哪些特征最重要", "Explain this prediction"],
+  "required_tools": ["get_prediction", "get_explanation", "search_medical_knowledge"],
+  "required_knowledge_scopes": ["model_public"],
+  "instruction_files": {
+    "patient": "instructions.patient.md",
+    "doctor": "instructions.doctor.md"
+  }
+}

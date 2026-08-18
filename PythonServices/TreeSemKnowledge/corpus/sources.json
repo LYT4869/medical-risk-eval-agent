@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "src_treesem_serving",
+      "title": "treeSem Serving Model",
+      "publisher": "treeSem project",
+      "source_type": "project_documentation",
+      "audience": "both",
+      "knowledge_scope": "model_public",
+      "version": "M7",
+      "published_at": "2026-08-18",
+      "original_url": "treesem://project/serving-model",
+      "local_path": "model/treesem-serving.md",
+      "license_note": "Project-owned documentation",
+      "sha256": "d1ac23f935386ba3d858a2bf849d21a16dacda797710ba019bf761eab489bece",
+      "ingested_at": "2026-08-18T00:00:00Z"
+    },
+    {
+      "source_id": "src_who_pph_consolidated_2025",
+      "title": "WHO consolidated PPH guideline catalog overview",
+      "publisher": "World Health Organization, FIGO and ICM",
+      "source_type": "guideline_catalog_overview",
+      "audience": "doctor",
+      "knowledge_scope": "clinical_professional",
+      "version": "first edition, 2025",
+      "published_at": "2025-10-05",
+      "original_url": "https://www.who.int/publications/i/item/9789240115637",
+      "local_path": "clinical/who-pph-guideline-catalog.md",
+      "license_note": "Project-authored catalog summary; not a substitute for the full guideline",
+      "sha256": "7ceb597c33542f765cafaa568ffc51c12530f84a5c7eaac9e9da4c75cd21f32b",
+      "ingested_at": "2026-08-18T00:00:00Z"
+    },
+    {
+      "source_id": "src_rcog_pph_patient",
+      "title": "Heavy bleeding after birth (postpartum haemorrhage)",
+      "publisher": "Royal College of Obstetricians and Gynaecologists",
+      "source_type": "patient_education",
+      "audience": "patient",
+      "knowledge_scope": "clinical_patient",
+      "version": "published December 2016; page currently under review",
+      "published_at": "2016-12-01",
+      "original_url": "https://www.rcog.org.uk/for-the-public/browse-our-patient-information/heavy-bleeding-after-birth-postpartum-haemorrhage/",
+      "local_path": "raw/rcog-pph-patient.html",
+      "license_note": "Local evaluation snapshot; verify reuse terms before redistribution",
+      "sha256": "f001a6f2677f1e2618ecba63fdd4f2099b2e4e7a39b47e4db7e32361dbd32e3a",
+      "ingested_at": "2026-08-18T00:00:00Z"
+    },
+    {
+      "source_id": "src_nhs_early_days_postpartum",
+      "title": "Early days after birth",
+      "publisher": "NHS",
+      "source_type": "patient_education",
+      "audience": "patient",
+      "knowledge_scope": "clinical_patient",
+      "version": "live NHS page snapshot reviewed 2026-08-18",
+      "published_at": "2026-01-01",
+      "original_url": "https://www.nhs.uk/pregnancy/labour-and-birth/early-days/",
+      "local_path": "raw/nhs-early-days.html",
+      "license_note": "Local evaluation snapshot; verify reuse terms before redistribution",
+      "sha256": "c4edfb46517d20940d0c75679eaa842ff2e9dff79824d3e44c6c74b243c3e52b",
+      "ingested_at": "2026-08-18T00:00:00Z"
+    }
+  ]
+}

@@ -61,6 +61,9 @@ struct TreeSemServerConfig
     std::size_t agentContextMessages{12};
     std::size_t agentMessageMaxCharacters{4000};
     std::size_t agentResponseMaxBytes{1024 * 1024};
+    bool knowledgeEnabled{true};
+    std::string knowledgeJwtSecret;
+    long knowledgeTokenTtlSeconds{120};
     bool authRequired{true};
     std::string deploymentEnvironment{"local"};
     std::string accessJwtSecret;

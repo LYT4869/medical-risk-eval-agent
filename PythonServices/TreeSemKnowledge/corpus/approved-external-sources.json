@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-18",
+  "sources": [
+    {
+      "source_id": "src_who_pph_consolidated_2025",
+      "title": "Consolidated guidelines for the prevention, diagnosis and treatment of postpartum haemorrhage",
+      "publisher": "World Health Organization, FIGO and ICM",
+      "source_type": "guideline",
+      "audience": "doctor",
+      "knowledge_scope": "clinical_professional",
+      "version": "first edition, 2025",
+      "published_at": "2025-10-05",
+      "original_url": "https://www.who.int/publications/i/item/9789240115637",
+      "license_note": "CC BY-NC-SA 3.0 IGO; preserve attribution and verify third-party material",
+      "ingestion_status": "catalog_overview_indexed_full_guideline_pending"
+    },
+    {
+      "source_id": "src_rcog_pph_patient",
+      "title": "Heavy bleeding after birth (postpartum haemorrhage)",
+      "publisher": "Royal College of Obstetricians and Gynaecologists",
+      "source_type": "patient_education",
+      "audience": "patient",
+      "knowledge_scope": "clinical_patient",
+      "version": "published December 2016; page currently under review",
+      "published_at": "2016-12-01",
+      "original_url": "https://www.rcog.org.uk/for-the-public/browse-our-patient-information/heavy-bleeding-after-birth-postpartum-haemorrhage/",
+      "license_note": "Link and metadata only until local reuse terms are reviewed",
+      "ingestion_status": "local_evaluation_snapshot_indexed"
+    },
+    {
+      "source_id": "src_nhs_early_days_postpartum",
+      "title": "Early days after birth",
+      "publisher": "NHS",
+      "source_type": "patient_education",
+      "audience": "patient",
+      "knowledge_scope": "clinical_patient",
+      "version": "live NHS page reviewed 2026-08-18",
+      "published_at": "2026-01-01",
+      "original_url": "https://www.nhs.uk/pregnancy/labour-and-birth/early-days/",
+      "license_note": "Link and metadata only until NHS content reuse terms are reviewed",
+      "ingestion_status": "local_evaluation_snapshot_indexed"
+    }
+  ]
+}

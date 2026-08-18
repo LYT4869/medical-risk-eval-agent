@@ -19,6 +19,8 @@ class ToolExecutionError(RuntimeError):
 class ToolContext:
     session_id: str
     capability_token: str | None = None
+    knowledge_capability_token: str | None = None
+    actor_role: str = "patient"
 
 
 class BackendToolClient:

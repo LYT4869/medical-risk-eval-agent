@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "compare_prediction_history",
+  "version": "1.0.0",
+  "display_name": "Compare Prediction History",
+  "description": "Compare two stored predictions with deterministic deltas and safe interpretation.",
+  "audiences": ["patient", "doctor"],
+  "intent_examples": ["和上一次相比有什么变化", "比较这两个结果", "Compare my recent predictions"],
+  "required_tools": ["get_prediction_history", "compare_predictions", "get_explanation"],
+  "required_knowledge_scopes": [],
+  "instruction_files": {
+    "patient": "instructions.patient.md",
+    "doctor": "instructions.doctor.md"
+  }
+}

@@ -319,10 +319,19 @@ if(KAMA_BUILD_TESTS)
         NAME python_agent_core_test
         COMMAND ${Python3_EXECUTABLE} -m unittest discover
             -s ${PROJECT_SOURCE_DIR}/PythonServices/TreeSemAgent/tests
-            -p test_agent_loop.py
+            -p test_*.py
+    )
+    add_test(
+        NAME python_knowledge_core_test
+        COMMAND ${Python3_EXECUTABLE} -m unittest discover
+            -s ${PROJECT_SOURCE_DIR}/PythonServices/TreeSemKnowledge/tests
+            -p test_*.py
     )
     set_tests_properties(python_agent_core_test PROPERTIES
         ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemAgent"
+    )
+    set_tests_properties(python_knowledge_core_test PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemKnowledge"
     )
     set_tests_properties(python_adapter_contract_test PROPERTIES
         ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/PythonServices/TreeSemModelAdapter"

@@ -1,0 +1,10 @@
+[
+  {"input":"和上一次比呢","expected_tools":["get_prediction_history","compare_predictions"]},
+  {"input":"最近两个结果有什么变化","expected_tools":["get_prediction_history","compare_predictions"]},
+  {"input":"标签有没有改变","expected_tools":["compare_predictions"]},
+  {"input":"概率差多少","expected_tools":["compare_predictions"]},
+  {"input":"决策路径变了吗","expected_tools":["compare_predictions","get_explanation"]},
+  {"input":"为什么重要特征不同","expected_tools":["compare_predictions","get_explanation"]},
+  {"input":"比较两个指定 prediction","expected_tools":["compare_predictions"]},
+  {"input":"模型版本是否一样","expected_tools":["compare_predictions"]}
+]

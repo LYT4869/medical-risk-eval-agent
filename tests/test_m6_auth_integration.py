@@ -93,6 +93,7 @@ def main() -> int:
             "TREESEM_ACCESS_JWT_SECRET": "access-secret-for-process-test-at-least-32-bytes",
             "TREESEM_CAPABILITY_JWT_SECRET": "capability-secret-for-process-test-at-least-32-bytes",
             "TREESEM_AGENT_SERVICE_SECRET": "agent-secret-for-process-test-at-least-32-bytes",
+            "TREESEM_KNOWLEDGE_JWT_SECRET": "knowledge-secret-for-process-test-at-least-32-bytes",
         }
     )
     process = subprocess.Popen(

@@ -69,14 +69,20 @@ class OpenAiCompatibleClient:
                     calls.append(LlmToolCall(id=raw["id"], name=raw["function"]["name"], arguments=arguments))
                 content = message.get("content")
                 grounding = []
+                source_grounding = []
                 if content and content.lstrip().startswith("{"):
                     try:
                         structured = json.loads(content)
                         content = structured.get("answer", content)
                         grounding = structured.get("grounding_prediction_ids", [])
+                        source_grounding = structured.get(
+                            "grounding_source_ids", [])
                     except (ValueError, TypeError):
                         pass
-                return LlmTurn(content=content, tool_calls=calls, grounding_prediction_ids=grounding)
+                return LlmTurn(
+                    content=content, tool_calls=calls,
+                    grounding_prediction_ids=grounding,
+                    grounding_source_ids=source_grounding)
             except (httpx.HTTPError, ValueError, KeyError, TypeError, LlmError) as exc:
                 last_error = exc
                 if attempt == 0:

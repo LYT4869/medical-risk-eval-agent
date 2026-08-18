@@ -48,6 +48,23 @@ std::string ChatJsonCodec::serialize(const application::ChatResult& result)
     for (const auto& tool : result.run.tools)
         tools.push_back({{"name", tool.name}, {"status", tool.status},
                          {"duration_ms", tool.durationMs}});
+    Json citations = Json::array();
+    for (const auto& citation : result.run.citations)
+        citations.push_back({{"citation_id", citation.citationId},
+                             {"source_id", citation.sourceId},
+                             {"title", citation.title},
+                             {"section", citation.section},
+                             {"page", citation.page.has_value()
+                                 ? Json(*citation.page) : Json(nullptr)},
+                             {"publisher", citation.publisher},
+                             {"published_at", citation.publishedAt.has_value()
+                                 ? Json(*citation.publishedAt) : Json(nullptr)},
+                             {"url", citation.url}});
+    Json skill = nullptr;
+    if (result.run.skillUsed.has_value())
+        skill = {{"id", result.run.skillUsed->id},
+                 {"version", result.run.skillUsed->version},
+                 {"catalog_version", result.run.skillUsed->catalogVersion}};
     return Json{{"run_id", result.run.runId},
                 {"message_id", result.finalMessage.messageId},
                 {"session_id", result.run.sessionId},
@@ -56,6 +73,11 @@ std::string ChatJsonCodec::serialize(const application::ChatResult& result)
                 {"step_count", result.run.stepCount},
                 {"tools_used", std::move(tools)},
                 {"grounding_prediction_ids", result.run.groundingPredictionIds},
+                {"grounding_source_ids", result.run.groundingSourceIds},
+                {"citations", std::move(citations)},
+                {"knowledge_index_version", result.run.knowledgeIndexVersion.has_value()
+                    ? Json(*result.run.knowledgeIndexVersion) : Json(nullptr)},
+                {"skill_used", std::move(skill)},
                 {"created_at", infrastructure::formatUtc(result.finalMessage.createdAt)}}.dump();
 }
 

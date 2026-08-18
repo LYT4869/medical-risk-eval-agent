@@ -140,6 +140,42 @@ domain::AgentRunRecord readAgentRun(sql::ResultSet& result)
                              item.at("duration_ms").get<std::uint64_t>()});
     run.groundingPredictionIds = nlohmann::json::parse(
         stringValue(result, "grounding_ids_json")).get<std::vector<std::string>>();
+    if (!result.isNull("grounding_sources_json"))
+    {
+        const auto grounding = nlohmann::json::parse(
+            stringValue(result, "grounding_sources_json"));
+        if (!grounding.is_object() || !grounding.at("ids").is_array() ||
+            !grounding.at("citations").is_array())
+            throw std::invalid_argument("invalid stored knowledge grounding");
+        run.groundingSourceIds = grounding.at("ids").get<std::vector<std::string>>();
+        for (const auto& item : grounding.at("citations"))
+        {
+            domain::KnowledgeCitation citation;
+            citation.citationId = item.at("citation_id").get<std::string>();
+            citation.sourceId = item.at("source_id").get<std::string>();
+            citation.title = item.at("title").get<std::string>();
+            citation.section = item.at("section").get<std::string>();
+            if (item.contains("page") && !item.at("page").is_null())
+                citation.page = item.at("page").get<int>();
+            citation.publisher = item.at("publisher").get<std::string>();
+            if (item.contains("published_at") && !item.at("published_at").is_null())
+                citation.publishedAt = item.at("published_at").get<std::string>();
+            citation.url = item.at("url").get<std::string>();
+            run.citations.push_back(std::move(citation));
+        }
+    }
+    run.knowledgeIndexVersion = optionalString(result, "knowledge_index_version");
+    const auto skillId = optionalString(result, "skill_id");
+    const auto skillVersion = optionalString(result, "skill_version");
+    const auto catalogVersion = optionalString(result, "skill_catalog_version");
+    if (skillId.has_value() || skillVersion.has_value() || catalogVersion.has_value())
+    {
+        if (!skillId.has_value() || !skillVersion.has_value() ||
+            !catalogVersion.has_value())
+            throw std::invalid_argument("invalid stored skill metadata");
+        run.skillUsed = domain::AgentSkillUse{
+            *skillId, *skillVersion, *catalogVersion};
+    }
     run.finalMessageId = optionalString(result, "final_message_id");
     run.errorCode = optionalString(result, "error_code");
     run.startedAt = fromMysqlTime(stringValue(result, "started_at"));
@@ -157,6 +193,24 @@ std::string toolsJson(const std::vector<domain::AgentToolSummary>& tools)
         result.push_back({{"name", item.name}, {"status", item.status},
                           {"duration_ms", item.durationMs}});
     return result.dump();
+}
+
+std::string groundingSourcesJson(const domain::AgentRunRecord& run)
+{
+    nlohmann::json citations = nlohmann::json::array();
+    for (const auto& item : run.citations)
+        citations.push_back({{"citation_id", item.citationId},
+                             {"source_id", item.sourceId},
+                             {"title", item.title},
+                             {"section", item.section},
+                             {"page", item.page.has_value()
+                                 ? nlohmann::json(*item.page) : nlohmann::json(nullptr)},
+                             {"publisher", item.publisher},
+                             {"published_at", item.publishedAt.has_value()
+                                 ? nlohmann::json(*item.publishedAt) : nlohmann::json(nullptr)},
+                             {"url", item.url}});
+    return nlohmann::json{{"ids", run.groundingSourceIds},
+                          {"citations", std::move(citations)}}.dump();
 }
 
 domain::UserRecord readUser(sql::ResultSet& result)
@@ -737,8 +791,10 @@ domain::AgentRunStartResult MySqlTreeSemStore::startAgentRun(
             std::unique_ptr<sql::PreparedStatement> insertRun(connection.prepareStatement(
                 "INSERT INTO treesem_agent_runs "
                 "(run_id,session_id,idempotency_key,payload_sha256,status,step_count,"
-                "tool_summary_json,grounding_ids_json,started_at,actor_user_id,subject_user_id) "
-                "VALUES (?,?,?,?,?,0,'[]','[]',?,?,?)"));
+                "tool_summary_json,grounding_ids_json,grounding_sources_json,"
+                "started_at,actor_user_id,subject_user_id) "
+                "VALUES (?,?,?,?,?,0,'[]','[]',JSON_OBJECT('ids', JSON_ARRAY(),"
+                "'citations', JSON_ARRAY()),?,?,?)"));
             insertRun->setString(1, run.runId); insertRun->setString(2, run.sessionId);
             insertRun->setString(3, run.idempotencyKey); insertRun->setString(4, run.payloadSha256);
             insertRun->setString(5, domain::toString(run.status));
@@ -800,12 +856,31 @@ void MySqlTreeSemStore::completeAgentRun(
             insert->executeUpdate();
             std::unique_ptr<sql::PreparedStatement> update(connection.prepareStatement(
                 "UPDATE treesem_agent_runs SET status='completed',step_count=?,"
-                "tool_summary_json=?,grounding_ids_json=?,final_message_id=?,completed_at=? "
+                "tool_summary_json=?,grounding_ids_json=?,grounding_sources_json=?,"
+                "knowledge_index_version=?,skill_id=?,skill_version=?,"
+                "skill_catalog_version=?,final_message_id=?,completed_at=? "
                 "WHERE run_id=? AND status='running'"));
             update->setInt(1, run.stepCount); update->setString(2, toolsJson(run.tools));
             update->setString(3, nlohmann::json(run.groundingPredictionIds).dump());
-            update->setString(4, assistantMessage.messageId);
-            update->setString(5, mysqlTime(*run.completedAt)); update->setString(6, run.runId);
+            update->setString(4, groundingSourcesJson(run));
+            if (run.knowledgeIndexVersion.has_value())
+                update->setString(5, *run.knowledgeIndexVersion);
+            else update->setNull(5, sql::DataType::VARCHAR);
+            if (run.skillUsed.has_value())
+            {
+                update->setString(6, run.skillUsed->id);
+                update->setString(7, run.skillUsed->version);
+                update->setString(8, run.skillUsed->catalogVersion);
+            }
+            else
+            {
+                update->setNull(6, sql::DataType::VARCHAR);
+                update->setNull(7, sql::DataType::VARCHAR);
+                update->setNull(8, sql::DataType::VARCHAR);
+            }
+            update->setString(9, assistantMessage.messageId);
+            update->setString(10, mysqlTime(*run.completedAt));
+            update->setString(11, run.runId);
             if (update->executeUpdate() != 1) throw application::BusinessException(
                 application::BusinessException::Kind::Conflict, "agent run is not active");
             connection.commit(); connection.setAutoCommit(true);

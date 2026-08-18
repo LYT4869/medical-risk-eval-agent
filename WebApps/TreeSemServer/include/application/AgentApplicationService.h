@@ -26,7 +26,8 @@ public:
                             persistence::ITreeSemStore& store,
                             const SessionService& sessions,
                             std::size_t contextMessages,
-                            const security::JwtService* jwt = nullptr);
+                            const security::JwtService* jwt = nullptr,
+                            bool knowledgeEnabled = false);
     ChatResult chat(const std::string& message,
                     const std::string& idempotencyKey,
                     const std::optional<std::string>& suppliedSession,
@@ -41,6 +42,7 @@ private:
     const SessionService& sessions_;
     std::size_t contextMessages_;
     const security::JwtService* jwt_;
+    bool knowledgeEnabled_;
 };
 
 } // namespace treesem::application

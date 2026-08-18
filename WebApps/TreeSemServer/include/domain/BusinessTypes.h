@@ -128,6 +128,25 @@ struct AgentToolSummary
     std::uint64_t durationMs{0};
 };
 
+struct KnowledgeCitation
+{
+    std::string citationId;
+    std::string sourceId;
+    std::string title;
+    std::string section;
+    std::optional<int> page;
+    std::string publisher;
+    std::optional<std::string> publishedAt;
+    std::string url;
+};
+
+struct AgentSkillUse
+{
+    std::string id;
+    std::string version;
+    std::string catalogVersion;
+};
+
 struct AgentRunRecord
 {
     std::string runId;
@@ -138,6 +157,10 @@ struct AgentRunRecord
     int stepCount{0};
     std::vector<AgentToolSummary> tools;
     std::vector<std::string> groundingPredictionIds;
+    std::vector<std::string> groundingSourceIds;
+    std::vector<KnowledgeCitation> citations;
+    std::optional<std::string> knowledgeIndexVersion;
+    std::optional<AgentSkillUse> skillUsed;
     std::optional<std::string> finalMessageId;
     std::optional<std::string> errorCode;
     TimePoint startedAt;

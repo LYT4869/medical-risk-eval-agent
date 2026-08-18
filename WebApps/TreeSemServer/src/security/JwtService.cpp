@@ -1,6 +1,7 @@
 #include "security/JwtService.h"
 
 #include <array>
+#include <set>
 #include <stdexcept>
 
 #include <openssl/hmac.h>
@@ -65,6 +66,23 @@ Json verify(const std::string& token, const std::string& secret,
         throw std::invalid_argument("invalid JWT claims");
     return claims;
 }
+
+void validateKnowledgeScopes(domain::UserRole role,
+                             const std::vector<std::string>& scopes)
+{
+    const std::set<std::string> allowed{"model_public", "model_technical",
+        "clinical_patient", "clinical_professional"};
+    if (scopes.empty() || role == domain::UserRole::Admin)
+        throw std::invalid_argument("invalid knowledge capability role or scopes");
+    std::set<std::string> seen;
+    for (const auto& scope : scopes)
+    {
+        if (!seen.insert(scope).second || allowed.count(scope) == 0 ||
+            (role == domain::UserRole::Patient &&
+             scope != "model_public" && scope != "clinical_patient"))
+            throw std::invalid_argument("invalid knowledge capability scope");
+    }
+}
 }
 
 JwtService::JwtService(JwtConfig config) : config_(std::move(config))
@@ -72,6 +90,14 @@ JwtService::JwtService(JwtConfig config) : config_(std::move(config))
     if (config_.accessSecret.size() < 32 || config_.capabilitySecret.size() < 32 ||
         config_.accessSecret == config_.capabilitySecret)
         throw std::invalid_argument("JWT secrets must be distinct and at least 32 bytes");
+    if (!config_.knowledgeSecret.empty() &&
+        (config_.knowledgeSecret.size() < 32 ||
+         config_.knowledgeSecret == config_.accessSecret ||
+         config_.knowledgeSecret == config_.capabilitySecret ||
+         config_.knowledgeTtl <= std::chrono::seconds::zero() ||
+         config_.knowledgeTtl > std::chrono::seconds(300)))
+        throw std::invalid_argument(
+            "knowledge JWT secret must be distinct and at least 32 bytes");
 }
 
 std::string JwtService::issueAccess(const domain::UserRecord& user,
@@ -118,5 +144,45 @@ CapabilityContext JwtService::verifyCapability(
             claims.at("subject_user_id").get<std::string>(),
             claims.at("run_id").get<std::string>(),
             claims.at("tools").get<std::vector<std::string>>()};
+}
+
+std::string JwtService::issueKnowledgeCapability(
+    const KnowledgeCapabilityContext& context, domain::TimePoint now) const
+{
+    if (config_.knowledgeSecret.empty())
+        throw std::logic_error("knowledge capability is not configured");
+    validateKnowledgeScopes(context.actorRole, context.allowedScopes);
+    return issue({{"iss", "treesem-backend"}, {"aud", "treesem-knowledge"},
+                  {"sub", context.actorId},
+                  {"role", domain::toString(context.actorRole)},
+                  {"session_id", context.sessionId},
+                  {"subject_user_id", context.subjectUserId},
+                  {"run_id", context.runId},
+                  {"scopes", context.allowedScopes},
+                  {"tools", std::vector<std::string>{"search_medical_knowledge"}},
+                  {"jti", infrastructure::generateOpaqueId("jti_")},
+                  {"iat", epochSeconds(now)},
+                  {"exp", epochSeconds(now + config_.knowledgeTtl)}},
+                 config_.knowledgeSecret);
+}
+
+KnowledgeCapabilityContext JwtService::verifyKnowledgeCapability(
+    const std::string& token, domain::TimePoint now) const
+{
+    if (config_.knowledgeSecret.empty())
+        throw std::logic_error("knowledge capability is not configured");
+    const auto claims = verify(token, config_.knowledgeSecret,
+                               "treesem-knowledge", now);
+    const auto tools = claims.at("tools").get<std::vector<std::string>>();
+    if (tools != std::vector<std::string>{"search_medical_knowledge"})
+        throw std::invalid_argument("invalid knowledge capability tools");
+    const auto role = domain::parseUserRole(claims.at("role").get<std::string>());
+    const auto scopes = claims.at("scopes").get<std::vector<std::string>>();
+    validateKnowledgeScopes(role, scopes);
+    return {claims.at("sub").get<std::string>(), role,
+            claims.at("session_id").get<std::string>(),
+            claims.at("subject_user_id").get<std::string>(),
+            claims.at("run_id").get<std::string>(),
+            scopes};
 }
 } // namespace treesem::security
