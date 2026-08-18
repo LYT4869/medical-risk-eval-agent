@@ -114,9 +114,26 @@ def validate_deterministic_export(artifact: Path, raw_file: Path) -> None:
         assert first.name == second.name
         assert _business_files(first) == _business_files(second)
         manifest = json.loads((first / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["bundle_schema_version"] == 2
         assert manifest["model_version"] == first.name
         assert manifest["contains_reference_dataset"] is True
+        assert manifest["contains_reference_labels"] is True
         assert manifest["reference_rows"] == 1489
+        assert manifest["evaluation"]["recomputed_metrics"]["accuracy"] > 0.9
+        loaded = ServingBundle(first)
+        assert loaded.reference_labels is not None
+        assert loaded.reference_labels.shape == (1489,)
+        second_manifest = json.loads(
+            (second / "manifest.json").read_text(encoding="utf-8"))
+        second_manifest["provenance"]["artifact_sha256"] = "0" * 64
+        (second / "manifest.json").write_text(
+            json.dumps(second_manifest, sort_keys=True), encoding="utf-8")
+        try:
+            ServingBundle(second)
+        except BundleValidationError:
+            pass
+        else:
+            raise AssertionError("inconsistent v2 provenance was accepted")
 
 
 def main() -> None:

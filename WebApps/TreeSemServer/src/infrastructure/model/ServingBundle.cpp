@@ -1,5 +1,6 @@
 #include "infrastructure/model/ServingBundle.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <functional>
@@ -115,6 +116,22 @@ int exactInteger(const Json& value, const char* description)
     return value.get<int>();
 }
 
+bool lowerHex(const std::string& value, std::size_t size)
+{
+    return value.size() == size && std::all_of(
+        value.begin(), value.end(), [](unsigned char character) {
+            return (character >= '0' && character <= '9') ||
+                   (character >= 'a' && character <= 'f');
+        });
+}
+
+std::string sha256Value(const Json& value, const char* description)
+{
+    if (!value.is_string() || !lowerHex(value.get<std::string>(), 64))
+        throw std::runtime_error(std::string(description) + " is invalid");
+    return value.get<std::string>();
+}
+
 std::filesystem::path checkedFile(
     const std::filesystem::path& directory,
     const Json& metadata)
@@ -149,7 +166,8 @@ ServingBundle::ServingBundle(
     : directory_(std::filesystem::absolute(directory).lexically_normal())
 {
     const Json manifest = readJson(directory_ / "manifest.json");
-    if (manifest.value("bundle_schema_version", 0) != 1 ||
+    const int schemaVersion = manifest.value("bundle_schema_version", 0);
+    if ((schemaVersion != 1 && schemaVersion != 2) ||
         manifest.value("model", "") != "treeSem" ||
         manifest.value("dataset", "") != "pph")
     {
@@ -174,6 +192,51 @@ ServingBundle::ServingBundle(
     for (auto iterator = filesIterator->begin(); iterator != filesIterator->end(); ++iterator)
     {
         paths.emplace(iterator.key(), checkedFile(directory_, iterator.value()));
+    }
+    if (schemaVersion == 2)
+    {
+        if (!manifest.contains("provenance") ||
+            !manifest.at("provenance").is_object() ||
+            !manifest.contains("evaluation") ||
+            !manifest.at("evaluation").is_object())
+            throw std::runtime_error("serving bundle v2 provenance is missing");
+        const Json& provenance = manifest.at("provenance");
+        if (sha256Value(provenance.at("artifact_sha256"), "artifact provenance") !=
+                sha256Value(manifest.at("artifact_sha256"), "artifact checksum") ||
+            sha256Value(provenance.at("raw_dataset_sha256"), "dataset provenance") !=
+                sha256Value(manifest.at("raw_data_sha256"), "dataset checksum") ||
+            sha256Value(provenance.at("feature_schema_sha256"), "feature provenance") !=
+                filesIterator->at("feature_schema").at("sha256").get<std::string>() ||
+            sha256Value(provenance.at("preprocessing_sha256"), "preprocessing provenance") !=
+                filesIterator->at("preprocessing").at("sha256").get<std::string>())
+            throw std::runtime_error("serving bundle v2 provenance is inconsistent");
+        const Json& fingerprint = provenance.at("split_fingerprint");
+        if (!fingerprint.is_object())
+            throw std::runtime_error("serving bundle split fingerprint is invalid");
+        for (const char* name : {"combined_sha256", "test_indices_sha256",
+                                 "train_indices_sha256"})
+            (void)sha256Value(fingerprint.at(name), "split fingerprint");
+        const Json& label = provenance.at("label_schema");
+        if (!label.is_object() || label.value("negative", -1) != 0 ||
+            label.value("positive", -1) != 1 ||
+            label.value("source_negative_value", 0) != -1 ||
+            finiteNumber(label.at("threshold"), "classification threshold") != 0.5)
+            throw std::runtime_error("serving bundle label schema is unsupported");
+        const Json& evaluation = manifest.at("evaluation");
+        for (const char* snapshotName : {"artifact_metrics", "recomputed_metrics"})
+        {
+            const Json& snapshot = evaluation.at(snapshotName);
+            if (!snapshot.is_object())
+                throw std::runtime_error("serving bundle metric snapshot is invalid");
+            for (const char* metric : {"accuracy", "auc", "auprc",
+                                       "balanced_accuracy", "positive_f1"})
+                (void)finiteNumber(snapshot.at(metric), "serving metric");
+        }
+        const bool containsInputs = manifest.value("contains_reference_dataset", false);
+        const bool containsLabels = manifest.value("contains_reference_labels", false);
+        if (containsInputs != containsLabels ||
+            (containsLabels && paths.count("reference_labels") == 0))
+            throw std::runtime_error("serving bundle reference labels are inconsistent");
     }
     for (const char* required : {"feature_schema", "preprocessing", "tree"})
     {

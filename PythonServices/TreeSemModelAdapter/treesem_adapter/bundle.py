@@ -56,7 +56,8 @@ class ServingBundle:
             self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise BundleValidationError("manifest.json is invalid") from error
-        if self.manifest.get("bundle_schema_version") != 1:
+        self.schema_version = self.manifest.get("bundle_schema_version")
+        if self.schema_version not in (1, 2):
             raise BundleValidationError("unsupported bundle schema version")
         if self.manifest.get("model") != "treeSem" or self.manifest.get("dataset") != "pph":
             raise BundleValidationError("bundle model or dataset is unsupported")
@@ -83,6 +84,8 @@ class ServingBundle:
                 raise BundleValidationError(f"bundle file is missing: {logical_name}")
             if path.stat().st_size != expected_size or sha256_file(path) != expected_sha:
                 raise BundleValidationError(f"bundle checksum failed: {logical_name}")
+        if self.schema_version == 2:
+            self._validate_v2_manifest(files)
 
         feature_payload = self._read_json_file("feature_schema")
         preprocessing = self._read_json_file("preprocessing")
@@ -145,6 +148,7 @@ class ServingBundle:
         self._validate_tree()
 
         self.reference_inputs = None
+        self.reference_labels = None
         if self.manifest.get("contains_reference_dataset"):
             reference_path = self._file_path("reference_inputs")
             rows = self._required_nonnegative_int("reference_rows")
@@ -152,6 +156,62 @@ class ServingBundle:
             if raw.size != rows * self.input_dim or not np.isfinite(raw).all():
                 raise BundleValidationError("reference input matrix is invalid")
             self.reference_inputs = raw.reshape(rows, self.input_dim)
+            if self.schema_version >= 2 and self.manifest.get("contains_reference_labels"):
+                label_path = self._file_path("reference_labels")
+                labels = np.fromfile(label_path, dtype="i1")
+                if labels.size != rows or not np.isin(labels, [0, 1]).all():
+                    raise BundleValidationError("reference label vector is invalid")
+                self.reference_labels = labels.astype(np.int64)
+
+    def _validate_v2_manifest(self, files: dict[str, Any]) -> None:
+        def digest(value: Any, name: str) -> str:
+            if (not isinstance(value, str) or len(value) != 64 or
+                    any(ch not in "0123456789abcdef" for ch in value)):
+                raise BundleValidationError(f"v2 {name} is not a SHA-256 digest")
+            return value
+
+        provenance = self.manifest.get("provenance")
+        evaluation = self.manifest.get("evaluation")
+        if not isinstance(provenance, dict) or not isinstance(evaluation, dict):
+            raise BundleValidationError("v2 provenance and evaluation are required")
+        artifact_sha = digest(self.manifest.get("artifact_sha256"), "artifact checksum")
+        raw_sha = digest(self.manifest.get("raw_data_sha256"), "raw dataset checksum")
+        if digest(provenance.get("artifact_sha256"), "provenance artifact checksum") != artifact_sha:
+            raise BundleValidationError("v2 artifact provenance is inconsistent")
+        if digest(provenance.get("raw_dataset_sha256"), "provenance dataset checksum") != raw_sha:
+            raise BundleValidationError("v2 dataset provenance is inconsistent")
+        if digest(provenance.get("feature_schema_sha256"), "feature schema checksum") != files.get("feature_schema", {}).get("sha256"):
+            raise BundleValidationError("v2 feature schema provenance is inconsistent")
+        if digest(provenance.get("preprocessing_sha256"), "preprocessing checksum") != files.get("preprocessing", {}).get("sha256"):
+            raise BundleValidationError("v2 preprocessing provenance is inconsistent")
+        fingerprint = provenance.get("split_fingerprint")
+        if not isinstance(fingerprint, dict):
+            raise BundleValidationError("v2 split fingerprint is required")
+        for name in ("combined_sha256", "test_indices_sha256", "train_indices_sha256"):
+            digest(fingerprint.get(name), f"split {name}")
+        label_schema = provenance.get("label_schema")
+        if label_schema != {"negative": 0, "positive": 1,
+                            "source_negative_value": -1, "threshold": 0.5}:
+            raise BundleValidationError("v2 label schema is unsupported")
+        runtime = provenance.get("runtime_versions")
+        if (not isinstance(runtime, dict) or
+                not {"python", "torch", "sklearn"}.issubset(runtime) or
+                any(not isinstance(value, str) or not value for value in runtime.values())):
+            raise BundleValidationError("v2 runtime provenance is invalid")
+        commit = provenance.get("training_code_commit")
+        if commit is not None and (not isinstance(commit, str) or len(commit) != 40 or
+                                   any(ch not in "0123456789abcdef" for ch in commit)):
+            raise BundleValidationError("v2 training commit is invalid")
+        for snapshot_name in ("artifact_metrics", "recomputed_metrics"):
+            snapshot = evaluation.get(snapshot_name)
+            if not isinstance(snapshot, dict):
+                raise BundleValidationError(f"v2 {snapshot_name} is required")
+            for metric in ("accuracy", "auc", "auprc", "balanced_accuracy",
+                           "positive_f1"):
+                _finite_number(snapshot.get(metric), f"v2 {snapshot_name}.{metric}")
+        if bool(self.manifest.get("contains_reference_labels")) != bool(
+                self.manifest.get("contains_reference_dataset")):
+            raise BundleValidationError("v2 reference inputs and labels must be paired")
 
     def _required_string(self, name: str) -> str:
         value = self.manifest.get(name)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
+import os
+import platform
 import shutil
 import tempfile
 import zipfile
@@ -25,6 +28,7 @@ SERVING_STATE_KEYS = (
     "cluster_layer.bias",
 )
 IGNORED_SHAP_STATE_KEYS = {"main.1.x", "main.1.y"}
+EXPORTER_VERSION = "2.0.0"
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -122,6 +126,114 @@ def _file_metadata(path: Path) -> dict[str, Any]:
     return {"name": path.name, "sha256": sha256_file(path), "size": path.stat().st_size}
 
 
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _index_fingerprint(values: Any) -> str:
+    import numpy as np
+
+    return _sha256_bytes(np.asarray(values, dtype="<i8").tobytes(order="C"))
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _artifact_metric_snapshot(metrics: Any) -> dict[str, Any]:
+    if not isinstance(metrics, dict):
+        raise ValueError("trusted artifact does not contain a metric snapshot")
+    required = ("accuracy", "auc", "auprc", "positive_f1", "balanced_accuracy",
+                "positive_recall", "positive_precision", "confusion_matrix")
+    if any(name not in metrics for name in required):
+        raise ValueError("trusted artifact metric snapshot is incomplete")
+    return {name: _jsonable(metrics[name]) for name in required}
+
+
+def _expected_calibration_error(labels: Any, probabilities: Any, bins: int = 10) -> float:
+    import numpy as np
+
+    labels = np.asarray(labels, dtype=np.int64)
+    probabilities = np.asarray(probabilities, dtype=np.float64)
+    total = labels.size
+    result = 0.0
+    for lower, upper in zip(np.linspace(0.0, 1.0, bins + 1)[:-1],
+                            np.linspace(0.0, 1.0, bins + 1)[1:]):
+        selected = (probabilities >= lower) & (
+            probabilities <= upper if upper == 1.0 else probabilities < upper)
+        if selected.any():
+            result += float(selected.mean()) * abs(
+                float(labels[selected].mean()) - float(probabilities[selected].mean()))
+    return result
+
+
+def _serving_metric_snapshot(labels: Any, probabilities: Any) -> dict[str, Any]:
+    import numpy as np
+    from sklearn.metrics import (accuracy_score, average_precision_score,
+                                 balanced_accuracy_score, confusion_matrix,
+                                 f1_score, roc_auc_score)
+
+    expected = np.asarray(labels, dtype=np.int64)
+    probability = np.asarray(probabilities, dtype=np.float64)
+    predicted = (probability >= 0.5).astype(np.int64)
+    matrix = confusion_matrix(expected, predicted, labels=[0, 1])
+    tn, fp, fn, tp = (int(value) for value in matrix.reshape(-1))
+    return {
+        "accuracy": float(accuracy_score(expected, predicted)),
+        "auc": float(roc_auc_score(expected, probability)),
+        "auprc": float(average_precision_score(expected, probability)),
+        "balanced_accuracy": float(balanced_accuracy_score(expected, predicted)),
+        "brier_score": float(np.mean(np.square(probability - expected))),
+        "confusion_matrix": matrix.tolist(),
+        "ece_10_bin": _expected_calibration_error(expected, probability),
+        "positive_f1": float(f1_score(expected, predicted, zero_division=0)),
+        "sensitivity": float(tp / (tp + fn)) if tp + fn else 0.0,
+        "specificity": float(tn / (tn + fp)) if tn + fp else 0.0,
+        "threshold": 0.5,
+    }
+
+
+def _validate_metric_alignment(artifact: dict[str, Any], recomputed: dict[str, Any]) -> None:
+    comparisons = {
+        "accuracy": "accuracy",
+        "auc": "auc",
+        "auprc": "auprc",
+        "positive_f1": "positive_f1",
+        "balanced_accuracy": "balanced_accuracy",
+        "positive_recall": "sensitivity",
+    }
+    mismatches = []
+    for artifact_name, recomputed_name in comparisons.items():
+        if abs(float(artifact[artifact_name]) - float(recomputed[recomputed_name])) > 1e-6:
+            mismatches.append(artifact_name)
+    if _jsonable(artifact["confusion_matrix"]) != recomputed["confusion_matrix"]:
+        mismatches.append("confusion_matrix")
+    if mismatches:
+        raise ValueError("serving predictions do not reproduce artifact metrics: " +
+                         ", ".join(sorted(mismatches)))
+
+
+def _runtime_versions() -> dict[str, str]:
+    import numpy
+    import pandas
+    import sklearn
+    import torch
+
+    return {
+        "numpy": numpy.__version__, "pandas": pandas.__version__,
+        "python": platform.python_version(), "sklearn": sklearn.__version__,
+        "torch": torch.__version__,
+    }
+
+
 def export_bundle(
     *,
     artifact_path: str | Path,
@@ -129,6 +241,7 @@ def export_bundle(
     output_dir: str | Path,
     include_reference_dataset: bool = False,
     force: bool = False,
+    training_code_commit: str | None = None,
 ) -> Path:
     import numpy as np
     import pandas as pd
@@ -220,6 +333,8 @@ def export_bundle(
         _write_json(temporary / "tree.json", _tree_payload(artifact["tree"], selected, input_dim))
         if include_reference_dataset:
             (temporary / "reference_inputs.f32").write_bytes(reference_inputs.tobytes(order="C"))
+            (temporary / "reference_labels.i8").write_bytes(
+                np.asarray(test_y, dtype="i1").tobytes(order="C"))
 
         # Golden cases intentionally contain only deterministic model facts.
         negative = np.flatnonzero(np.asarray(test_y) == 0)[:16]
@@ -237,14 +352,16 @@ def export_bundle(
         }
         if include_reference_dataset:
             logical_names["reference_inputs"] = "reference_inputs.f32"
+            logical_names["reference_labels"] = "reference_labels.i8"
         for logical_name, filename in logical_names.items():
             files[logical_name] = _file_metadata(temporary / filename)
         manifest = {
             "artifact_sha256": artifact_sha,
-            "bundle_schema_version": 1,
+            "bundle_schema_version": 2,
             "class_count": 2,
             "cluster_count": cluster_count,
             "contains_reference_dataset": bool(include_reference_dataset),
+            "contains_reference_labels": bool(include_reference_dataset),
             "dataset": "pph",
             "files": files,
             "input_dim": input_dim,
@@ -264,11 +381,46 @@ def export_bundle(
                 "stratified": stratify is not None,
                 "test_size": test_size,
             },
+            "provenance": {
+                "artifact_sha256": artifact_sha,
+                "exporter_version": EXPORTER_VERSION,
+                "feature_schema_sha256": sha256_file(temporary / "feature_schema.json"),
+                "label_schema": {"negative": 0, "positive": 1,
+                                 "source_negative_value": -1, "threshold": 0.5},
+                "preprocessing_sha256": sha256_file(temporary / "preprocessing.json"),
+                "raw_dataset_sha256": raw_sha,
+                "runtime_versions": _runtime_versions(),
+                "split_fingerprint": {
+                    "combined_sha256": _sha256_bytes(
+                        bytes.fromhex(_index_fingerprint(train_x.index)) +
+                        bytes.fromhex(_index_fingerprint(test_x.index))),
+                    "test_indices_sha256": _index_fingerprint(test_x.index),
+                    "train_indices_sha256": _index_fingerprint(train_x.index),
+                },
+                "training_code_commit": training_code_commit or
+                    os.environ.get("TREESEM_TRAINING_CODE_COMMIT") or None,
+            },
+            "evaluation": {
+                "artifact_metrics": _artifact_metric_snapshot(artifact.get("metrics")),
+                # A temporary validated snapshot lets the immutable Bundle loader
+                # construct the oracle used below. It is replaced with full
+                # serving recomputation before the temporary directory is promoted.
+                "recomputed_metrics": _artifact_metric_snapshot(artifact.get("metrics")),
+            },
         }
         _write_json(temporary / "manifest.json", manifest)
         from .model import ServingBundlePredictor
 
         predictor = ServingBundlePredictor(temporary)
+        probabilities = [
+            predictor.predict({"preprocessed_features": row.astype(float).tolist()})[
+                "prediction"]["positive_probability"]
+            for row in reference_inputs
+        ]
+        recomputed_metrics = _serving_metric_snapshot(test_y, probabilities)
+        _validate_metric_alignment(manifest["evaluation"]["artifact_metrics"],
+                                   recomputed_metrics)
+        manifest["evaluation"]["recomputed_metrics"] = recomputed_metrics
         golden_cases = [
             {
                 "reference_index": index,
@@ -306,6 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--include-reference-dataset", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--training-code-commit")
     return parser
 
 
@@ -317,6 +470,7 @@ def main() -> None:
         output_dir=args.output_dir,
         include_reference_dataset=args.include_reference_dataset,
         force=args.force,
+        training_code_commit=args.training_code_commit,
     )
     print(path)
 
