@@ -16,6 +16,8 @@
 - [M4 本机性能记录与待测边界](docs/m4-performance.md)
 - [M5 医疗 Agent Core 与领域 Tool](docs/m5-agent-core.md)
 - [M6 身份、RBAC、Capability 与安全审计](docs/m6-security.md)
+- [M7 医疗知识 RAG 与 MCP](docs/m7-rag-mcp.md)
+- [M8 可信 Skill 与渐进加载](docs/m8-skills.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。

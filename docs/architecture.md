@@ -21,7 +21,10 @@ Client
   -> RemoteTreeSemModelService（黄金参考与 fallback）
      -> PythonModelClient -> treeSem Python Bundle Adapter
   -> Prediction 与 Session 状态短事务提交
-  -> Python Agent Core -> native domain tools -> C++ Internal API
+  -> Python Agent Core
+     -> native domain tools -> C++ Internal API
+     -> MCP provider -> Medical Knowledge Server -> FTS5/FAISS/Reranker
+     -> trusted progressive Skill -> narrowed Tool set
   -> response queued back to the connection EventLoop
 ```
 
@@ -65,6 +68,8 @@ Client
 - 模型与持久化业务层不依赖 Agent、MCP 或 Skill 概念；只有独立 Agent Application/Client 负责下游编排。
 - Python Agent 通过 C++ Internal API 使用确定性业务能力，不直接访问模型实例或 MySQL。
 - LLM 不能提供 session、actor 或 subject；C++ 签发的 Capability 绑定本次 Run 和允许的 Tool。
+- 原生 Tool 与 Knowledge MCP 使用不同 Capability audience 和密钥；Knowledge scope 由 C++ 根据角色签发，不接受 LLM 提供的 audience。
+- Skill 只组合已注册 Tool 与知识，不执行任意代码，也不能扩大 Capability 或 RBAC。
 - `OnnxTreeSemModelService` 是默认模型主链；Python Adapter 保留为黄金参考和 fallback。
 - RAG 只提供模型知识、可信临床参考和患者教育，不生成预测事实。
 - Patient、Doctor、Admin 使用资源级授权；Admin 默认不能读取临床内容。
@@ -120,6 +125,8 @@ EventLoop          Worker              ONNX / Python fallback
 - Argon2id、Access/Refresh Token、Refresh Family 重用检测和首个 Admin bootstrap。
 - Patient/Doctor/Admin 资源级授权、Doctor-Patient assignment 和 verified feedback。
 - scoped Capability JWT、Agent service credential、Origin/Cookie 安全与最小化审计。
+- 版本化医疗知识索引、混合检索、官方 MCP Streamable HTTP、引用校验和知识权限隔离。
+- 声明式可信 Skill Catalog、渐进式 Prompt 加载、Tool 收窄和 Run 版本追踪。
 - 超时、过载、下游故障映射和敏感响应日志治理。
 
 简历中应表述为“基于 Muduo/Kama-HTTPServer 二次开发”，不表述为从零自研完整 HTTP 框架。

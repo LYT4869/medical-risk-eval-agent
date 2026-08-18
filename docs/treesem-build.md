@@ -191,11 +191,12 @@ export TREESEM_DEPLOYMENT_ENV=local
 export TREESEM_ACCESS_JWT_SECRET='replace-with-at-least-32-random-bytes'
 export TREESEM_CAPABILITY_JWT_SECRET='replace-with-a-different-32-byte-secret'
 export TREESEM_AGENT_SERVICE_SECRET='replace-with-a-third-distinct-secret'
+export TREESEM_KNOWLEDGE_JWT_SECRET='replace-with-a-fourth-distinct-secret'
 export TREESEM_ALLOWED_ORIGINS=http://127.0.0.1:3000
 export TREESEM_REFRESH_COOKIE_SECURE=false
 ```
 
-三种 Secret 必须不同。生产环境还要求 Secure Refresh Cookie 且禁止通配 Origin。旧匿名 E2E 只能显式设置 `TREESEM_AUTH_MODE=development`。
+四种 Secret 必须不同。生产环境还要求 Secure Refresh Cookie 且禁止通配 Origin。旧匿名 E2E 只能显式设置 `TREESEM_AUTH_MODE=development`。
 
 创建首个管理员：
 
@@ -208,7 +209,47 @@ export TREESEM_BOOTSTRAP_ADMIN_DISPLAY_NAME='Local Admin'
 
 仅数据库中没有 Admin 时允许 bootstrap。完整 Agent 与安全边界分别见 [M5 文档](m5-agent-core.md)和 [M6 文档](m6-security.md)。
 
-## 11. 运行真实 Bundle/ONNX 测试
+## 11. 构建并启动 M7/M8 Knowledge 与 Skill
+
+Knowledge 与 Agent 使用独立 Python 3.10 环境。先把人工审核后的外部资料放入 Git 忽略的 `PythonServices/TreeSemKnowledge/corpus/raw/`，在严格 source manifest 中登记本地路径和 SHA-256。构建时必须固定模型 revision 和经开发集校准的阈值：
+
+```bash
+python3.10 -m venv .venv-knowledge
+. .venv-knowledge/bin/activate
+pip install -r PythonServices/TreeSemKnowledge/requirements.txt
+export PYTHONPATH="$PWD/PythonServices/TreeSemKnowledge"
+
+python PythonServices/TreeSemKnowledge/ingestion/fetch_sources.py \
+  --manifest PythonServices/TreeSemKnowledge/corpus/sources.json \
+  --source-root PythonServices/TreeSemKnowledge/corpus
+
+python -m knowledge.ingestion.cli \
+  --manifest PythonServices/TreeSemKnowledge/corpus/sources.json \
+  --source-root PythonServices/TreeSemKnowledge/corpus \
+  --output-root artifacts/knowledge \
+  --embedding-revision '614241f622f53c4eeff9890bdc4f31cfecc418b3' \
+  --reranker-revision '1427fd652930e4ba29e8149678df786c240d8825' \
+  --reranker-min-score '-5.5' \
+  --all-scope-reranker-min-score '-2.0' \
+  --rrf-min-score '0.03'
+
+export TREESEM_KNOWLEDGE_INDEX_DIR="$PWD/artifacts/knowledge/<index_version>"
+export TREESEM_KNOWLEDGE_JWT_SECRET='replace-with-the-same-fourth-secret'
+python -m knowledge.server
+```
+
+运行时模型只从本地缓存加载，不自动联网更新。Agent 侧设置：
+
+```bash
+export TREESEM_KNOWLEDGE_ENABLED=true
+export TREESEM_KNOWLEDGE_MCP_URL=http://127.0.0.1:8092/mcp
+export TREESEM_AGENT_SKILLS_ENABLED=true
+export TREESEM_AGENT_SKILLS_DIR="$PWD/PythonServices/TreeSemAgent/skills"
+```
+
+Agent `/ready` 检查 C++ Backend 和 MCP Tool discovery，但不调用付费 LLM。C++ `/ready` 不依赖 Knowledge Server，因此 MCP 下线不会让预测主链摘流。
+
+## 12. 运行真实 Bundle/ONNX 测试
 
 配置以下可选参数后，CTest 会额外执行确定性重复导出、checksum 篡改、反归一化和三输入等价性测试：
 

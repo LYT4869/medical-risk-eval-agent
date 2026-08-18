@@ -1023,7 +1023,63 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
 
 ---
 
-# J. 面试官常见连续追问链
+# J. M7 RAG/MCP 与 M8 Skill
+
+## J1. 为什么这个医疗 Agent 要加入 RAG，而不是让大模型直接回答【P0】
+
+大模型参数中的知识无法保证版本、来源和适用对象，也很难证明某句话依据了哪份资料。我的做法是把预测事实和知识事实分开：概率、标签和解释仍来自 C++ 领域 Tool，医疗知识只来自人工登记的 RAG 语料。检索结果带 source、章节、页码和内容 checksum，最终回答只能引用本轮真正返回的 citation ID。证据不足时返回无答案，而不是让模型补全。这样不能消除所有幻觉，但显著缩小了事实生成面，也让回答可以追踪和评测。
+
+## J2. 你的 RAG 检索链路是怎么设计的，为什么要混合检索【P0】
+
+离线阶段按标题或 PDF 页切 chunk，同时建立 SQLite FTS5/BM25 和 FAISS 向量索引。在线阶段两路各自召回候选，用 RRF 融合，再用轻量 Cross-Encoder 重排。BM25 擅长模型字段、缩写和精确术语，Dense 更适合中文问法、英文资料和语义同义，二者互补。RRF 不要求两种分数处在同一尺度，工程上比直接加权更稳定。一路故障时可以降级，两个召回都失败才明确返回不可用。
+
+## J3. 文档怎样切块，chunk 太大或太小分别有什么问题【P1】
+
+Markdown 按标题和段落切，PDF 不跨页和章节，目标约 400 token、重叠 60 token。太大会混入多个主题，重排和引用都不精确，还浪费上下文；太小会丢失定义与限定条件，召回片段难以独立理解。Overlap 用于保留边界语义，但过大会制造重复候选和索引膨胀。chunk 参数属于索引版本的一部分，调整后必须重建并重新评测，而不是在线随意变化。
+
+## J4. 怎样处理“检索到了但其实不相关”的情况【P0】
+
+不能因为 top-k 总能返回结果就默认有答案。我准备了正例、同义词、跨语言、无关问题和越界治疗问题。实践中单一阈值无法同时保留弱相关的专业问题并拒绝所有越界问题，因此明确 model/clinical 查询与默认 all 查询分别校准阈值，再对提示注入、个体处方、确定性诊断和患者数据探测做安全 abstain；这些规则和阈值都可版本化、可测试。当前 42 题基线 Recall@5 为 0.9375、MRR@10 为 0.9271、无答案准确率为 1.0。低于阈值或命中边界就返回空结果，Agent 明确说没有可靠资料。
+
+## J5. 如何保证引用不是 LLM 编出来的【P0】
+
+Knowledge Server 为每个 chunk 生成稳定 citation ID，并随 Tool Result 返回。Agent 只收集本轮成功 MCP 调用产生的 ID，最终答案声明的 citation ID 必须与这个集合一致；不存在、跨 Run 或只写在正文但未声明的引用都会被策略拒绝。C++ 再校验引用元数据与 ID 集合一一对应，数据库只保存引用快照和 index version。幂等重放返回原快照，不重新检索，因此历史回答不会悄悄换依据。
+
+## J6. 为什么用 MCP，为什么原来的预测 Tool 不一起改成 MCP【P0】
+
+MCP 适合把独立知识服务以标准 Tool discovery、Schema 和传输协议接入 Agent，便于以后替换检索实现。预测、历史和比较是本项目自己的核心业务能力，已经通过 C++ Internal API 具备事务、Session 和授权语义，强行改造只增加一层适配。我的边界是“原生 Tool 负责业务事实，MCP 负责外部知识能力”。这样既能讲清 MCP 的价值，也没有为了使用协议而破坏已有合理架构。
+
+## J7. MCP 服务怎么做权限隔离，为什么不能让 LLM 传 audience【P0】
+
+C++ 根据已认证 actor 和本次 Agent Run 签发独立 Knowledge Capability JWT，绑定 role、session、subject、run、allowed scopes 和唯一 Tool。Patient 只有公开模型知识和患者教育资料，Doctor 才增加技术与专业指南 scope。LLM 只能提供 query、知识大类和 top-k，不能提供 audience 或扩大 scope。Knowledge Server 只信任签名后的 claim，再对每个候选做 audience 与 scope 过滤，从而防止提示词诱导模型检索越权知识。
+
+## J8. RAG 中的 Prompt Injection 怎么处理【P0】
+
+检索片段被当作不可信 Tool Data，而不是 System Prompt。系统规则明确片段里的命令没有控制权，Tool 权限和 Capability 也不会因文档内容改变。最终 grounding 只证明引用存在，并不自动证明结论推导正确，所以评测中还要放入带恶意指令的语料和问题。工程上同时限制 excerpt 长度、总响应大小和可调用 Tool，减少攻击内容进入上下文后的影响面。
+
+## J9. Knowledge Server 变慢或宕机时系统怎样表现【P1】
+
+知识计算使用自己的有界执行器，不占 C++ EventLoop、预测 Worker 或 Agent 的原生 Tool Worker。单次 MCP 有连接和请求超时，只读传输失败最多重试一次，并受 Agent 总 deadline 限制。队列满快速返回过载错误，Agent 可以回答“当前无法取得可靠资料”，但不能猜知识答案。C++ `/ready` 不依赖 MCP，因此知识服务故障不会让 ONNX 预测主链摘流，这属于舱壁和可控降级。
+
+## J10. Tool、MCP 和 Skill 的区别是什么【P0】
+
+Tool 是一个原子能力，例如查询解释；MCP 是外部能力如何被发现和调用的标准协议；Skill 是完成一类任务时怎样组合多个 Tool、知识和回答规范的方法。Skill 本身不执行网络请求，也不提供新权限。例如“解释预测”Skill 会规定先取预测事实、再取解释、必要时查模型知识，并提醒不能把重要特征说成因果关系。三者分别解决能力、接入和复用流程问题。
+
+## J11. 为什么 Skill 要渐进加载【P0】
+
+如果把所有 Skill 的完整说明长期塞进 System Prompt，会增加 token、干扰简单问题，还容易让互不相关的流程发生冲突。启动时只放 ID、用途、意图示例和 Tool 摘要；选中后才加载一个角色对应的完整 instructions。激活后 Tool 列表收窄到该 Skill 声明的集合。这样既降低上下文成本，也把“当前任务能做什么”变得更明确。
+
+## J12. Skill 怎样避免变成任意代码插件【P0】
+
+第一版只接受可信本地声明式包，manifest 只能声明版本、角色、意图、已有 Tool、知识 scope 和说明文件。Loader 拒绝符号链接、目录穿越、未知 Tool、非法 scope、超大文件和重复 ID；不允许 Python、Shell、SQL、URL、环境变量或依赖入口。Skill 只能收窄既有 Tool，执行入口还会再次验证，不能靠伪造 Tool Call 绕过。它也不能扩大 C++ 或 MCP Capability，所以权限上限仍由 Gateway 决定。
+
+## J13. RAG 和 Skill 应该怎样评测【P0】
+
+RAG 先做离线检索评测：Recall@5、MRR@10、无答案准确率、citation 有效性和跨 audience 泄漏；当前固定集的四项结果分别为 0.9375、0.9271、1.0 和 0。Skill 使用 Fake LLM 做确定性流程测试，当前三个 Skill 各 8 个场景，验证是否激活正确 Skill、是否只调用声明 Tool、grounding 是否有效以及角色说明是否正确。真实 LLM 再做人工 smoke test，观察路由、表达与安全边界。不能只挑几段流畅回答截图，因为那无法证明稳定性和失败行为。
+
+---
+
+# K. 面试官常见连续追问链
 
 这些不是新知识点，而是训练如何连续回答。每条都应脱离代码讲五分钟。
 
@@ -1096,9 +1152,20 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
 5. 怎样确认是容量问题、依赖问题还是新版本问题？
 6. 修复后补哪些监控、压测和故障测试？
 
+## 追问链 8：你说 Agent 接入了 RAG 和 MCP【P0】
+
+1. 为什么不直接依赖大模型参数知识？
+2. BM25、Dense、RRF 和 rerank 分别解决什么？
+3. 怎样判断应该返回“没有可靠答案”？
+4. 引用如何防止由 LLM 伪造？
+5. Patient 为什么检索不到 Doctor 资料？
+6. MCP 下线会不会影响预测主链？
+7. Tool、MCP、Skill 有什么区别？
+8. Skill 如何渐进加载，为什么不能扩大权限？
+
 ---
 
-# K. 简历表述、高风险说法与自测
+# L. 简历表述、高风险说法与自测
 
 ## 1. 推荐项目表述
 
@@ -1112,6 +1179,8 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
   数据库就绪检查。
 - 实现医疗 Agent Loop 和五个受控领域 Tool，并通过 Access/Refresh Token、Patient/Doctor/
   Admin 资源授权和短期 Capability 限制跨患者访问。
+- 使用 BM25/FAISS/RRF/rerank 构建版本化医疗知识索引，通过官方 MCP 接入 Agent，并实现
+  citation grounding、角色知识隔离和三个声明式渐进 Skill。
 
 ## 2. 高风险说法修正
 
@@ -1155,17 +1224,20 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
 - [ ] 讲清 Refresh rotation、并发刷新和 Token 重用检测。
 - [ ] 讲清审计保存什么以及为什么不复制敏感业务数据。
 - [ ] 描述一次完整压测，包括 p95/p99、QPS、资源和拒绝率。
+- [ ] 画出 BM25 + Dense -> RRF -> rerank -> citation 的知识链路。
+- [ ] 区分 Tool、MCP 和 Skill，并说明 Skill 为什么不能扩大 Capability。
+- [ ] 解释 no-answer、引用校验、知识权限和 RAG prompt injection。
 - [ ] 用“现象—分段定位—止损—根因—修复—预防”回答线上故障。
 
 ## 4. 推荐复习节奏
 
-第一轮只学习所有 P0，能用自己的话说出主链；第二轮让同学或 AI 沿 J 节连续追问；第三轮
+第一轮只学习所有 P0，能用自己的话说出主链；第二轮让同学或 AI 沿 K 节连续追问；第三轮
 补 P1 原理和权衡；P2 只在目标岗位特别重视网络底层或性能时准备。面试前优先复述和画图，
 不要继续无限增加问题数量。
 
 ---
 
-# L. 技术资料
+# M. 技术资料
 
 以下资料用于校正技术事实，不要求面试前逐篇通读：
 
@@ -1181,3 +1253,5 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification/)
+- [FAISS documentation](https://faiss.ai/)

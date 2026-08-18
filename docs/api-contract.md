@@ -1,4 +1,4 @@
-# treeSem M6 API 契约
+# treeSem M8 API 契约
 
 本契约描述模型、持久化、Agent、认证和权限链路。未知的医疗单位保持 `null`，不根据字段名猜测。
 
@@ -123,13 +123,49 @@ M4 legacy 内部反馈只在 development 模式可用，`reviewer_verified=false
 {"message":"解释一下刚才的预测结果"}
 ```
 
-响应包含 `run_id`、最终 `message_id`、`session_id`、answer、step count、Tool 名称/状态摘要和经过校验的 `grounding_prediction_ids`。数据库不保存思维链、Tool 参数或完整 Tool Result。
+响应包含 `run_id`、最终 `message_id`、`session_id`、answer、step count、Tool 名称/状态摘要和经过校验的 `grounding_prediction_ids`。M7/M8 向后兼容增加：
+
+```json
+{
+  "grounding_source_ids":["cite_..."],
+  "citations":[{
+    "citation_id":"cite_...",
+    "source_id":"src_...",
+    "title":"...",
+    "section":"...",
+    "page":12,
+    "publisher":"...",
+    "published_at":"2025-10-05",
+    "url":"https://..."
+  }],
+  "knowledge_index_version":"knowledge-...",
+  "skill_used":{
+    "id":"explain_prediction",
+    "version":"1.0.0",
+    "catalog_version":"..."
+  }
+}
+```
+
+未使用知识或 Skill 时数组为空、可选字段为 `null`。数据库不保存思维链、Tool 参数、完整 Tool Result 或检索 excerpt。
 
 ### `GET /api/v1/chat/history?limit=20&cursor=...`
 
 只返回最终 user/assistant 消息，使用 keyset cursor，最大 100 条。
 
 Python Agent 内部接口为 `POST /v1/agent/runs`、`GET /health`、`GET /ready`。Run 请求必须携带 C++ 与 Python 共享的 service credential；Tool 调用必须携带当前 Run 的 Capability JWT。
+
+## Knowledge MCP
+
+内部 Knowledge Server 提供 `GET /health`、`GET /ready` 和官方 MCP Streamable HTTP `POST /mcp`。唯一 Tool：
+
+```json
+{"name":"search_medical_knowledge","arguments":{"query":"...","scope":"model|clinical|all","top_k":5}}
+```
+
+query 为 1～500 字符，top_k 为 1～6，不允许未知字段。Authorization 必须携带 audience 为 `treesem-knowledge` 的短期 Capability；角色与允许 scope 不由 LLM 参数决定。响应含 index version、降级模式和最多 6 条带 `citation_id` 的结果，单个 excerpt 最多 800 字符，总响应最多 64 KiB。
+
+只读 Resource `treesem://knowledge/index-manifest` 仅暴露版本、source/chunk 数和 Schema，不返回全文。
 
 ## 认证和权限 API
 
@@ -236,6 +272,12 @@ Bundle 模式返回服务、数据集、输入维度、reference 样本数、`mo
 | `TREESEM_AGENT_ENABLED` | `true` |
 | `TREESEM_AGENT_URL` | `http://127.0.0.1:8091` |
 | `TREESEM_AGENT_WORKERS` / Queue | `4` / `64` |
+| `TREESEM_KNOWLEDGE_ENABLED` | `true` |
+| `TREESEM_KNOWLEDGE_MCP_URL` | `http://127.0.0.1:8092/mcp`（Agent） |
+| `TREESEM_KNOWLEDGE_WORKERS` / Queue | `1` / `16`（Knowledge Server） |
+| `TREESEM_KNOWLEDGE_REQUEST_TIMEOUT_MS` | `3000`（Agent） |
+| `TREESEM_KNOWLEDGE_TOKEN_TTL_SECONDS` | `120`（C++） |
+| `TREESEM_AGENT_SKILLS_ENABLED` | `true` |
 | `TREESEM_AUTH_MODE` | `required` |
 | Access / Refresh / Capability TTL | `900` / `604800` / `120` seconds |
 | `TREESEM_AUTH_WORKERS` / Queue | `2` / `32` |

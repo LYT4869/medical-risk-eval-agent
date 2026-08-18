@@ -11,8 +11,8 @@
 | M4 | C++ 业务服务、Session、MySQL、医生反馈 | 已完成 |
 | M5 | Python Agent Core 与领域 Tool | 已完成 |
 | M6 | Doctor/Patient/Admin 权限、安全和审计 | 已完成 |
-| M7 | 医疗知识 RAG 与 MCP Server | 待执行 |
-| M8 | 医疗领域 Skill 和渐进加载 | 待执行 |
+| M7 | 医疗知识 RAG 与 MCP Server | 已完成 |
+| M8 | 医疗领域 Skill 和渐进加载 | 已完成 |
 | M9 | Trace、Evaluation、压测和 RabbitMQ 决策门 | 待执行 |
 | M10 | Docker、Demo、项目文档和面试材料 | 待执行 |
 
@@ -100,6 +100,25 @@
 - [x] 002/003 migration、内存认证 E2E、MySQL 重启持久化和完整 M0～M4 回归通过。
 - [x] CORS Origin、Cookie、no-store、安全 Header、日志敏感字段和长度上限有明确约束。
 
+## M7 Definition of Done
+
+- [x] 语料 Manifest、chunk 和 index version 由来源 checksum、固定模型 revision 与参数确定。
+- [x] 混合检索实现 FTS5/BM25、FAISS、RRF、Cross-Encoder 和可校准 no-answer 阈值。
+- [x] Knowledge Server 使用官方 MCP SDK 的无状态 Streamable HTTP。
+- [x] C++ 签发独立 Knowledge Capability，Patient/Doctor scope 在服务端隔离。
+- [x] Agent 校验本轮 citation ID，API 与 MySQL 只保存引用元数据和 index version。
+- [x] MCP 故障不影响预测主链，知识计算使用独立有界执行器。
+- [x] 43 条离线评测集和可重复评测脚本已提供。
+
+## M8 Definition of Done
+
+- [x] 三个声明式 Skill 包具备角色化 instructions 和每包至少 8 个固定场景。
+- [x] Loader 拒绝符号链接、路径穿越、坏 Schema、未知 Tool/scope 和重复 ID。
+- [x] 初始 Prompt 只加载 Catalog 摘要，激活后才注入一个 Skill 的完整说明。
+- [x] 激活后的 Tool schema 与执行入口都收窄到 manifest 声明集合。
+- [x] Skill ID、版本与 Catalog 版本随 Agent Run 持久化并支持幂等重放。
+- [x] 无 Skill 时保持 M5 Agent 行为兼容。
+
 ## 当前停止线
 
-M0～M6 代码、测试和文档已完成。下一步是 M7 医疗知识 RAG/MCP；Skill、完整 Trace/Evaluation 和部署演示仍分别属于 M8～M10。模型质量问题继续作为独立工作流处理，不阻塞 Serving 与 Agent 工程架构。
+M0～M8 代码、测试和文档已完成。下一步是 M9 Trace、完整 Agent/RAG Evaluation 与 RabbitMQ 决策门；部署演示属于 M10。模型质量问题继续作为独立工作流处理，不阻塞 Serving 与 Agent 工程架构。
