@@ -1,0 +1,164 @@
+name: treesem-demo
+
+x-common-env: &common-env
+  TREESEM_DEPLOYMENT_ENV: local
+  TREESEM_METRICS_BEARER_TOKEN: ${TREESEM_METRICS_BEARER_TOKEN:-}
+
+services:
+  mysql:
+    image: mysql:8.0.42
+    environment:
+      MYSQL_DATABASE: treesem
+      MYSQL_USER: treesem_app
+      MYSQL_PASSWORD: ${TREESEM_DB_PASSWORD:?run scripts/prepare_demo.py first}
+      MYSQL_ROOT_PASSWORD: ${TREESEM_DB_ROOT_PASSWORD:?run scripts/prepare_demo.py first}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -utreesem_app -p$${MYSQL_PASSWORD} --silent"]
+      interval: 2s
+      timeout: 2s
+      retries: 40
+    volumes:
+      - treesem_mysql:/var/lib/mysql
+      - ./db/docker-init:/docker-entrypoint-initdb.d:ro
+    networks: [treesem_internal]
+
+  model-adapter:
+    build:
+      context: .
+      dockerfile: deploy/docker/model-adapter.Dockerfile
+    volumes:
+      - ${TREESEM_SERVING_BUNDLE_DIR:?run scripts/prepare_demo.py first}:/models/treesem:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18081/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [treesem_internal]
+
+  knowledge:
+    build:
+      context: .
+      dockerfile: deploy/docker/knowledge.Dockerfile
+    environment:
+      <<: *common-env
+      TREESEM_KNOWLEDGE_HOST: 0.0.0.0
+      TREESEM_KNOWLEDGE_PORT: 8092
+      TREESEM_KNOWLEDGE_INDEX_DIR: /knowledge/index
+      TREESEM_KNOWLEDGE_JWT_SECRET: ${TREESEM_KNOWLEDGE_JWT_SECRET:?run scripts/prepare_demo.py first}
+      HF_HOME: /app/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    volumes:
+      - ${TREESEM_KNOWLEDGE_INDEX_DIR:?run scripts/prepare_demo.py first}:/knowledge/index:ro
+      - ${TREESEM_HF_CACHE_DIR:?set TREESEM_HF_CACHE_DIR in .env}:/app/.cache/huggingface:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [treesem_internal]
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+    environment:
+      <<: *common-env
+      TREESEM_STORAGE_BACKEND: mysql
+      TREESEM_DB_HOST: mysql
+      TREESEM_DB_PORT: 3306
+      TREESEM_DB_NAME: treesem
+      TREESEM_DB_USER: treesem_app
+      TREESEM_DB_PASSWORD: ${TREESEM_DB_PASSWORD}
+      TREESEM_MODEL_BACKEND: onnx_fallback
+      TREESEM_SERVING_BUNDLE_DIR: /models/treesem
+      TREESEM_MODEL_ADAPTER_URL: http://model-adapter:18081/v1/predict
+      TREESEM_AUTH_MODE: required
+      TREESEM_ACCESS_JWT_SECRET: ${TREESEM_ACCESS_JWT_SECRET:?run scripts/prepare_demo.py first}
+      TREESEM_CAPABILITY_JWT_SECRET: ${TREESEM_CAPABILITY_JWT_SECRET:?run scripts/prepare_demo.py first}
+      TREESEM_AGENT_SERVICE_SECRET: ${TREESEM_AGENT_SERVICE_SECRET:?run scripts/prepare_demo.py first}
+      TREESEM_KNOWLEDGE_JWT_SECRET: ${TREESEM_KNOWLEDGE_JWT_SECRET:?run scripts/prepare_demo.py first}
+      TREESEM_AGENT_URL: http://agent:8091/v1/agent/runs
+      TREESEM_ALLOWED_ORIGINS: http://127.0.0.1:3000
+      TREESEM_COOKIE_SECURE: "false"
+      TREESEM_REFRESH_COOKIE_SECURE: "false"
+    volumes:
+      - ${TREESEM_SERVING_BUNDLE_DIR}:/models/treesem:ro
+    depends_on:
+      mysql: {condition: service_healthy}
+      model-adapter: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [treesem_internal]
+
+  agent:
+    build:
+      context: .
+      dockerfile: deploy/docker/agent.Dockerfile
+    environment:
+      <<: *common-env
+      TREESEM_AGENT_SERVICE_SECRET: ${TREESEM_AGENT_SERVICE_SECRET}
+      TREESEM_AGENT_BACKEND_URL: http://backend:8080
+      TREESEM_KNOWLEDGE_ENABLED: "true"
+      TREESEM_KNOWLEDGE_MCP_URL: http://knowledge:8092/mcp
+      TREESEM_AGENT_LLM_MODE: ${TREESEM_AGENT_LLM_MODE:-scripted_demo}
+      TREESEM_AGENT_LLM_BASE_URL: ${TREESEM_AGENT_LLM_BASE_URL:-}
+      TREESEM_AGENT_LLM_MODEL: ${TREESEM_AGENT_LLM_MODEL:-}
+      TREESEM_AGENT_LLM_API_KEY: ${TREESEM_AGENT_LLM_API_KEY:-}
+    depends_on:
+      backend: {condition: service_healthy}
+      knowledge: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/ready', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+    networks: [treesem_internal]
+
+  demo-web:
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+    ports: ["3000:8080"]
+    depends_on:
+      backend: {condition: service_healthy}
+      agent: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [treesem_internal]
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    profiles: [observability]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks: [treesem_internal]
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    profiles: [observability]
+    ports: ["3001:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${TREESEM_GRAFANA_ADMIN_PASSWORD:-treesem-local-only}
+    volumes:
+      - ./deploy/observability/grafana:/etc/grafana/provisioning:ro
+      - ./deploy/observability/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+    networks: [treesem_internal]
+
+volumes:
+  treesem_mysql:
+
+networks:
+  treesem_internal:
+    driver: bridge

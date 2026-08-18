@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: treeSem
+    folder: treeSem
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

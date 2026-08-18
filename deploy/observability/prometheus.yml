@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: treesem-backend
+    metrics_path: /internal/metrics
+    static_configs: [{targets: ["backend:8080"]}]
+  - job_name: treesem-agent
+    metrics_path: /internal/metrics
+    static_configs: [{targets: ["agent:8091"]}]
+  - job_name: treesem-knowledge
+    metrics_path: /internal/metrics
+    static_configs: [{targets: ["knowledge:8092"]}]

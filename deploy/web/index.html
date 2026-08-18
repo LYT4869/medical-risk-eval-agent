@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>treeSem 医疗解释 Agent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">EXPLAINABLE MEDICAL AI</span><h1>treeSem</h1></div>
+    <div id="mode" class="badge">本地演示</div>
+  </header>
+  <main>
+    <section class="hero">
+      <div><h2>预测事实由 C++ ONNX 生成，解释由 Agent 组织。</h2>
+      <p>这是工程与面试演示，不构成诊断、处方或治疗建议。</p></div>
+      <div id="identity" class="identity">尚未登录</div>
+    </section>
+
+    <section class="grid two">
+      <article>
+        <h3>身份</h3>
+        <div class="fields">
+          <input id="email" value="patient@treesem.local" placeholder="邮箱">
+          <input id="password" type="password" placeholder="密码">
+          <input id="displayName" value="Demo Patient" placeholder="显示名称">
+        </div>
+        <div class="actions"><button id="register">注册 Patient</button><button id="login" class="secondary">登录</button></div>
+        <p class="hint">Doctor 账户由 Admin 脚本创建，不能公开注册。</p>
+      </article>
+
+      <article>
+        <h3>演示预测</h3>
+        <div class="inline"><label>样本索引</label><input id="sampleIndex" type="number" min="0" value="0"><button id="predict">运行</button></div>
+        <div id="prediction" class="result muted">等待预测</div>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article>
+        <div class="title-row"><h3>预测历史</h3><button id="history" class="secondary small">刷新</button></div>
+        <div id="historyList" class="list muted">暂无记录</div>
+        <div class="actions"><button id="compare" class="secondary">比较最近两次</button><button id="explain" class="secondary">查看当前解释</button></div>
+      </article>
+      <article>
+        <h3>确定性结果</h3>
+        <pre id="details">预测、解释或比较结果会显示在这里。</pre>
+      </article>
+    </section>
+
+    <section class="chat-card">
+      <div class="title-row"><div><h3>医疗解释 Agent</h3><p class="hint">引用的 Prediction ID 和 Citation ID 均由服务端校验。</p></div></div>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="composer"><textarea id="message" rows="2" placeholder="例如：解释一下刚才的预测，或者介绍产后出血的权威资料"></textarea><button id="send">发送</button></div>
+    </section>
+
+    <section class="grid two">
+      <article>
+        <h3>Doctor 演示</h3>
+        <input id="patientId" placeholder="已分配 patient user_id">
+        <div class="actions"><button id="doctorPredict" class="secondary">为患者预测</button><button id="doctorChat" class="secondary">患者上下文 Chat</button><button id="doctorFeedback" class="secondary">确认当前结果</button></div>
+        <p class="hint">服务端会再次验证 active assignment，前端输入不代表授权。</p>
+      </article>
+      <article>
+        <h3>请求证据</h3>
+        <div id="trace" class="result muted">完成请求后显示 X-Request-Id 与 X-Trace-Id</div>
+      </article>
+    </section>
+  </main>
+  <footer>treeSem · C++ Gateway · ONNX Runtime · MySQL · Agent · MCP/RAG · Skill</footer>
+  <script src="app.js"></script>
+</body>
+</html>

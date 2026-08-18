@@ -1,0 +1,29 @@
+name: treeSem fast verification
+on:
+  push:
+  pull_request:
+jobs:
+  fast:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libboost-dev libssl-dev libcurl4-openssl-dev nlohmann-json3-dev
+      - name: Build pinned Muduo
+        run: |
+          git clone --depth 1 --branch v2.0.2 https://github.com/chenshuo/muduo.git /tmp/muduo
+          cmake -S /tmp/muduo -B /tmp/muduo/build -DMUDUO_BUILD_EXAMPLES=OFF
+          cmake --build /tmp/muduo/build -j2
+          sudo cmake --install /tmp/muduo/build
+      - name: Build remote-only core
+        run: cmake -S . -B build -DKAMA_ENABLE_ONNXRUNTIME=OFF -DKAMA_ENABLE_MYSQL=OFF -DKAMA_ENABLE_AUTH=OFF && cmake --build build -j2
+      - name: Python dependencies
+        run: pip install -r PythonServices/TreeSemAgent/requirements.txt pypdf numpy PyYAML
+      - name: Fast tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Deterministic Agent evaluation
+        run: PYTHONPATH=PythonServices/TreeSemAgent python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py --mode deterministic
+      - name: Compose schema validation
+        run: docker compose --env-file .env.example config --quiet
+      - name: Repository hygiene
+        run: git diff --check && test -z "$(git ls-files '*.env' 'artifacts/**' '**/__pycache__/**')"

@@ -1,0 +1,13 @@
+{
+  "title": "treeSem Overview",
+  "uid": "treesem-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {"type":"timeseries","title":"HTTP request rate","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"sum(rate(treesem_http_responses_total[1m])) by (status)","legendFormat":"{{status}}"}]},
+    {"type":"timeseries","title":"Scheduler queue depth","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"treesem_scheduler_queue_depth","legendFormat":"{{scheduler}}"}]},
+    {"type":"timeseries","title":"Model inference p95","gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(treesem_model_inference_duration_seconds_bucket[5m])) by (le,backend))","legendFormat":"{{backend}}"}]},
+    {"type":"timeseries","title":"Agent runs","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"sum(rate(treesem_agent_runs_total[1m])) by (result)","legendFormat":"{{result}}"}]}
+  ]
+}
