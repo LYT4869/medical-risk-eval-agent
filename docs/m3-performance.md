@@ -14,7 +14,7 @@
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"${TREESEM_MODEL_PYTHON:-python3}" \
   tools/benchmark_treesem_serving.py \
   --server build/treesem_server \
   --bundle artifacts/treesem/pph/pph-seed42-1a299a474ce5 \

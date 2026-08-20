@@ -2,6 +2,15 @@
 
 当前默认构建 HTTP 核心、treeSem 服务入口、ONNX Runtime 和独立的 treeSem MySQL 模块；不构建原项目五子棋示例，也不复用其连接池。
 
+以下命令不依赖维护者的本机绝对路径。运行真实模型导出和完整测试前，请按本地环境设置：
+
+```bash
+export TREESEM_MODEL_PYTHON=/path/to/python
+export NLOHMANN_JSON_ROOT=/path/to/nlohmann-json-prefix
+export TREESEM_TRAINING_ARTIFACT=/path/to/trusted-model.pt
+export TREESEM_RAW_DATA=/path/to/pph.csv
+```
+
 ## 1. 构建 Muduo 网络核心
 
 本机 Protobuf 版本较新，而 Muduo 自带的旧 RPC 示例与其不兼容。treeSem 当前不依赖 Muduo RPC，因此在配置 Muduo 时禁用 Protobuf 包即可：
@@ -21,7 +30,7 @@ cmake --install ../deps/muduo-core-build
 Python 导出和黄金验证使用：
 
 ```bash
-/home/data/liyingting/miniconda3/envs/triVae/bin/python -m pip install \
+"$TREESEM_MODEL_PYTHON" -m pip install \
   onnx==1.17.0 onnxruntime==1.20.1
 ```
 
@@ -46,7 +55,7 @@ sudo apt-get install libmysqlcppconn-dev libargon2-dev
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DMUDUO_ROOT="$PWD/../deps/muduo-core-install" \
-  -DNLOHMANN_JSON_ROOT="/home/data/liyingting/miniconda3" \
+  -DNLOHMANN_JSON_ROOT="$NLOHMANN_JSON_ROOT" \
   -DKAMA_ENABLE_ONNXRUNTIME=ON \
   -DKAMA_ENABLE_MYSQL=ON \
   -DKAMA_ENABLE_AUTH=ON \
@@ -65,10 +74,10 @@ ctest --test-dir build --output-on-failure
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"$TREESEM_MODEL_PYTHON" \
   -m treesem_adapter.export_bundle \
-  --artifact /home/data/liyingting/models/TRI_VAE/runs/compat_tau_fix_20260801/pph/main/pph_semantic_frontier_maxdepth3_seed42_tau_sharpen_20260801.pt \
-  --raw-file /home/data/liyingting/models/TRI_VAE/content/test.csv \
+  --artifact "$TREESEM_TRAINING_ARTIFACT" \
+  --raw-file "$TREESEM_RAW_DATA" \
   --output-dir "$PWD/artifacts/treesem/pph" \
   --include-reference-dataset
 ```
@@ -79,7 +88,7 @@ PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"$TREESEM_MODEL_PYTHON" \
   -m treesem_adapter.export_onnx \
   --bundle "$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5"
 ```
@@ -94,7 +103,7 @@ Adapter 是常驻 Python 进程：启动时加载并校验一次 Bundle，请求
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"$TREESEM_MODEL_PYTHON" \
   -m treesem_adapter.server \
   --bundle "$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
   --port 18081
@@ -257,10 +266,10 @@ Agent `/ready` 检查 C++ Backend 和 MCP Tool discovery，但不调用付费 LL
 cmake -S . -B build \
   -DKAMA_ENABLE_ONNXRUNTIME=ON \
   -DONNXRUNTIME_ROOT="$PWD/../deps/onnxruntime-linux-x64-1.20.1" \
-  -DTREESEM_MODEL_PYTHON_EXECUTABLE=/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+  -DTREESEM_MODEL_PYTHON_EXECUTABLE="$TREESEM_MODEL_PYTHON" \
   -DTREESEM_TEST_BUNDLE_DIR="$PWD/artifacts/treesem/pph/pph-seed42-1a299a474ce5" \
-  -DTREESEM_TEST_ARTIFACT=/home/data/liyingting/models/TRI_VAE/runs/compat_tau_fix_20260801/pph/main/pph_semantic_frontier_maxdepth3_seed42_tau_sharpen_20260801.pt \
-  -DTREESEM_TEST_RAW_FILE=/home/data/liyingting/models/TRI_VAE/content/test.csv
+  -DTREESEM_TEST_ARTIFACT="$TREESEM_TRAINING_ARTIFACT" \
+  -DTREESEM_TEST_RAW_FILE="$TREESEM_RAW_DATA"
 ctest --test-dir build --output-on-failure
 ```
 
@@ -310,14 +319,14 @@ docker compose --profile observability up -d
 
 ```bash
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"$TREESEM_MODEL_PYTHON" \
   -m treesem_adapter.export_bundle \
   --artifact <trusted.pt> --raw-file <pph.csv> \
   --output-dir build/m11-bundles --include-reference-dataset \
   --training-code-commit <training-commit>
 
 PYTHONPATH="$PWD/PythonServices/TreeSemModelAdapter" \
-/home/data/liyingting/miniconda3/envs/triVae/bin/python \
+"$TREESEM_MODEL_PYTHON" \
   scripts/model_quality_audit.py \
   --artifact <trusted.pt> --raw-file <pph.csv> --bundle <bundle-v2> \
   --cpp-dump build/onnx_predictions_dump

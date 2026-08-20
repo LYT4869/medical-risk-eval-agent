@@ -4,9 +4,15 @@
 自然追问顺序组织，而不是按照源码目录、类名或函数名组织。回答时讲清需求、方案、关键
 不变量、权衡和验证，不背代码名称。
 
-当前内容覆盖已经完成的 M0～M6：HTTP 服务、异步 C++ Backend、Serving Bundle、ONNX
-Runtime、MySQL 业务层、医疗 Agent Core、身份认证、资源授权和安全审计。RAG/MCP、Skill
-和完整 Agent 评测尚未完成，只在相关答案中作为后续演进方向出现。
+当前内容以已经完成并实际验收的整套系统为准：HTTP/Reactor、异步 C++ Backend、Serving
+Bundle、ONNX Runtime、MySQL 业务层、医疗 Agent、认证授权、RAG/MCP、Skill、Trace、Metrics、
+Docker 演示和模型质量审计。确定性 Agent 评测已完成；真实 OpenAI-compatible LLM 评测因未
+配置外部模型凭据而明确标记为 `not_run`，不能把离线 Scripted/Fake LLM 结果冒充真实模型质量。
+
+这是一份“面试表达文档”，不是源码导读。主体问题避免使用函数、变量和类名；只有最后的
+学习索引会指出值得阅读的代码区域，帮助理解原理。普通参数校验和逐条异常分支不单独成题，
+重点放在面试官更可能继续追问的架构、异步生命周期、超时、过载、数据一致性、Agent 可靠性、
+安全边界、压测和故障定位。
 
 ---
 
@@ -20,6 +26,15 @@ Runtime、MySQL 业务层、医疗 Agent Core、身份认证、资源授权和�
 
 不建议逐题背全文。先掌握每题的第一句话和主链，再用自己的话补充细节。
 
+如果时间紧，不要把所有 P0 当成一张平铺清单。先完成下面的最小闭环，再按目标岗位扩展：
+
+- **共同主线**：A1、A2、A6、A7、A8、C3、C4、C9、H2、H4、H8、K2、K6。
+- **C++/后端加餐**：B1、B2、B9、B12、C1、C2、C6、D1、D7、E2、E4、I1～I4。
+- **Agent 加餐**：F1～F4、F8、F14、G5、G8、J1、J2、J5、J6、J10、J13、K5。
+
+共同主线加一条岗位加餐约 28 题，先达到“能讲主回答并承受两层追问”；剩余 P0 是简历写得
+更详细或面试官进入专项后再补。这样保留完整题库，但不会让复习再次变成无优先级堆积。
+
 ### 2. 分块学习顺序
 
 | 学习块 | 内容 | 重要程度 |
@@ -29,13 +44,18 @@ Runtime、MySQL 业务层、医疗 Agent Core、身份认证、资源授权和�
 | C | 异步、超时、多线程、过载和故障治理 | 最高 |
 | D | Serving Bundle、ONNX、模型一致性和灰度 | 最高 |
 | E | MySQL、Session、事务、连接池和幂等 | 高 |
-| F | M5 Agent Loop、Tool、grounding 和上下文 | 最高 |
-| G | M6 认证、RBAC、Capability 和审计 | 高 |
+| F | Agent Loop、Tool、grounding 和上下文 | 最高 |
+| G | 认证、RBAC、Capability 和审计 | 高 |
 | H | 测试、压测、容量规划和故障排查 | 最高 |
 | I | 与项目强相关的 C++ 八股 | 高 |
+| J | RAG、MCP、Skill 与知识可靠性 | 最高 |
+| K | Trace、Metrics、Docker 与模型治理 | 高 |
+| L | 面试官连续追问链 | 最高 |
+| M～P | 项目证据、讲稿、简历和学习清单 | 面试前必看 |
 
-建议先完成 A～C，再学习 D～E，最后学习 F～I。这样每个学习块内部有完整调用链，不需要
-在很短的开发阶段之间频繁切换理论。
+建议按四个组合学习：A+B+C（C++ 网络与并发）、D+E（模型服务与业务一致性）、F+G
+（Agent 与权限）、H+I+J+K（可靠性、八股和工程验证）。每完成一个组合，再用 L 节连续
+追问检验表达，最后用 M～P 节固化数据、讲稿和简历。
 
 ### 3. 项目题回答公式
 
@@ -55,9 +75,11 @@ Runtime、MySQL 业务层、医疗 Agent Core、身份认证、资源授权和�
 - 异步路由、有界任务调度、treeSem 业务分层、Bundle、ONNX、MySQL、Agent 和权限体系是
   本项目新增或系统性改造的部分。
 - ONNX 一致性证明“部署迁移没有改变当前模型语义”，不等于证明模型医学质量优秀。
-- 当前系统是面试项目和本地医疗辅助演示。安全问题应结合已实现机制回答，不主动展开法规
-  认证、组织制度等与岗位项目追问关系不大的话题。
+- 当前系统是面试项目和本地医疗辅助演示。只回答已经实现并测试的安全机制，不主动把话题
+  引向法规认证、组织制度等与项目技术面试关系较弱的内容。
 - 历史训练源码和产物仍保留旧名称；新服务、接口和文档统一使用 treeSem。
+- 性能数字只代表 2026-08-17/18 的同机本地测试；必须同时说明机器、链路、并发和是否包含
+  快速拒绝，不能包装成线上 SLA。
 
 ---
 
@@ -70,13 +92,15 @@ Runtime、MySQL 业务层、医疗 Agent Core、身份认证、资源授权和�
 这是一个面向医生和患者的 treeSem 医疗辅助智能服务。外部入口是基于 Kama/Muduo 二次
 开发的 C++ HTTP 服务，负责网络接入、会话、权限、业务持久化和模型调用；预测默认由
 C++ ONNX Runtime 本地执行，Python 模型服务保留为黄金参考和异常兜底；Python Agent
-通过受控 Tool 调用 C++ 内部业务 API，不能直接访问模型或数据库。
+通过受控 Tool 调用 C++ 内部业务 API，并通过 MCP 检索带来源的医疗知识，不能直接访问
+模型或数据库。
 
 我重点解决了四类问题：第一，把阻塞推理、数据库和 Agent 调用从 EventLoop 隔离，避免
 慢任务拖住连接；第二，用有界队列、超时、舱壁和一次响应语义处理高并发与故障；第三，
 把研究模型整理为可校验的 Serving Bundle，并验证 Python 与 C++ 推理一致；第四，把预测、
-历史、解释、医生反馈和 Agent 置于 Session、用户、患者和最小权限控制之下。项目通过单元、
-进程级 E2E、真实 MySQL、1489 个样本一致性和并发故障测试验证。
+历史、解释、医生反馈和 Agent 置于 Session、用户、患者和最小权限控制之下；同时加入
+RAG/Skill、可观测性和容器化演示。项目通过 27 项 CTest、60 条确定性 Agent 评测、42 条
+检索评测、1489 个样本部署一致性、真实 MySQL、Docker E2E 和阶梯压测验证。
 
 **常见追问：** 为什么采用 C++ Gateway？最难的部分是什么？你具体新增了哪些能力？
 
@@ -148,20 +172,23 @@ Kama/Muduo 提供底层 TCP、EventLoop 和基础 HTTP 结构。我在此基础�
 
 **参考回答：**
 
-验证分四层：单元测试验证解析、状态机、权限和算法；隔离测试用假模型、假 Agent 和假下游
-验证边界；进程级 E2E 验证 HTTP、跨进程回调和数据库；真实数据验证比较 PyTorch、Python
-ONNX、C++ ONNX 和 Adapter 在 1489 个样本上的概率、标签、cluster、树叶和路径。
+验证分四层：单元测试验证解析、状态机、权限和算法；隔离测试用假模型、Fake LLM 和假下游
+验证边界；进程级 E2E 验证 HTTP、跨进程回调、MCP 和数据库；真实数据验证比较 PyTorch、
+Python ONNX、C++ ONNX 和 Adapter 在 1489 个样本上的概率、标签、cluster、树叶和路径。
 
-此外实际测试了队列满、慢下游、客户端断开、MySQL 重启、Token 重放和并发刷新，而不是只
-覆盖成功路径。
+实际证据包括 CTest `27/27`、确定性 Agent Evaluation `60/60`、RAG Recall@5 `0.9375`、
+MCP/Adapter 故障隔离、MySQL 重启持久化、SIGTERM 排空，以及 36,177 次过载阶梯请求中
+非预期状态为 0。回答时选择两三项与问题最相关的证据，不要机械报完所有数字。
 
-## A9. 如果继续完善，你会优先做什么【P1】
+## A9. 现在还有哪些边界，如果继续完善会先做什么【P1】
 
 **参考回答：**
 
-先做能直接影响正确性和面试完整度的内容：模型质量审计、RAG/MCP、Skill 和 Agent 评测；
-再补全链路 tracing、指标、端到端 deadline、入口大小限制和限流熔断；最后根据压测决定
-是否引入批处理、缓存或更复杂的部署方案。优先级来自故障风险和测量结果，不是为了堆技术。
+工程主链已经完成，最有价值的下一步不是继续堆框架，而是接入一个真实 OpenAI-compatible
+模型运行质量评测，并根据失败案例改 Prompt、Tool Schema 或 Skill；如果拿到权威 PPH 字段
+字典，再补单位、类别和医学范围元数据。容量侧会先根据生产流量补入口限流和多实例部署，
+只有出现批量、长任务或重启续跑需求才重新评估 MQ。这样的回答既承认边界，也说明下一步由
+证据和业务需求驱动。
 
 ---
 
@@ -292,6 +319,42 @@ LT 在条件仍满足时会继续通知，编码更稳健；ET 主要在状态�
 
 HTTP keep-alive 是应用层复用连接；TCP keepalive 是操作系统在连接长时间空闲时发送探测包，
 用于发现失效对端。两者解决的问题和时间尺度不同，都不能替代业务请求超时。
+
+## B15. HTTP 和 HTTPS 的关系，TLS 应该放在哪里【P1】
+
+**参考回答：**
+
+HTTPS 是 HTTP 运行在 TLS 之上，TLS 提供服务端身份认证、机密性和完整性；握手完成后 HTTP
+语义本身不变。当前本地 Compose 只暴露 nginx，内部服务走隔离网络；真实公网部署应在反向
+代理终止 TLS，统一管理证书、协议版本和连接限制，内部是否再加 mTLS 取决于网络信任边界。
+不能因为用了 JWT 就省略 TLS，因为 Token 本身也必须防窃听。
+
+## B16. 文件描述符耗尽或 accept 过快会怎样处理【P1】
+
+**参考回答：**
+
+连接、日志、数据库和下游 socket 都消耗文件描述符；耗尽后新连接、建库连接甚至打开日志都
+可能失败。治理包括进程和系统 FD 上限、入口连接上限、空闲连接清理、短连接复用、连接池、
+accept 错误指标和过载快速拒绝。只提高 `ulimit` 不能解决根因，因为内存和 Worker 也有容量。
+
+## B17. HTTP 的安全方法和幂等方法是什么，为什么影响重试【P0】
+
+**参考回答：**
+
+安全方法表示预期不修改服务端状态，例如 GET；幂等表示同一请求执行一次和多次的预期效果相同，
+PUT、DELETE 在语义上可以幂等，但 POST 通常不保证。网络层看到超时并不知道服务端是否已经
+提交，所以不能只按 method 名机械重试。有副作用的预测、反馈和 Chat 使用幂等键识别同一业务
+意图；查询类请求才允许对连接中断做一次有限重试。
+
+## B18. 为什么当前是 HTTP/1.1，没有直接实现 HTTP/2【P1】
+
+**参考回答：**
+
+HTTP/2 提供二进制分帧、单连接多路复用和 Header 压缩，能缓解 HTTP/1.1 应用层队头阻塞；
+但它引入帧层状态、流控、优先级、HPACK 和更复杂的连接生命周期。当前目标是证明业务异步、
+模型 Serving 和 Agent 闭环，HTTP/1.1 已满足本地演示；公网可由成熟反向代理承接 HTTP/2，
+后端继续使用简单、可验证的协议。TCP 丢包仍可能让同一 TCP 连接上的流一起等待，这与应用层
+多路复用不是同一个层次。
 
 ---
 
@@ -598,9 +661,36 @@ MySQL 已满足当前容量，先把事务真相源和权限语义做清楚。�
 双写和过期一致性，当前没有压测证据证明值得。若将来 Session 读取成为热点，可使用
 cache-aside，但当前预测指针更新仍以数据库事务为准。
 
+## E11. 这些业务表的索引怎么设计，为什么不能索引越多越好【P0】
+
+**参考回答：**
+
+查询先从业务访问模式出发：历史按 `session_id + created_at + prediction_id` 做复合索引，反馈按
+prediction 和时间查询，幂等键用唯一索引保证并发去重。复合索引顺序要匹配等值过滤、范围和
+排序；keyset pagination 也依赖稳定复合键。索引会占空间并增加 INSERT/UPDATE 维护成本，JSON
+快照中的任意字段也不应全部建索引。面试继续追问时再说明聚簇索引、二级索引回表和覆盖索引。
+
+## E12. 如果出现数据库死锁，你怎么处理【P0】
+
+**参考回答：**
+
+先让事务尽量短、按固定顺序锁资源，推理和网络调用绝不放在事务里；InnoDB 仍可能在并发锁定
+时检测到死锁并回滚一个事务。服务应记录低敏感的 operation 和错误码，对明确可幂等的短事务
+做有限重试，并受总 deadline 限制；不能无限重试。排查时结合死锁日志、SQL 顺序、索引是否
+命中和事务持锁时间，而不是只把隔离级别调低。
+
+## E13. MVCC 和隔离级别在这个项目里怎样理解【P1】
+
+**参考回答：**
+
+MVCC 让普通一致性读通过版本链减少读写阻塞；锁定当前 Session 的更新仍需显式 locking read。
+项目选择 READ COMMITTED，使每条普通读看到语句开始前已提交数据，减少长事务持有旧版本和
+部分间隙锁影响；业务正确性不依赖可重复读，而依赖短事务、行锁、唯一约束和版本字段。隔离
+级别不能替代业务不变量。
+
 ---
 
-# F. M5 医疗 Agent Core
+# F. 医疗 Agent Core
 
 ## F1. 为什么这个项目需要 Agent，而不只是聊天接口【P0】
 
@@ -698,13 +788,14 @@ Agent 猜测前一次是否执行成功。
 边界，也减少框架隐式行为。若未来出现复杂有向图、人工中断、长任务恢复和大量集成，再评估
 成熟框架。当前选择只适合这个规模，不把它说成普遍更优。
 
-## F13. MCP 和 Skill 为什么没有在 M5 一起做【P1】
+## F13. 如何控制上下文和 Tool Result 膨胀【P1】
 
 **参考回答：**
 
-当前五个 Tool 都属于同一业务域，直接调用受控内部 API 更简单。MCP 更适合把独立医疗知识
-服务作为标准外部工具接入；Skill 用于沉淀可复用的任务流程和提示资产。先把内部 Tool 强行
-包装为 MCP 会增加协议层但不提升能力，因此分别放在后续 RAG/MCP 和 Skill 模块。
+只注入最近 12 条最终消息和当前预测摘要，不把完整历史、思维链或数据库对象放进上下文；
+Tool 使用严格输出 Schema、字段白名单、数量与响应字节上限，知识 excerpt 也有单条和总量
+限制。Skill 采用渐进加载，初始只放目录摘要，选中后才加载一个说明。这样同时控制 token、
+延迟和提示注入面，而不是等到超过模型上下文窗口才截断。
 
 ## F14. 如何评价 Agent 是否真的有效【P0】
 
@@ -714,16 +805,34 @@ Agent 猜测前一次是否执行成功。
 任务完成率、Tool 选择正确率、参数正确率、grounding 引用率、拒答安全性、平均步数、p95
 延迟、成本和人工医生复核。不能只挑几条看起来流畅的回答作为证据。
 
+## F15. 上下文窗口、对话历史和长期记忆有什么区别【P0】
+
+**参考回答：**
+
+上下文窗口是一次 LLM 请求实际携带的 token；对话历史是数据库保存的最终用户/助手消息；
+长期记忆通常还涉及跨会话提取、检索、更新和遗忘。项目保存历史，但每次只注入最近 12 条和
+结构化当前预测，没有宣称实现自动长期记忆。这样避免旧错误被反复注入，也使 token、权限和
+延迟有界。若以后做长期记忆，必须解决记忆来源、主体隔离、纠错和过期，而不只是向量化聊天。
+
+## F16. System Prompt 在系统里负责什么，为什么它不能代替权限控制【P0】
+
+**参考回答：**
+
+System Prompt 定义角色、回答边界、事实来源、Tool 使用规则和失败时如何表达；迭代时要用固定
+评测集比较，而不是凭感觉改文案。但 Prompt 是模型行为约束，不是安全边界，可能被误解或被
+提示注入影响。真正的权限由 Gateway 的 actor/subject、Tool 白名单、Capability、Schema 和
+资源授权执行；即使 LLM 产生越权 Tool Call，执行层也必须拒绝。
+
 ---
 
-# G. M6 身份、权限与安全
+# G. 身份、权限与安全
 
 ## G1. 匿名 Session 和认证用户有什么区别【P1】
 
 **参考回答：**
 
 匿名 Session 只表示一次业务上下文，不能证明用户是谁；认证用户由密码登录和 Access Token
-确定。M6 把 Session 绑定 actor/subject，并让预测、聊天和历史记录保存主体归属。开发模式可
+确定。系统把 Session 绑定 actor/subject，并让预测、聊天和历史记录保存主体归属。开发模式可
 保留匿名演示，正式模式的公开业务 API 必须认证。
 
 ## G2. 为什么 Access Token 用 JWT，Refresh Token 用随机不透明值【P0】
@@ -1023,7 +1132,7 @@ ONNX Session 支持并发调用，而不是因为接口写了 `const`。
 
 ---
 
-# J. M7 RAG/MCP 与 M8 Skill
+# J. RAG、MCP 与可信 Skill
 
 ## J1. 为什么这个医疗 Agent 要加入 RAG，而不是让大模型直接回答【P0】
 
@@ -1079,7 +1188,7 @@ RAG 先做离线检索评测：Recall@5、MRR@10、无答案准确率、citation
 
 ---
 
-# K. M9～M11 可观测性、部署与模型治理
+# K. 可观测性、部署与模型治理
 
 ## K1. 一次 Agent 请求跨了多个进程，你怎么定位问题【P0】
 
@@ -1136,6 +1245,20 @@ Bundle v2 同时记录原 CSV、Artifact、Feature Schema、Scaler checksum，la
 ## K14. 模型怎样发布和回滚，为什么不做热更新【P1】
 
 候选必须经过 Bundle checksum、标签指标、Python/C++ parity、shadow 和全量业务安全回归，再更新 Bundle 配置并重启。发布记录保存 current、previous 和 manifest SHA；分类、cluster、路径、Schema、延迟或内存异常就回滚上一目录。单机面试项目没有必须零停机热切换的需求，重启方案减少 Session 竞争、半数请求使用不同模型和资源释放等复杂状态，更容易证明正确。
+
+## K15. Docker 容器和虚拟机有什么区别，这个项目用了哪些隔离【P1】
+
+容器共享宿主机内核，主要依靠 namespace 隔离视图、cgroup 限制资源和分层文件系统交付镜像；
+虚拟机通常包含独立客体内核，隔离更重。项目用独立镜像和 Compose 网络隔离 Backend、Agent、
+Knowledge、Adapter 与 MySQL，只向宿主暴露 Web 入口；Bundle 和知识索引只读挂载，Secret 在
+运行时注入，进程使用非 root 用户。容器化提升可重复性，但不是完整安全边界。
+
+## K16. 为什么采用多阶段构建，数据卷和镜像层分别保存什么【P1】
+
+构建阶段包含编译器、Header 和下载工具，运行阶段只复制可执行文件及运行库，能减小镜像和
+攻击面。程序及固定依赖属于不可变镜像层；MySQL 数据使用持久卷；私有 Bundle、知识索引和
+模型缓存使用只读挂载；密码、JWT Secret 和 API Key 由环境或后续 Secret 管理注入。原始 CSV、
+医疗 PDF 和 `.env` 不进入构建上下文，避免因为分层历史仍可恢复而造成泄露。
 
 ---
 
@@ -1225,79 +1348,486 @@ Bundle v2 同时记录原 CSV、Artifact、Feature Schema、Scaler checksum，la
 
 ---
 
-# M. 简历表述、高风险说法与自测
+# M. 可直接引用的项目证据
 
-## 1. 推荐项目表述
+这一节解决“你怎么证明”的问题。面试时不要主动倾倒所有数字；先说结论，再选择与当前问题
+最相关的一组证据，并说明测试口径和限制。
 
-可以按下面四点组织简历，不要把所有技术栈堆成一段：
+## M1. 完成度与正确性证据
 
-- 基于 Kama/Muduo 二次开发 C++ HTTP 服务，将预测、数据库和 Agent 调用隔离到独立有界
-  Worker Pool，支持过载快速失败、跨线程安全回包和优雅排空。
-- 设计 treeSem Serving Bundle，将确定性网络导出 ONNX，并在 C++ 实现预处理和决策树解释；
-  通过 1489 个样本验证 Python/C++ 结果一致，支持 fallback 与 shadow 灰度。
-- 使用 MySQL 短事务持久化 Session、预测快照、历史、比较和幂等医生反馈，区分健康检查与
-  数据库就绪检查。
-- 实现医疗 Agent Loop 和五个受控领域 Tool，并通过 Access/Refresh Token、Patient/Doctor/
-  Admin 资源授权和短期 Capability 限制跨患者访问。
-- 使用 BM25/FAISS/RRF/rerank 构建版本化医疗知识索引，通过官方 MCP 接入 Agent，并实现
-  citation grounding、角色知识隔离和三个声明式渐进 Skill。
+| 能力 | 实际结果 | 能证明什么 | 不能证明什么 |
+|---|---:|---|---|
+| C++ 全量测试 | CTest `27/27` | HTTP、业务、ONNX、权限等回归通过 | 没有竞态或线上故障 |
+| Agent 确定性评测 | `60/60`，关键安全失败 0 | Agent Loop、Tool、Skill、grounding 协议正确 | 真实 LLM 的稳定性和语言质量 |
+| RAG 固定集 | Recall@5 `0.9375`，MRR@10 `0.9271` | 当前索引对固定问题的召回能力 | 对所有医学问题都有效 |
+| RAG 无答案 | `1.0`，跨角色泄漏 `0` | 固定负例与权限用例通过 | 不等于没有任何未知攻击方式 |
+| Skill 场景 | 3 个 Skill × 8 场景 | 渐进加载、Tool 收窄和角色说明可回归 | 真实 LLM 一定选对 Skill |
+| ONNX parity | 1489 样本最大概率差 `1.79e-7` | Python/C++ 部署语义一致 | 模型医学质量优秀 |
+| 模型复现 | `reproducible=true` | 数据、划分、Scaler、Artifact 和 Serving 对齐 | 已做临床验证 |
+| Docker E2E | 6 个主服务健康，完整演示通过 | 可重复部署和跨服务闭环 | 生产集群 SLA |
 
-## 2. 高风险说法修正
+真实 LLM 报告当前为 `not_run`，原因是没有配置外部 LLM URL、模型和凭据。面试时应直接说：
+“确定性工程路径已全部跑通，真实模型评测框架已经具备，但本次没有伪造外部模型结果。”
 
-| 不建议这样说 | 推荐表述 |
-|---|---|
-| 从零写了高性能 HTTP 框架 | 基于 Kama/Muduo 二次开发，并补充异步业务链和验证 |
-| 用了异步所以性能很高 | 异步避免阻塞 I/O；吞吐仍由 CPU、Worker 和依赖容量决定 |
-| 线程池能扛高并发 | 固定 Worker 限执行并发，有界队列和快速拒绝建立过载边界 |
-| 超时就自动重试 | 只对幂等且可恢复错误有限重试，并受总 deadline 和预算限制 |
-| fallback 保证高可用 | fallback 增加可用路径，也可能把故障流量转移到备用服务 |
-| ONNX 一定比 Python 快 | 当前固定环境有收益，其他模型和机器需重新压测 |
-| ONNX 一致说明模型可用 | 一致性证明部署正确，医学质量需要独立指标和验证 |
-| `shared_ptr` 是线程安全的 | 引用计数可并发更新，不代表被管理对象线程安全 |
-| Session 就是用户身份 | Session 是业务上下文，身份来自认证 Token 和账户状态 |
-| Doctor 角色可以看所有患者 | 还必须验证 active assignment 和资源 subject |
-| LLM 会判断什么时候结束 | Agent 由协议 final answer 和 step/tool/deadline 预算终止 |
-| Tool Calling 能消除幻觉 | Tool 与 grounding 缩小事实生成面，仍需评测和人工复核 |
-| PreparedStatement 解决了数据库安全 | 它主要防 SQL 注入，授权、加密和审计需要单独设计 |
+## M2. 性能数字及正确口径
 
-## 3. 30 分钟 P0 自测清单
+测试机器为双路 Intel Xeon Gold 6148、80 逻辑 CPU，Linux 5.4；ONNX Runtime 1.20.1 CPU。
+数字来自 2026-08-17/18 的本机 loopback，只用于方案比较和容量趋势。
 
-- [ ] 两分钟讲清项目、个人工作、架构和真实验证结果。
-- [ ] 区分框架原有能力与自己的新增能力。
-- [ ] 画出 EventLoop → Worker → 模型/数据库 → EventLoop。
-- [ ] 解释异步生命周期、一次响应和客户端提前断开。
-- [ ] 解释为什么不同阻塞任务使用不同有界池。
-- [ ] 回答十倍流量下的排队、503、重试风暴和止损。
-- [ ] 区分连接超时、单跳超时和端到端 deadline。
-- [ ] 讲清 HTTP 半包、Content-Length、keep-alive 和 pipelining 边界。
-- [ ] 讲清 Reactor、epoll、LT/ET 和连接线程归属。
-- [ ] 画出 Bundle → Scaler → ONNX → C++ tree 的推理链。
-- [ ] 用 1489 个样本说明 parity，而不是只说“结果差不多”。
-- [ ] 区分部署一致性和模型质量，说明模型如何独立替换。
-- [ ] 画出推理后短事务保存 Prediction 和更新 Session 的过程。
-- [ ] 解释连接池上限、获取超时、坏连接和数据库恢复。
-- [ ] 解释 keyset pagination 与幂等 key + payload hash。
-- [ ] 画出 C++ Gateway → Python Agent → Tool → C++ 的重入链。
-- [ ] 讲清 Agent 的终止、重试、grounding、上下文和持久化。
-- [ ] 区分 Session、Access JWT、Refresh Token 和 Capability Token。
-- [ ] 用 Doctor/Patient 举例说明 RBAC 与资源级授权。
-- [ ] 讲清 Refresh rotation、并发刷新和 Token 重用检测。
-- [ ] 讲清审计保存什么以及为什么不复制敏感业务数据。
-- [ ] 描述一次完整压测，包括 p95/p99、QPS、资源和拒绝率。
-- [ ] 画出 BM25 + Dense -> RRF -> rerank -> citation 的知识链路。
-- [ ] 区分 Tool、MCP 和 Skill，并说明 Skill 为什么不能扩大 Capability。
-- [ ] 解释 no-answer、引用校验、知识权限和 RAG prompt injection。
-- [ ] 用“现象—分段定位—止损—根因—修复—预防”回答线上故障。
+### 模型 Serving 微基准
 
-## 4. 推荐复习节奏
+每组预热 100 次、1000 次单样本 HTTP 请求：
 
-第一轮只学习所有 P0，能用自己的话说出主链；第二轮让同学或 AI 沿 L 节连续追问；第三轮
-补 P1 原理和权衡；P2 只在目标岗位特别重视网络底层或性能时准备。面试前优先复述和画图，
-不要继续无限增加问题数量。
+| 链路 | 并发/Worker | p50 | p95 | p99 | QPS | RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| Python Adapter | 1 | 2.7008 ms | 2.7499 ms | 2.7739 ms | 369.55 | 220.07 MiB |
+| C++ ONNX | 1 / 2 | 2.3966 ms | 2.4710 ms | 2.4897 ms | 415.89 | 28.80 MiB |
+| C++ ONNX | 4 / 4 | 3.9393 ms | 4.9464 ms | 5.5268 ms | 978.54 | 28.93 MiB |
+
+推荐说法：“在这台机器和这个小模型上，C++ ONNX 单请求 p50 从约 2.70 ms 降到 2.40 ms，
+4 Worker 达到约 978 QPS，而且常驻内存明显低于 PyTorch Adapter。这个结果包含 localhost
+HTTP/JSON 开销，不代表所有模型上 ONNX 都一定更快。”
+
+### ONNX 加 MySQL 业务链
+
+| 链路 | p50 | p95 | p99 | QPS |
+|---|---:|---:|---:|---:|
+| ONNX + MySQL 顺序预测 | 15.640 ms | 18.539 ms | 20.579 ms | 61.43 |
+| Prediction GET | 10.564 ms | 11.984 ms | 12.526 ms | 90.82 |
+| History GET | 6.127 ms | 7.728 ms | 8.726 ms | 155.11 |
+| `/ready` | 1.306 ms | 1.472 ms | 1.489 ms | 700.79 |
+| ONNX + MySQL，4 Worker | 16.628 ms | 21.219 ms | 24.470 ms | 221.62 |
+
+推荐说法：“加入 Session 刷新和短事务后，顺序预测 p50 约 15.6 ms；并发从 1 增到 4 时
+QPS 从约 62 提升到 222，但 p99 也从约 20.3 ms 上升到 24.5 ms。说明并发提高吞吐的同时会
+增加排队和资源竞争，Worker 不是越多越好。”
+
+### 完整认证业务过载压测
+
+| 指标 | 实际结果 |
+|---|---:|
+| 阶梯并发 | `1 → 4 → 16 → 64 VU`，共 210 秒 |
+| 请求总数 | 36,177 |
+| 成功或受控 503 | 100% |
+| 非预期状态 | 0 |
+| 受控 503 | 35,506 |
+| 总请求速率（包含快速拒绝） | 164.13 req/s |
+| 全部请求 median / p95 | 1.13 ms / 2.34 ms |
+| 成功响应 median / p95 | 4.81 s / 11.12 s |
+| 压测后 `/health` | 200，0.96 ms |
+| 压测后 Prediction/Auth/DB 队列 | 0 / 0 / 0 |
+
+必须解释：`164.13 req/s` 主要由快速 503 组成，不是成功预测吞吐；全部请求的 1～2 ms 也
+主要是拒绝延迟。成功请求在过载下已经排队到秒级。这个实验真正证明的是超出容量后系统能
+有界拒绝、EventLoop 仍可响应、停止负载后队列恢复，而不是证明系统能成功处理 164 QPS。
+
+## M3. 一条完整的真实 Trace
+
+下面来自当前 Docker 演示日志，不是手写示意。一次 PPH 循证教育 Chat 的 Trace ID 为：
+
+```text
+fb60fcb71fb7d8fa07e8e53ade98edb7
+```
+
+父子关系如下：
+
+```text
+C++ Gateway  POST /api/v1/chat
+span=f6654593c774d7f5  parent=<root>  duration=1098.616 ms  status=200
+└─ Python Agent  agent.run
+   span=9f3cdc7c0fa2300a  parent=f6654593c774d7f5
+   duration=531.309 ms  steps=3  tools=2  outcome=success
+   └─ Agent MCP provider  agent.mcp.search_medical_knowledge
+      span=5152950027ae0d5f  parent=9f3cdc7c0fa2300a
+      duration=505.506 ms  retrieval_mode=hybrid
+      └─ Knowledge MCP  knowledge.search_medical_knowledge
+         span=3af285160d8e4be3  parent=5152950027ae0d5f
+         duration=412.389 ms  results=5  outcome=success
+```
+
+面试解释：根请求约 1.10 秒，Agent Run 约 531 ms，其中 MCP provider 约 506 ms，Knowledge
+内部检索约 412 ms。可以判断本次主要耗时在知识调用；provider 与 Knowledge 的约 93 ms
+差值来自 HTTP/MCP 编解码和进程调度，根 Span 剩余时间还包含 C++ 认证、上下文加载、Run
+持久化和两次跨进程传输。Trace 用于分解单请求；是否为系统性瓶颈还要结合对应 Metrics。
+
+## M4. 已实际执行的故障演示
+
+### 故障一：突发流量超过容量
+
+- 现象：64 VU 档压满预测队列，大量请求收到稳定 503。
+- 结果：36,177 次请求中非预期状态为 0，35,506 次受控拒绝；RSS 没有随等待请求无限增长。
+- 恢复：停止负载后各队列回到 0，`/health` 仍为 200、0.96 ms。
+- 面试结论：系统选择快速失败和背压，而不是让排队拖垮内存及 EventLoop。
+
+### 故障二：Knowledge 和 Python Adapter 同时下线
+
+- 现象：RAG 知识回答不可用，Python 黄金/fallback 服务也停止。
+- 结果：C++ ONNX 预测主链仍返回成功；普通预测不依赖 MCP 或 Adapter 存活。
+- 面试结论：知识服务与参考模型是隔离、可降级能力，不能反向拖垮核心预测。
+
+### 故障三：MySQL 重启
+
+- 现象：重启期间 `/health` 保持进程存活语义，数据库 readiness 和业务请求暂时失败。
+- 结果：恢复后 Backend `/ready` 自动回到 200；Prediction/Agent Run/Chat Message 数量在重启
+  前后保持 `19/6/12`，无需重启 Backend。
+- 面试结论：liveness 与 readiness 分离，连接池淘汰坏连接并补建，MySQL 是持久化真相源。
+
+### 故障四：SIGTERM 停机
+
+- 现象：容器向 Backend 发送 SIGTERM。
+- 结果：服务停止接单、处理退出流程，1 秒内以退出码 0 停止，之后可以重新启动并恢复健康。
+- 面试结论：信号处理只触发安全通知，复杂清理回到正常线程执行，避免在 signal handler 中做
+  非异步信号安全操作。
+
+### 故障五：重试放大
+
+- 现象：第一次压测中，认证失败后的客户端没有退避，短时间制造大量重复请求。
+- 处理：负载工具增加身份预热、重试上限和指数退避。
+- 面试结论：服务端背压只能保护自己，客户端还必须有限重试并增加 jitter；多层重试会乘法放大。
+
+## M5. 模型质量数字
+
+当前正式 seed42：
+
+```text
+Accuracy             0.963734
+Positive F1          0.625000
+AUC                  0.928790
+AUPRC                0.739376
+Sensitivity          0.762712
+Specificity          0.972028
+Balanced Accuracy    0.867370
+Confusion Matrix     [[1390, 40], [14, 45]]
+```
+
+正类明显少于负类，不能只报 Accuracy。正式说法应是：“当前 Artifact 可以复现，部署链一致；
+正类 F1 和召回仍有改进空间，因此项目保留模型可替换发布流程，没有把工程 parity 夸大成医学
+有效性。”
 
 ---
 
-# N. 技术资料
+# N. 五分钟与十五分钟项目讲稿
+
+## N1. 五分钟讲稿
+
+### 第 1 分钟：项目与角色
+
+“这是一个面向医生和患者的 treeSem 医疗辅助智能服务。我不是从零重写网络库，而是基于
+Kama/Muduo 的 TCP、EventLoop 和基础 HTTP 能力做二次开发。C++ Gateway 是唯一外部入口，
+负责 HTTP、Session、认证授权、MySQL 业务和 ONNX 推理；Python 负责黄金模型 Adapter、Agent
+以及独立 Knowledge MCP。我的核心目标是把一个研究模型变成可部署、可解释、可持久化、可由
+Agent 安全调用的完整系统。”
+
+### 第 2 分钟：C++ 并发与业务主链
+
+“网络层采用 Reactor。EventLoop 只做解析、路由和回包，模型、数据库、Agent、密码计算分别
+进入独立有界工作池。这样慢 LLM 不会占满预测 Worker，慢数据库也不会卡 I/O 线程；队列满
+返回语义化 503，形成背压。Worker 完成后把结果投递回连接所属 EventLoop，并用一次完成语义
+处理正常完成、异常和客户端断开的竞争。预测成功后再开启短事务，原子保存预测快照并更新
+Session 当前结果，推理期间不持有数据库锁。”
+
+### 第 3 分钟：模型 Serving
+
+“模型侧先把训练 Artifact、49 维特征顺序、Scaler、网络权重和决策树整理成带 checksum 的
+Serving Bundle。确定性神经网络导出 ONNX，由 C++ ONNX Runtime 执行；预处理和决策树路径由
+C++ 原生实现。Python Adapter 保留为黄金参考和 fallback，shadow 模式用于比较但对外返回
+ONNX。1489 个样本上 Python/C++ 最大概率差为 1.79e-7，标签、cluster、叶节点和路径一致。”
+
+### 第 4 分钟：Agent、RAG 与安全
+
+“Agent 是短生命周期 Loop，不直接访问模型和 MySQL。它只能调用预测、解释、历史、比较等
+受控 Tool，Session、actor 和患者 subject 由服务端绑定，不能由 LLM 指定。医疗知识通过官方
+MCP 接入独立 RAG 服务，使用 BM25 和 Dense 双路召回、RRF 融合和 rerank，citation 必须来自
+本轮检索。Skill 是声明式流程包，渐进加载且只能收窄已有 Tool。Patient、Doctor、Admin 不只
+做角色检查，还做资源所有权和医生患者 assignment；Agent 使用短期 Capability，防止跨患者
+调用。”
+
+### 第 5 分钟：验证、结果与取舍
+
+“项目不是只跑成功路径：CTest 27/27，Agent 确定性评测 60/60，RAG Recall@5 为 0.9375；
+Docker 完整链能演示预测、解释、历史、比较、Agent、引用和医生反馈。过载测试 36,177 次请求
+中没有非预期状态，容量外快速 503，负载后队列归零，health 仍在 1 ms 内。Knowledge 和 Python
+Adapter 同时下线不影响 ONNX 主链，MySQL 重启后数据保持并自动恢复 ready。项目没有为了技术
+栈加入 RabbitMQ，因为当前是同步交互链；只有出现离线批量或长任务时才值得引入。”
+
+## N2. 十五分钟讲稿
+
+十五分钟不要把五分钟版简单说三遍。推荐按以下节奏，面试官任何时候打断都能进入对应题组。
+
+### 0～2 分钟：问题与总体架构
+
+“最开始只有研究模型和基础 HTTP 框架，不能直接作为面试项目：模型依赖 Python 和训练环境，
+请求处理会阻塞网络线程，没有持久化业务，也没有 Agent 的权限边界。我把系统拆成四个运行
+边界：C++ Gateway 是业务事实源；C++ ONNX 是默认预测主链；Python Agent 负责规划与表达；
+Knowledge MCP 只负责版本化知识检索。外部用户永远先经过 Gateway，Python 服务不能绕开
+业务事务和权限。”
+
+此处画图：
+
+```text
+Client -> C++ Gateway -> ONNX / MySQL
+                    \-> Python Agent -> Native Tool -> C++ Internal API
+                                    \-> MCP -> Knowledge RAG
+```
+
+### 2～5 分钟：HTTP、Reactor 与过载
+
+“底层基于 Kama/Muduo。HTTP 解析器从 TCP 字节流增量识别请求行、Header 和 Content-Length
+body，不能假设一次 read 就得到完整请求。路由支持静态和命名动态路径，静态优先，避免固定
+资源被参数路由吞掉。EventLoop 不能执行推理、SQL 或远程 HTTP，所以我把阻塞任务放到有界
+调度池。不同任务池形成舱壁，因为预测是 CPU/本地推理，数据库受连接池限制，Agent 可能等待
+数十秒，Argon2 又是 CPU 和内存密集型。”
+
+“异步最关键的不是用了线程池，而是生命周期：请求数据在投递前复制，连接使用可失效的弱引用，
+结果回到原 EventLoop 发送；一次完成状态保证超时、异常和正常完成只有一个路径能回包。队列
+有上限，满时立即 503。第一次压测还发现无退避认证重试会放大流量，所以客户端侧补了有界指数
+退避。过载实验最终证明容量之外快速拒绝，队列和内存不会无限增长。”
+
+### 5～7 分钟：模型从研究到 Serving
+
+“研究 Artifact 最大的问题是隐式依赖：特征顺序、Scaler、树对象、版本和原始 CSV 都可能改变。
+Exporter 把这些内容固化成 Serving Bundle，用 manifest、Schema 和 checksum 启动时 fail fast。
+Serving 只走 posterior mean 和分类/cluster 的确定性子图，不导 decoder、随机采样和训练逻辑。
+决策树没强行塞进 ONNX，而是序列化为跨语言结构，由 C++ 按标准化阈值遍历，这样解释路径和
+反标准化阈值都可控。”
+
+“C++ 和 Python 两条链各有职责：ONNX 是主链，Python 是黄金参考和异常 fallback；shadow 用于
+灰度比对。验证不能只看 label，因为阈值附近很容易掩盖数值漂移，所以全量比较 probability、
+confidence、cluster、leaf、path 和特征顺序。1489 样本最大差 1.79e-7。独立的模型质量审计
+复现出 Accuracy 0.9637、Positive F1 0.625、AUC 0.9288，说明部署一致，但正类表现仍有改进空间。”
+
+### 7～9 分钟：MySQL、Session 与一致性
+
+“每次预测保存完整结果快照，查询解释时不重新推理，避免模型版本变化导致历史事实变化。
+流程是先推理，再开短事务，锁定 Session，插入 Prediction 并更新 current prediction 后提交。
+这样不在昂贵推理期间占用连接和行锁。连接池固定大小、获取有超时，Lease 负责 rollback、恢复
+autocommit 和归还；坏连接淘汰后补建。历史使用 keyset pagination，反馈和 Agent Run 使用
+幂等键加 payload hash，区分同一请求重放与复用 key 的冲突。”
+
+### 9～12 分钟：Agent、RAG、Skill 与权限
+
+“Agent Loop 每轮只能返回 final answer 或结构化 Tool Call，最多 5 step、8 Tool、25 秒，并
+检测连续重复调用。查询类 Tool 传输失败最多重试一次，有副作用预测不自动重试。LLM 不计算
+概率差和路径变化，这些由 C++ 确定性服务完成；回答引用的 prediction ID 必须来自本轮 Tool。”
+
+“RAG 的知识和模型事实分离：模型概率永远来自领域 Tool，知识结论来自 MCP。检索用 BM25
+处理字段名和精确术语，Dense 处理语义和跨语言，RRF 融合后 rerank。证据不足返回空，不因为
+top-k 总有结果就强答。MCP 结果是不可信 Tool Data，不能覆盖 System Prompt，citation 也要
+与本轮结果集合校验。三个 Skill 分别处理预测解释、历史比较和 PPH 循证教育，只是可信流程，
+不能执行代码或扩大 Capability。”
+
+“身份上 Access JWT 短期，Refresh 是数据库保存哈希的不透明随机 Token并轮换；Doctor 角色
+还必须有 active assignment。Agent Run 获得绑定 actor、subject、session、run 和 allowed tools
+的短期 Capability，LLM 不能换患者或扩大 Tool。横向越权统一 404，安全审计只记录谁在何时
+对哪个资源做了什么，不复制临床值和聊天正文。”
+
+### 12～14 分钟：Trace、压测和真实故障
+
+“入口生成 W3C Trace，跨 Gateway、Agent、领域 Tool 和 MCP 传播。Metrics 看整体趋势，Trace
+看单请求分段，日志补离散原因；request ID、用户 ID 绝不能做 Prometheus label。实际一条知识
+Chat 总耗时 1098 ms，Agent 531 ms，MCP provider 506 ms，Knowledge 内部 412 ms，因此能把
+主要时间定位到检索链，而不是猜网络慢。”
+
+“故障演示包括队列过载、Knowledge/Adapter 下线、MySQL 重启和 SIGTERM。MySQL 重启后
+Prediction/Run/Message 保持 19/6/12 并自动恢复 ready；Knowledge 和 Adapter 同时下线仍可
+ONNX 预测；SIGTERM 1 秒内退出码 0。RabbitMQ 暂不加入，因为同步预测和 Chat 仍要等待结果，
+MQ 不会减少实际计算时间，只会增加任务状态和重复消费问题。”
+
+### 14～15 分钟：总结与边界
+
+“这个项目最重要的不是技术栈数量，而是三条闭环：阻塞任务不拖住 EventLoop，跨服务 Agent
+不能绕过事实和权限，研究模型迁移后能用全量数据证明一致并可回滚。当前没有真实外部 LLM
+质量报告，也没有权威 PPH 字段单位字典，我会明确承认；下一步应先补这两项证据，而不是继续
+加入和同步业务无关的复杂组件。”
+
+---
+
+# O. 简历描述与高风险表述
+
+最终可直接复制到简历的主版本、C++ 定向版和 Agent 定向版统一维护在
+[treeSem 简历项目描述](treesem-resume-description.md)。下面保留简历要点摘要和高风险表述，
+避免面试题库与正式简历版本长期不一致。
+
+## O1. C++ 后端岗位版本
+
+**treeSem 医疗智能服务｜C++ 后端 / 模型 Serving**
+
+- 基于 Kama/Muduo 二次开发 Reactor HTTP 服务，将推理、MySQL、Agent 和密码计算隔离到独立
+  有界 Worker Pool，实现跨线程安全回包、过载 503、超时治理与优雅排空。
+- 设计版本化 Serving Bundle，将 treeSem 确定性网络导出 ONNX，在 C++ 实现预处理和原生
+  决策树解释；1489 个样本 Python/C++ 最大概率差 `1.79e-7`，支持 remote、fallback、shadow。
+- 使用 MySQL 短事务持久化 Session、预测快照、历史比较与幂等反馈，连接池具备有界借用、
+  获取超时、坏连接恢复和 readiness 检查。
+- 完成 Prometheus Metrics、W3C Trace、Docker Compose 和阶梯压测；36,177 次过载请求均为
+  成功或受控 503，负载后队列归零且健康检查保持毫秒级响应。
+
+## O2. Agent 工程岗位版本
+
+**treeSem 医疗智能 Agent｜Tool Calling / RAG / MCP / Skill**
+
+- 实现短生命周期 Agent Loop、Tool Registry、步骤/调用/deadline 预算和 prediction grounding，
+  通过 C++ Internal API 获取预测事实，Agent 不直连模型与数据库。
+- 构建 BM25 + FAISS Dense + RRF + Cross-Encoder 的版本化医疗知识索引，通过官方 MCP 接入；
+  固定集 Recall@5 `0.9375`、MRR@10 `0.9271`，支持 citation 校验、no-answer 和角色知识隔离。
+- 实现三个声明式可信 Skill 的渐进加载，并通过 Access/Refresh Token、资源级 RBAC 和短期
+  Capability 限制跨患者 Tool 调用。
+- 建立 60 条 Fake LLM 确定性评测和跨服务 Trace；工程硬门槛全部通过，真实外部 LLM 评测
+  框架已具备但当前无凭据，明确标记 `not_run`。
+
+简历只选择与目标岗位最相关的 3～4 条，不要把两版全部堆进去。
+
+## O3. 高风险说法修正
+
+| 不建议这样说 | 推荐表述 |
+|---|---|
+| 从零写了高性能 HTTP 框架 | 基于 Kama/Muduo 二次开发，并补充异步业务链和系统验证 |
+| 用了异步所以性能很高 | 异步避免阻塞 I/O；吞吐仍由 Worker、CPU 和依赖容量决定 |
+| 线程池能扛高并发 | 固定 Worker 限执行并发，有界队列和快速拒绝建立过载边界 |
+| 压测达到 164 QPS | 164 req/s 包含大量快速 503；成功链吞吐应看单独基准 |
+| 平均响应只有 1.13 ms | 该数字主要是过载拒绝；成功请求 median 为 4.81 s |
+| 超时就自动重试 | 只对幂等、可恢复错误有限重试，并受总 deadline 和预算限制 |
+| fallback 保证高可用 | fallback 增加可用路径，也可能把故障流量转移到备用服务 |
+| ONNX 一定比 Python 快 | 当前固定模型和机器有收益，其他环境需要重新压测 |
+| ONNX 一致说明模型可用 | parity 证明部署正确，模型质量和医学有效性是另外的问题 |
+| Accuracy 96% 所以模型很好 | 类别不平衡，必须同时看 F1、AUPRC、Sensitivity 和校准 |
+| `shared_ptr` 是线程安全的 | 引用计数可并发更新，不代表被管理对象线程安全 |
+| Session 就是用户身份 | Session 是业务上下文，身份来自认证 Token 和账户状态 |
+| Doctor 角色可以看所有患者 | 还必须验证 active assignment 和资源 subject |
+| LLM 自己判断什么时候结束 | Agent 由 final-answer 协议和 step/tool/deadline 预算终止 |
+| Tool Calling 消除了幻觉 | Tool 与 grounding 缩小事实生成面，仍需评测和人工复核 |
+| 接入了 MCP 所以 Agent 很标准 | MCP 只标准化能力接入，权限、可靠性和回答质量仍需自行设计 |
+| RAG 能保证回答正确 | RAG 提供可追踪证据，仍会召回错误或推导错误，需要 no-answer 与评测 |
+| PreparedStatement 解决了数据库安全 | 它主要防 SQL 注入，授权、加密和审计需要单独设计 |
+| Fake LLM 60/60 说明真实 Agent 很好 | 只证明确定性工程路径，真实模型评测尚未运行 |
+| 项目已达到生产医疗标准 | 当前是本地辅助演示，回答已实现的技术边界，不做无证据宣称 |
+
+---
+
+# P. 必须掌握的核心代码与理论
+
+面试回答不背文件名，但学习时必须能把概念落到代码。以下按收益排序，不要求平均阅读所有文件。
+
+## P1. 第一优先级：必须读懂的代码区域
+
+| 代码区域 | 必须理解什么 | 对应题组 |
+|---|---|---|
+| `HttpServer/src/http`、`HttpServer/src/router` | 增量 HTTP 解析、路由、中间件、同步/异步边界 | B |
+| `WebApps/TreeSemServer/src/concurrency`、`src/service` | 有界队列、Worker 生命周期、停止接单与排空 | C、H |
+| `WebApps/TreeSemServer/src/api/PredictionController.cpp` | EventLoop 投递、弱连接、一次回包和错误映射 | B、C |
+| `WebApps/TreeSemServer/src/infrastructure/model` | Bundle 加载、预处理、ONNX、原生树、fallback/shadow | D |
+| `WebApps/TreeSemServer/src/application/PredictionService.cpp` | 推理与短事务的边界、预测快照 | E |
+| `WebApps/TreeSemServer/src/infrastructure/persistence` | 连接池 Lease、事务、PreparedStatement、坏连接 | E |
+| `PythonServices/TreeSemAgent/agent/loop.py` | Agent 状态机、终止、重试、deadline、重复 Tool | F |
+| `PythonServices/TreeSemAgent/agent/tool_registry.py` 与 `tools/` | Schema、上下文绑定、Tool 错误和 MCP provider | F、J |
+| `WebApps/TreeSemServer/src/security` 与认证应用层 | JWT、Refresh、RBAC、Capability 与审计 | G |
+| `PythonServices/TreeSemKnowledge/knowledge/retrieval` | BM25、Dense、RRF、rerank、过滤和降级 | J |
+| `PythonServices/TreeSemAgent/agent/skills.py` 与 `skills/` | Catalog、渐进加载、Tool 收窄和声明式安全 | J |
+| `HttpServer/src/middleware/ObservabilityMiddleware.cpp` | 异步上下文、Trace、低基数 Metrics | H、K |
+
+阅读标准不是“看过”，而是能画出输入、输出、线程/进程边界、共享状态、失败路径和测试证据。
+
+## P2. 第二优先级：必须掌握的理论
+
+### C++ 网络与并发
+
+- TCP 字节流、半包/粘包、HTTP/1.1 framing、keep-alive 与 pipelining。
+- Reactor、one loop per thread、epoll 的 LT/ET、非阻塞 I/O。
+- 线程池、有界队列、背压、舱壁、限流、熔断、降级的区别。
+- mutex、atomic、condition_variable、RAII、智能指针、lambda 捕获和移动语义。
+- happens-before 的基本概念；为什么 atomic 不能替代跨字段不变量的锁。
+- deadline、取消、幂等、有限重试、指数退避与 jitter。
+
+### 数据库与业务一致性
+
+- ACID、MVCC、READ COMMITTED 与 REPEATABLE READ 的区别。
+- 行锁、`SELECT ... FOR UPDATE`、死锁与短事务。
+- 连接池容量、获取超时、连接归还与坏连接恢复。
+- keyset pagination、唯一排序键、幂等键和 payload hash。
+- Session、认证身份和业务资源所有权的区别。
+
+### 模型 Serving
+
+- 训练产物与 Serving Bundle 的差异，Schema/checksum/version 的作用。
+- StandardScaler 正反变换，float32 容差，动态 batch 和 ONNX Session 复用。
+- PyTorch/ORT/C++ parity 与模型指标是两套问题。
+- Accuracy、Precision、Recall、F1、AUC、AUPRC、Brier/ECE 和混淆矩阵。
+- 数据泄漏、测试集挑 seed、阈值选择和模型回滚。
+
+### Agent、RAG 与安全
+
+- Agent Loop、Function Calling Schema、终止预算、Tool grounding。
+- Prompt、上下文窗口、短期/长期记忆的区别；本项目没有伪装实现长期记忆。
+- BM25、Embedding、向量索引、RRF、Cross-Encoder 和 no-answer。
+- Tool、MCP、Resource、Skill 的职责边界；Streamable HTTP 是传输，不是权限系统。
+- Prompt Injection 与普通幻觉的区别；外部内容应作为不可信数据。
+- JWT、Refresh rotation、RBAC 与资源级授权、Capability、CSRF/CORS。
+- Logs、Metrics、Trace 的边界和 Prometheus 高基数问题。
+
+## P3. 不需要优先钻研的内容
+
+- 每个 Controller 的普通 JSON 字段校验和所有错误 message。
+- 每张表的所有列名、每个环境变量和 Dockerfile 指令。
+- 为了展示技术栈而补 RabbitMQ、Redis、Multi-Agent、GPU 或热更新。
+- 法规条文、认证流程和没有落地证据的生产医疗合规讨论。
+- 历史训练源码中与 Serving 无关的 decoder、DeepSHAP 缓冲区和旧名称迁移。
+
+这些内容可以在面试官明确深入时再看，不应挤占 EventLoop、异步生命周期、Serving parity、
+Agent Tool、RAG grounding 和压测故障这些 P0 内容。
+
+## P4. 四轮复习安排
+
+1. 第一轮：背熟 A1、A2 和 N1，能在白纸画三条主链。
+2. 第二轮：读 P1 前六项代码，完成 B+C+D+E 所有 P0。
+3. 第三轮：读 Agent/Knowledge/Security 代码，完成 F+G+J 所有 P0。
+4. 第四轮：用 L 节做连续追问，回答必须带 M 节真实证据，最后再补 P1 问题。
+
+---
+
+# Q. 面试前最终自测
+
+## Q1. 30 分钟 P0 清单
+
+- [ ] 两分钟讲清项目、个人工作、架构和三个真实验证结果。
+- [ ] 区分 Kama/Muduo 原有能力与自己的新增能力。
+- [ ] 画出 EventLoop → Worker → 模型/数据库 → EventLoop。
+- [ ] 解释异步生命周期、一次响应和客户端提前断开。
+- [ ] 解释不同阻塞任务为什么使用不同有界池。
+- [ ] 回答十倍流量下的排队、503、重试风暴和止损。
+- [ ] 区分连接超时、单跳超时和端到端 deadline。
+- [ ] 讲清 HTTP framing、keep-alive、pipelining、Reactor 和 epoll。
+- [ ] 画出 Bundle → Scaler → ONNX → C++ tree。
+- [ ] 用 1489 样本和 `1.79e-7` 说明 parity，并说明它不代表模型质量。
+- [ ] 画出推理后短事务保存 Prediction 和更新 Session。
+- [ ] 解释连接池上限、获取超时、坏连接和数据库恢复。
+- [ ] 解释 keyset pagination 与幂等 key + payload hash。
+- [ ] 画出 Gateway → Agent → Native Tool/MCP → Gateway/Knowledge。
+- [ ] 讲清 Agent 终止、重试、grounding、上下文和持久化。
+- [ ] 区分 Session、Access JWT、Refresh Token 和 Capability Token。
+- [ ] 用 Doctor/Patient 举例说明角色和资源级授权。
+- [ ] 画出 BM25 + Dense → RRF → rerank → citation。
+- [ ] 区分 Tool、MCP 和 Skill，并说明 Skill 为什么不能扩大权限。
+- [ ] 准确解释 36,177 次压测，绝不把快速 503 当成功吞吐。
+- [ ] 根据 M3 的 Trace 判断主要耗时在哪一段。
+- [ ] 用“现象—分段定位—止损—根因—修复—预防”回答故障题。
+- [ ] 主动承认真实 LLM 评测 `not_run`，不伪造结论。
+
+## Q2. 删除和降级原则
+
+本轮已经删除或改写以下低价值表达：
+
+- 删除按开发阶段自问“为什么当时没把 MCP/Skill 一起做”，改为上下文和 Tool Result 治理。
+- 删除“RAG、Skill、Trace 尚未完成”等过期状态。
+- 不把“为什么不能宣称医疗合规”单列为面试题，只在事实边界中避免夸大。
+- 不把普通 JSON 校验、类名、函数名和逐个异常分支设为独立主问题。
+- 不把 Compose 启动、Fake LLM、单一成功样例包装成系统质量。
+- 不保留没有报告支撑的性能、可用性和安全百分比。
+
+以后新增问题必须至少满足一个条件：简历主动写出、能从项目主链自然追问、能引出高频八股，
+或者有真实故障/性能证据。否则放入普通开发文档，不再扩充面试题库。
+
+---
+
+# R. 技术资料与事实来源
 
 以下资料用于校正技术事实，不要求面试前逐篇通读：
 
@@ -1307,11 +1837,23 @@ Bundle v2 同时记录原 CSV、Artifact、Feature Schema、Scaler checksum，la
 - [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
 - [Google SRE：Handling Overload](https://sre.google/sre-book/handling-overload/)
 - [Google SRE：Addressing Cascading Failures](https://sre.google/sre-book/addressing-cascading-failures/)
+- [Google SRE：Effective Troubleshooting](https://sre.google/sre-book/effective-troubleshooting/)
+- [W3C Trace Context](https://www.w3.org/TR/trace-context/)
+- [Prometheus metric and label naming](https://prometheus.io/docs/practices/naming/)
 - [ONNX Runtime：Thread management](https://onnxruntime.ai/docs/performance/tune-performance/threading.html)
 - [MySQL 8.0：InnoDB Transaction Model](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-model.html)
 - [RFC 7519：JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519.html)
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
-- [Model Context Protocol specification](https://modelcontextprotocol.io/specification/)
+- [MCP Streamable HTTP specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 - [FAISS documentation](https://faiss.ai/)
+
+项目内事实来源：
+
+- `docs/m3-performance.md`：Python Adapter 与 C++ ONNX 微基准。
+- `docs/m4-performance.md`：ONNX + MySQL 业务性能。
+- `docs/m9-observability-evaluation.md`：Trace、Agent 评测和 k6 过载报告。
+- `docs/m10-deployment-demo.md`：Docker、故障恢复和 SIGTERM 验收。
+- `docs/m11-model-quality.md`：模型指标、五种子和 Bundle v2 审计。
+- `build/reports/`：机器可读评测结果。
