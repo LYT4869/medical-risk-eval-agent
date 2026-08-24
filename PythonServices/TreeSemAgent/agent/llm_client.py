@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -11,7 +12,7 @@ try:
 except ModuleNotFoundError:  # Unit tests using ScriptedLlmClient need no HTTP stack.
     httpx = None  # type: ignore[assignment]
 
-from .schemas import LlmToolCall, LlmTurn
+from .schemas import LlmToolCall, LlmTurn, LlmUsage
 
 
 class LlmError(RuntimeError):
@@ -29,6 +30,8 @@ class OpenAiCompatibleConfig:
     api_key: str = ""
     connect_timeout_seconds: float = 1.0
     request_timeout_seconds: float = 20.0
+    temperature: float = 0.0
+    max_output_tokens: int = 1024
 
 
 class OpenAiCompatibleClient:
@@ -41,6 +44,17 @@ class OpenAiCompatibleClient:
             timeout=httpx.Timeout(config.request_timeout_seconds, connect=config.connect_timeout_seconds),
             limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
         )
+        self._usage_lock = threading.Lock()
+        self._usage = {
+            "request_count": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    def usage_snapshot(self) -> dict[str, int]:
+        with self._usage_lock:
+            return dict(self._usage)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -49,7 +63,14 @@ class OpenAiCompatibleClient:
         headers = {"Content-Type": "application/json"}
         if self._config.api_key:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
-        payload = {"model": self._config.model, "messages": messages, "tools": tools, "tool_choice": "auto"}
+        payload = {
+            "model": self._config.model,
+            "messages": messages,
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_output_tokens,
+        }
+        if tools:
+            payload.update({"tools": tools, "tool_choice": "auto"})
         last_error: Exception | None = None
         for attempt in range(2):
             try:
@@ -71,19 +92,34 @@ class OpenAiCompatibleClient:
                 content = message.get("content")
                 grounding = []
                 source_grounding = []
-                if content and content.lstrip().startswith("{"):
+                if content:
                     try:
-                        structured = json.loads(content)
+                        candidate = content.strip()
+                        if candidate.startswith("```json") and candidate.endswith("```"):
+                            candidate = candidate[7:-3].strip()
+                        structured = json.loads(candidate)
                         content = structured.get("answer", content)
                         grounding = structured.get("grounding_prediction_ids", [])
                         source_grounding = structured.get(
                             "grounding_source_ids", [])
                     except (ValueError, TypeError):
                         pass
+                usage = body.get("usage")
+                parsed_usage = None if usage is None else LlmUsage(
+                    prompt_tokens=usage["prompt_tokens"],
+                    completion_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"])
+                with self._usage_lock:
+                    self._usage["request_count"] += 1
+                    if parsed_usage is not None:
+                        self._usage["prompt_tokens"] += parsed_usage.prompt_tokens
+                        self._usage["completion_tokens"] += parsed_usage.completion_tokens
+                        self._usage["total_tokens"] += parsed_usage.total_tokens
                 return LlmTurn(
                     content=content, tool_calls=calls,
                     grounding_prediction_ids=grounding,
-                    grounding_source_ids=source_grounding)
+                    grounding_source_ids=source_grounding,
+                    usage=parsed_usage)
             except (httpx.HTTPError, ValueError, KeyError, TypeError, LlmError) as exc:
                 last_error = exc
                 if attempt == 0:

@@ -88,6 +88,18 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(result.tools_used[0].name, "predict_sample")
         self.assertEqual(result.grounding_prediction_ids, [prediction_id])
 
+    def test_successful_prediction_tool_gets_deterministic_grounding(self):
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="c1", name="predict_sample", arguments={"sample_index": 0})]),
+            LlmTurn(content="The prediction completed."),
+        ])
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(FakeBackend())).run(request()))
+        self.assertEqual(
+            result.grounding_prediction_ids,
+            ["pred_" + "a" * 32])
+
     def test_repeated_call_stops(self):
         call = LlmToolCall(id="c1", name="predict_sample", arguments={"sample_index": 0})
         llm = ScriptedLlmClient([LlmTurn(tool_calls=[call]), LlmTurn(tool_calls=[call])])

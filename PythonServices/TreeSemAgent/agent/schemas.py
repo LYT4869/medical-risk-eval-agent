@@ -109,11 +109,18 @@ class LlmToolCall(StrictModel):
     arguments: dict[str, Any]
 
 
+class LlmUsage(StrictModel):
+    prompt_tokens: int = Field(ge=0)
+    completion_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+
+
 class LlmTurn(StrictModel):
     content: str | None = None
     tool_calls: list[LlmToolCall] = Field(default_factory=list)
     grounding_prediction_ids: list[str] = Field(default_factory=list)
     grounding_source_ids: list[str] = Field(default_factory=list)
+    usage: LlmUsage | None = None
 
 
 class ToolOutputModel(BaseModel):

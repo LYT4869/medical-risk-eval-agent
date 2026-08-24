@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent.llm_client import ScriptedLlmClient
 from agent.loop import AgentExecutionError, AgentLoop
+from agent.prompt import SYSTEM_PROMPT
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn
 from agent.skills import SkillCatalog
 from agent.tool_registry import ToolRegistry
@@ -53,6 +54,18 @@ def run_request(role="patient"):
 
 
 class KnowledgeGroundingTest(unittest.TestCase):
+    def test_tool_descriptions_define_minimum_routing_boundaries(self):
+        registry = ToolRegistry(FakeBackend(), FakeKnowledge())
+        descriptions = {
+            item["function"]["name"]: item["function"]["description"]
+            for item in registry.definitions()
+        }
+        self.assertIn("Use this alone", descriptions["get_explanation"])
+        self.assertIn("Only use when", descriptions["get_prediction"])
+        self.assertIn("Do not use for a stored prediction explanation",
+                      descriptions["search_medical_knowledge"])
+        self.assertIn("minimum sufficient tool set", SYSTEM_PROMPT)
+
     def test_search_and_citation_grounding(self):
         citation = "cite_" + "a" * 20
         llm = ScriptedLlmClient([
@@ -69,6 +82,33 @@ class KnowledgeGroundingTest(unittest.TestCase):
         self.assertEqual(result.citations[0].source_id, "src_who_pph")
         self.assertEqual(result.knowledge_index_version, "knowledge-test")
         self.assertEqual(knowledge.calls[0][0], "signed-knowledge-token")
+
+    def test_citation_metadata_is_derived_from_verified_answer_mentions(self):
+        citation = "cite_" + "a" * 20
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="k1", name="search_medical_knowledge",
+                arguments={"query": "PPH", "scope": "clinical", "top_k": 5})]),
+            LlmTurn(content=f"Evidence is available [{citation}]."),
+        ])
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(run_request()))
+        self.assertEqual(result.grounding_source_ids, [citation])
+        self.assertEqual(result.citations[0].citation_id, citation)
+
+    def test_verified_claimed_citation_is_appended_to_answer_when_omitted(self):
+        citation = "cite_" + "a" * 20
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="k1", name="search_medical_knowledge",
+                arguments={"query": "PPH", "scope": "clinical", "top_k": 5})]),
+            LlmTurn(content="Evidence is available.",
+                    grounding_source_ids=[citation]),
+        ])
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(run_request()))
+        self.assertIn(citation, result.answer)
+        self.assertEqual(result.grounding_source_ids, [citation])
 
     def test_fabricated_citation_is_rejected(self):
         llm = ScriptedLlmClient([LlmTurn(
@@ -109,6 +149,12 @@ class SkillTest(unittest.TestCase):
             doctor = catalog.activate(summary["id"], "doctor")
             patient = catalog.activate(summary["id"], "patient")
             self.assertNotEqual(doctor.instructions, patient.instructions)
+
+    def test_catalog_prompt_explicitly_requires_activation_before_skill_workflow(self):
+        catalog = SkillCatalog(self.root, self.tools)
+        registry = ToolRegistry(FakeBackend(), FakeKnowledge(), catalog)
+        prompt = registry.skill_catalog_prompt("doctor")
+        self.assertIn("call activate_skill before domain tools", prompt)
 
     def test_all_24_packaged_scenarios_follow_declared_tools(self):
         import json

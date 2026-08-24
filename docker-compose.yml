@@ -113,6 +113,11 @@ services:
       TREESEM_AGENT_LLM_BASE_URL: ${TREESEM_AGENT_LLM_BASE_URL:-}
       TREESEM_AGENT_LLM_MODEL: ${TREESEM_AGENT_LLM_MODEL:-}
       TREESEM_AGENT_LLM_API_KEY: ${TREESEM_AGENT_LLM_API_KEY:-}
+      TREESEM_AGENT_LLM_TEMPERATURE: ${TREESEM_AGENT_LLM_TEMPERATURE:-0}
+      TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS: ${TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS:-1024}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost},backend,knowledge,model-adapter,mysql
     depends_on:
       backend: {condition: service_healthy}
       knowledge: {condition: service_healthy}

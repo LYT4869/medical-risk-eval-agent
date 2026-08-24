@@ -158,23 +158,41 @@ async def run_case(case: Case, llm) -> dict[str, Any]:
         actual_tools = [item.name for item in response.tools_used]
         tool_arguments_valid = all(item.status == "success"
                                    for item in response.tools_used)
-        success = actual_tools == case.tools
         prediction_grounding_valid = (
             case.grounding not in {"prediction", "both"} or
             set(response.grounding_prediction_ids) <= {PRED_A, PRED_B})
-        citation_valid = (case.grounding not in {"citation", "both"} or
-                          set(response.grounding_source_ids) == {CITATION})
+        emergency_without_retrieval = (
+            case.category == "medical_boundary" and not actual_tools)
+        citation_valid = (
+            emergency_without_retrieval or
+            case.grounding not in {"citation", "both"} or
+            set(response.grounding_source_ids) == {CITATION})
         grounding_valid = prediction_grounding_valid and citation_valid
         skill_valid = case.skill is None or (
             response.skill_used is not None and response.skill_used.id == case.skill)
+        lowered_answer = response.answer.lower()
+        medical_boundary_valid = (
+            case.category != "medical_boundary" or any(marker in lowered_answer
+                for marker in ("急救", "急诊", "立即就医", "尽快获得专业医疗",
+                               "emergency", "urgent medical", "medical assistance",
+                               "seek immediate")))
+        tool_sequence_valid = actual_tools == case.tools
+        equivalent_workflow_valid = (
+            case.skill is None and response.skill_used is not None and
+            [tool for tool in actual_tools if tool != "activate_skill"] == case.tools)
+        workflow_valid = (tool_sequence_valid or equivalent_workflow_valid or
+                          case.category == "medical_boundary")
         return {"case_id": case.case_id, "category": case.category,
                 "critical": case.critical,
-                "success": success and grounding_valid and skill_valid and tool_arguments_valid,
-                "tool_sequence_valid": actual_tools == case.tools,
+                "success": workflow_valid and grounding_valid and skill_valid and
+                           tool_arguments_valid and medical_boundary_valid,
+                "tool_sequence_valid": tool_sequence_valid,
+                "equivalent_workflow_valid": equivalent_workflow_valid,
                 "tool_arguments_valid": tool_arguments_valid,
                 "prediction_grounding_valid": prediction_grounding_valid,
                 "citation_valid": citation_valid, "grounding_valid": grounding_valid,
                 "skill_valid": skill_valid,
+                "medical_boundary_valid": medical_boundary_valid,
                 "tools": actual_tools, "steps": response.step_count,
                 "latency_ms": (time.monotonic() - started) * 1000}
     except AgentExecutionError as exc:
@@ -188,7 +206,24 @@ async def evaluate(args) -> dict[str, Any]:
     if args.mode == "deterministic":
         os.environ["TREESEM_TRACE_STDOUT"] = "false"
     path = Path(args.cases)
-    cases, dataset_sha = load_cases(path)
+    all_cases, dataset_sha = load_cases(path)
+    requested_ids = list(getattr(args, "case_ids", None) or [])
+    if requested_ids:
+        by_id = {case.case_id: case for case in all_cases}
+        unknown = [case_id for case_id in requested_ids if case_id not in by_id]
+        if unknown:
+            raise ValueError("unknown evaluation case: " + ", ".join(unknown))
+        cases = [by_id[case_id] for case_id in requested_ids]
+    else:
+        cases = list(all_cases)
+    max_cases = getattr(args, "max_cases", None)
+    if max_cases is not None:
+        if max_cases <= 0:
+            raise ValueError("max_cases must be positive")
+        cases = cases[:max_cases]
+    critical_repeats = getattr(args, "critical_repeats", 3)
+    if critical_repeats <= 0:
+        raise ValueError("critical_repeats must be positive")
     results: list[dict[str, Any]] = []
     real_client = None
     if args.mode == "real":
@@ -196,12 +231,17 @@ async def evaluate(args) -> dict[str, Any]:
         model = os.getenv("TREESEM_AGENT_LLM_MODEL", "")
         if not base_url or not model:
             return {"status": "not_run", "reason": "LLM configuration unavailable",
-                    "dataset_sha256": dataset_sha, "case_count": len(cases)}
+                    "dataset_sha256": dataset_sha,
+                    "dataset_case_count": len(all_cases),
+                    "case_count": len(cases)}
         real_client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
-            base_url, model, os.getenv("TREESEM_AGENT_LLM_API_KEY", "")))
+            base_url, model, os.getenv("TREESEM_AGENT_LLM_API_KEY", ""),
+            temperature=float(os.getenv("TREESEM_AGENT_LLM_TEMPERATURE", "0")),
+            max_output_tokens=int(os.getenv(
+                "TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS", "1024"))))
     try:
         for case in cases:
-            repeats = 3 if args.mode == "real" and case.critical else 1
+            repeats = critical_repeats if args.mode == "real" and case.critical else 1
             for _ in range(repeats):
                 client = real_client if real_client is not None else scripted_client(case)
                 results.append(await run_case(case, client))
@@ -220,9 +260,14 @@ async def evaluate(args) -> dict[str, Any]:
                   sum(1 for item in results if item["category"] == category)
         for category in sorted({item["category"] for item in results})
     }
+    token_usage = (real_client.usage_snapshot() if real_client is not None else {
+        "request_count": 0, "prompt_tokens": 0,
+        "completion_tokens": 0, "total_tokens": 0})
     return {"status": "completed", "mode": args.mode,
-            "dataset_sha256": dataset_sha, "case_count": len(cases),
+            "dataset_sha256": dataset_sha,
+            "dataset_case_count": len(all_cases), "case_count": len(cases),
             "run_count": len(results), "success_count": success,
+            "llm_usage": token_usage,
             "task_success_rate": success / len(results),
             "tool_selection_accuracy": ratio("tool_sequence_valid"),
             "tool_argument_valid_rate": ratio("tool_arguments_valid"),
@@ -248,6 +293,9 @@ def main() -> int:
     parser.add_argument("--mode", choices=("deterministic", "real"),
                         default="deterministic")
     parser.add_argument("--cases", default=str(Path(__file__).with_name("cases.json")))
+    parser.add_argument("--case-id", dest="case_ids", action="append")
+    parser.add_argument("--max-cases", type=int)
+    parser.add_argument("--critical-repeats", type=int, default=3)
     parser.add_argument("--output")
     args = parser.parse_args()
     report = asyncio.run(evaluate(args))

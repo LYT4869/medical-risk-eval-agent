@@ -75,9 +75,14 @@ class Metrics:
         return name, tuple(sorted(labels.items()))
 
     def increment(self, name: str, **labels: str) -> None:
+        self.add(name, 1, **labels)
+
+    def add(self, name: str, amount: int, **labels: str) -> None:
+        if amount < 0:
+            raise ValueError("counter amount must be non-negative")
         with self._lock:
             key = self._key(name, labels)
-            self._counters[key] = self._counters.get(key, 0) + 1
+            self._counters[key] = self._counters.get(key, 0) + amount
 
     def observe(self, name: str, value: float, **labels: str) -> None:
         with self._lock:

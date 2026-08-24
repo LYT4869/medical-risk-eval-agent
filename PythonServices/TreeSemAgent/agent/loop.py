@@ -86,26 +86,45 @@ class AgentLoop:
                     self._llm.complete(
                         messages, self._tools.definitions(context, active_skill), remaining),
                     timeout=remaining)
+                metrics.increment("treesem_agent_llm_requests_total",
+                                  result="success")
+                if turn.usage is not None:
+                    metrics.add("treesem_agent_llm_tokens_total",
+                                turn.usage.prompt_tokens, kind="prompt")
+                    metrics.add("treesem_agent_llm_tokens_total",
+                                turn.usage.completion_tokens,
+                                kind="completion")
+                    metrics.add("treesem_agent_llm_tokens_total",
+                                turn.usage.total_tokens, kind="total")
             except asyncio.TimeoutError as exc:
+                metrics.increment("treesem_agent_llm_requests_total",
+                                  result="timeout")
                 raise AgentTimeout("agent deadline exceeded") from exc
             except LlmError as exc:
+                metrics.increment("treesem_agent_llm_requests_total",
+                                  result="failure")
                 raise AgentExecutionError("LLM failed") from exc
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
                 try:
-                    self._policy.validate(
+                    prediction_grounding, source_grounding = self._policy.validate(
                         answer, turn.grounding_prediction_ids, available_ids,
-                        turn.grounding_source_ids, set(available_citations))
+                        turn.grounding_source_ids, set(available_citations),
+                        require_prediction_grounding=bool(available_ids))
                 except PolicyViolation as exc:
                     raise AgentExecutionError("final response failed grounding policy") from exc
                 citations = [available_citations[item]
-                             for item in turn.grounding_source_ids]
+                             for item in source_grounding]
+                missing_citations = [item for item in source_grounding
+                                     if item not in answer]
+                if missing_citations:
+                    answer += "\n引用：" + "、".join(missing_citations)
                 skill = None if active_skill is None else SkillUse(
                     id=active_skill.skill_id, version=active_skill.version,
                     catalog_version=active_skill.catalog_version)
                 return AgentRunResponse(answer=answer, step_count=step, tools_used=usages,
-                                        grounding_prediction_ids=turn.grounding_prediction_ids,
-                                        grounding_source_ids=turn.grounding_source_ids,
+                                        grounding_prediction_ids=prediction_grounding,
+                                        grounding_source_ids=source_grounding,
                                         citations=citations,
                                         knowledge_index_version=knowledge_index_version,
                                         skill_used=skill)

@@ -64,15 +64,27 @@ class ToolRegistry:
             return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
         result = [
             definition("predict_sample", "Run treeSem for a non-negative demo sample index.", PredictSampleArgs.model_json_schema()),
-            definition("get_prediction", "Read a stored prediction.", PredictionIdArgs.model_json_schema()),
-            definition("get_explanation", "Read important features and the decision path.", PredictionIdArgs.model_json_schema()),
+            definition(
+                "get_prediction",
+                "Read a stored prediction summary: label, probability, confidence, "
+                "model version and serving backend. Only use when the user asks for "
+                "those summary facts; it is unnecessary for features or decision paths.",
+                PredictionIdArgs.model_json_schema()),
+            definition(
+                "get_explanation",
+                "Read a stored prediction's important features and decision path. "
+                "Use this alone when the user only asks to explain features or the path.",
+                PredictionIdArgs.model_json_schema()),
             definition("get_prediction_history", "List recent predictions in the bound session.", HistoryArgs.model_json_schema()),
             definition("compare_predictions", "Compute deterministic differences between two predictions.", CompareArgs.model_json_schema()),
         ]
         if self._knowledge is not None:
             result.append(definition(
                 "search_medical_knowledge",
-                "Search curated treeSem and authoritative PPH knowledge. Never include patient identifiers in the query.",
+                "Search curated treeSem and authoritative PPH knowledge only for "
+                "general knowledge, evidence, metrics, terminology or limitations. "
+                "Do not use for a stored prediction explanation unless the user asks "
+                "for that broader knowledge. Never include patient identifiers in the query.",
                 KnowledgeSearchArgs.model_json_schema()))
         if self._skills is not None and active_skill is None and context is not None:
             visible = self._skills.summaries(context.actor_role)
@@ -97,7 +109,9 @@ class ToolRegistry:
         summaries = self._skills.summaries(role)
         if not summaries:
             return None
-        return "Trusted skill catalog (metadata only): " + json.dumps(
+        return ("Trusted skill catalog (metadata only). When the user requests "
+                "a stable workflow matching a catalog entry, call activate_skill "
+                "before domain tools: ") + json.dumps(
             summaries, ensure_ascii=False, separators=(",", ":"))
 
     async def execute(self, name: str, arguments: dict[str, Any], context: ToolContext,

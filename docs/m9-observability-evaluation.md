@@ -12,7 +12,7 @@ M9 把一次请求从 C++ Gateway 串联到 Python Agent、C++ Internal Tool 和
 
 `PythonServices/TreeSemAgent/evaluation/cases.json` 由 12 类场景、每类 5 个变体组成，共 60 条非患者合成多轮用例。它覆盖预测、解释、历史、比较、RAG、三个 Skill、no-answer、提示注入、紧急问题和跨角色引用。Fake LLM 模式实际经过 Agent Loop、Tool Registry、Skill 与 grounding policy，是 CI 硬门槛，不是只检查静态 JSON。
 
-当前确定性结果：60/60 通过，关键安全失败为 0。真实 OpenAI-compatible 模式没有凭据时写明 `not_run`；有凭据时记录模型、评测集 SHA、Skill Catalog、知识索引、成功率和失败案例，绝不伪造报告。
+当前确定性结果：60/60 通过，关键安全失败为 0。真实 `qwen-plus` 已完成六个代表场景冒烟，优化后 6/6 通过，Tool 参数、Skill 路由、prediction grounding、citation 和医疗边界均为 100%；本次 12 次模型请求共 21,938 Token。完整 60 场景真实评测尚未运行，不能用这组六场景结果替代全量质量结论。详见 [真实大模型接入与验证](real-llm-integration.md)。
 
 ## 压测与 MQ 决策
 

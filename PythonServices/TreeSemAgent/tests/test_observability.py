@@ -33,6 +33,14 @@ class ObservabilityTest(unittest.TestCase):
         self.assertRegex(trace.trace_id, r"^[0-9a-f]{32}$")
         self.assertEqual(trace.parent_span_id, "")
 
+    def test_counter_can_add_token_amount_without_high_cardinality_labels(self):
+        registry = Metrics()
+        registry.add("treesem_agent_llm_tokens_total", 120, kind="total")
+        registry.add("treesem_agent_llm_tokens_total", 30, kind="total")
+        self.assertIn(
+            'treesem_agent_llm_tokens_total{kind="total"} 150',
+            registry.render())
+
 
 if __name__ == "__main__":
     unittest.main()

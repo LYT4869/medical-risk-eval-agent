@@ -33,6 +33,13 @@ def _boolean(name: str, default: bool) -> bool:
     return value == "true"
 
 
+def _temperature(name: str, default: float) -> float:
+    value = float(os.getenv(name, str(default)))
+    if value < 0.0 or value > 2.0:
+        raise RuntimeError(f"{name} must be between 0 and 2")
+    return value
+
+
 def create_app(loop: AgentLoop | None = None) -> FastAPI:
     backend_url = os.getenv("TREESEM_AGENT_BACKEND_URL", "http://127.0.0.1:8080")
     service_secret = os.getenv("TREESEM_AGENT_SERVICE_SECRET", "")
@@ -63,6 +70,8 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
                 api_key=os.getenv("TREESEM_AGENT_LLM_API_KEY", ""),
                 connect_timeout_seconds=_integer("TREESEM_AGENT_LLM_CONNECT_TIMEOUT_MS", 1000) / 1000,
                 request_timeout_seconds=_integer("TREESEM_AGENT_LLM_REQUEST_TIMEOUT_MS", 20000) / 1000,
+                temperature=_temperature("TREESEM_AGENT_LLM_TEMPERATURE", 0.0),
+                max_output_tokens=_integer("TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS", 1024),
             ))
         else:
             raise RuntimeError("TREESEM_AGENT_LLM_MODE must be real or scripted_demo")
