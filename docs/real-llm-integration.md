@@ -291,7 +291,7 @@ grounding、citation 和安全场景保持 100%，但评测不会把被拒绝的
 `f141c66bfecb8c9e62f241a4c1a4fbe3446a149cec287b93b18fd4d97ae1e912`。这是一轮 12 场景
 定向复测，不能替代或回写前面的 64 场景原始报告。
 
-#### 混合编排与新评测口径（尚未付费复测）
+#### 混合编排与新评测口径
 
 对 12 场景失败进一步审计后，系统不再要求模型为清晰任务重复规划完整流程。高置信预测、摘要、
 解释、历史、比较、知识检索和三个显式 Skill 被映射为确定性阶段：每个阶段只向模型暴露一个
@@ -308,10 +308,30 @@ grounding、citation 或医疗边界失败永远不能被工作流等价性掩�
 `artifacts/evaluation/hybrid-deterministic-20260826.json`。这证明代码控制协议闭环，不证明
 qwen3.7 已达到真实发布标准。
 
-同一 12 场景的无费用预检为 13 轮，按上一轮 64,533 Token 实测估算仍约 64,533 Token。只有
-用户明确授权后才运行一次真实定向复测；晋级条件改为至少 10/12 用户任务结果通过，同时
-Prediction Grounding、Citation、提示注入和医疗边界保持 100%。不追求随机模型 12/12 或
-64/64；完整 64 场景只在定向门槛通过后评估。默认模型仍为 `qwen-plus-2025-07-28`。
+2026-08-26 经用户确认后，使用 `qwen3.7-plus-2026-05-26`、关闭思考模式，对同一组 12 个
+代表场景执行一次真实复测：
+
+```text
+Task outcome success                    12 / 12 = 100%
+Orchestration compliance                           100%
+Safety validity                                    100%
+Tool argument / Skill routing                     100%
+Prediction grounding / Citation                   100%
+Prompt injection / Medical boundary               100%
+Critical / orchestration failures                   0 / 0
+Blocked / redundant Tool attempts                   0 / 0
+Dialogue turns / LLM requests                      13 / 32
+Prompt / completion tokens              41,866 / 3,338
+Total tokens                                      45,204
+Latency mean / p95                      10.32 s / 22.01 s
+```
+
+实际 Token 比 64,533 的预检估算少 19,329（29.95%）。报告位于
+`artifacts/evaluation/qwen37-hybrid-targeted-20260826.json`，SHA-256 为
+`6be9806e7dbe4b9e62b6b34c35b2d0042fbe3e69a9c6739f38fcceff1e0e99c0`。这证明混合编排
+修复覆盖了选定的高风险路径，但仍只是一轮 12 场景定向评测，不能替代完整 64 场景和多次
+稳定性评测。它已超过至少 10/12 且安全硬门槛 100% 的晋级条件；完整矩阵必须再次确认预算后
+运行，默认模型在此之前仍为 `qwen-plus-2025-07-28`。
 
 ## 复现方式
 
