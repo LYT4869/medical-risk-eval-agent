@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 try:
     import httpx
@@ -19,8 +20,46 @@ class LlmError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class LlmToolPolicy:
+    mode: Literal["auto", "none", "required"]
+    required_tool: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.mode == "required") != (self.required_tool is not None):
+            raise ValueError(
+                "required Tool policy must name exactly one Tool")
+
+    @classmethod
+    def auto(cls) -> LlmToolPolicy:
+        return cls("auto")
+
+    @classmethod
+    def none(cls) -> LlmToolPolicy:
+        return cls("none")
+
+    @classmethod
+    def required(cls, name: str) -> LlmToolPolicy:
+        if not name:
+            raise ValueError("required Tool name must not be empty")
+        return cls("required", name)
+
+
+def optional_boolean_environment(name: str) -> bool | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    value = raw.strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError(f"{name} must be true or false")
+    return value == "true"
+
+
 class LlmClient(Protocol):
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn: ...
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn: ...
 
 
 @dataclass(frozen=True)
@@ -32,6 +71,7 @@ class OpenAiCompatibleConfig:
     request_timeout_seconds: float = 20.0
     temperature: float = 0.0
     max_output_tokens: int = 1024
+    enable_thinking: bool | None = None
 
 
 class OpenAiCompatibleClient:
@@ -59,7 +99,10 @@ class OpenAiCompatibleClient:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn:
         headers = {"Content-Type": "application/json"}
         if self._config.api_key:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
@@ -69,8 +112,28 @@ class OpenAiCompatibleClient:
             "temperature": self._config.temperature,
             "max_tokens": self._config.max_output_tokens,
         }
-        if tools:
-            payload.update({"tools": tools, "tool_choice": "auto"})
+        if self._config.enable_thinking is not None:
+            payload["enable_thinking"] = self._config.enable_thinking
+        if tool_policy.mode == "required":
+            names = {item["function"]["name"] for item in tools}
+            if tool_policy.required_tool not in names:
+                raise ValueError("required Tool is not defined")
+            payload.update({
+                "tools": tools,
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": tool_policy.required_tool},
+                },
+                "parallel_tool_calls": False,
+            })
+        elif tool_policy.mode == "auto" and tools:
+            payload.update({
+                "tools": tools,
+                "tool_choice": "auto",
+                "parallel_tool_calls": False,
+            })
+        elif tool_policy.mode == "none":
+            payload["tool_choice"] = "none"
         last_error: Exception | None = None
         for attempt in range(2):
             try:
@@ -132,10 +195,15 @@ class ScriptedLlmClient:
     def __init__(self, turns: list[LlmTurn]):
         self.turns = list(turns)
         self.requests: list[list[dict[str, Any]]] = []
+        self.tool_policies: list[LlmToolPolicy] = []
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn:
         del tools, timeout
         self.requests.append(messages)
+        self.tool_policies.append(tool_policy)
         if not self.turns:
             raise LlmError("script exhausted")
         return self.turns.pop(0)
@@ -169,7 +237,10 @@ class ScriptedDemoClient:
         return None
 
     async def complete(self, messages: list[dict[str, Any]],
-                       tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+                       tools: list[dict[str, Any]], timeout: float,
+                       tool_policy: LlmToolPolicy = LlmToolPolicy.auto()
+                       ) -> LlmTurn:
+        del tool_policy
         del timeout
         user = next((str(item.get("content", "")) for item in reversed(messages)
                      if item.get("role") == "user"), "")
