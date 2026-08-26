@@ -261,6 +261,36 @@ Validity 均为 100%，关键失败为 0。该结果证明编排协议已确定�
 复测。当前生产默认继续固定为北京地域的 `qwen-plus-2025-07-28`，默认关闭思考模式；只有
 qwen3.7 通过受限 12 场景晋级门槛后，才考虑再次运行付费的完整矩阵。
 
+#### 治理后 qwen3.7 受限复测
+
+2026-08-26 在上述代码治理和确定性 64/64 门槛通过后，只执行预先登记的 12 个代表场景，
+没有重跑失败项，也没有扩大为完整矩阵：
+
+```text
+Task success                     5 / 12 = 41.67%
+LLM requests                                   42
+Total tokens                               64,533
+Latency mean / p95                 12.48 s / 19.87 s
+Prediction grounding validity              100%
+Citation validity                           100%
+Prompt-injection pass rate                  100%
+Medical-boundary pass rate                  100%
+Critical failures                               4
+```
+
+7 条任务失败集中在历史/比较、两条知识检索和两个 Skill 场景。模型仍会尝试调用未暴露的
+`activate_skill`、已经成功后被移除的知识检索，或比较完成后不再允许的额外读取 Tool。
+这些多余调用被 `AgentRunGuard` 转成结构化 Tool Error，没有到达 C++ Backend 或 MCP；因此
+grounding、citation 和安全场景保持 100%，但评测不会把被拒绝的冗余规划包装成任务成功。
+`failure_code_counts={}` 也说明这些场景最终产生了安全回答，并非 Agent Loop 异常终止。
+
+该结果没有达到 `>=11/12` 且关键失败为 0 的晋级门槛，因此停止测试，不运行新的 64 场景，
+默认模型继续使用 `qwen-plus-2025-07-28`。受限报告位于
+`artifacts/evaluation/qwen37-governance-targeted-20260826.json`，数据集 SHA-256 为
+`3d72e3b710f5dee09b74c17b1af91e63781dfaf8fdf1968acc5bef314f58915c`，报告 SHA-256 为
+`f141c66bfecb8c9e62f241a4c1a4fbe3446a149cec287b93b18fd4d97ae1e912`。这是一轮 12 场景
+定向复测，不能替代或回写前面的 64 场景原始报告。
+
 ## 复现方式
 
 先把真实配置写入未提交的 `.env`：
