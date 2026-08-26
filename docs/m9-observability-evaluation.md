@@ -12,7 +12,15 @@ M9 把一次请求从 C++ Gateway 串联到 Python Agent、C++ Internal Tool 和
 
 `PythonServices/TreeSemAgent/evaluation/cases.json` 使用 Schema v2 保存 64 条显式独立的非患者合成场景，共执行 79 轮，其中 15 条是真正连续执行的两轮对话，另有 4 条下游不可用或非法响应恢复场景。它覆盖预测、解释、历史、比较、RAG、三个 Skill、no-answer、提示注入、紧急问题和故障恢复，不再通过“12 个模板乘 5 个通用后缀”凑数量。Fake LLM 模式实际经过 Agent Loop、Tool Registry、Skill 与 grounding policy，是 CI 的协议与流程硬门槛。
 
-当前确定性结果：64/64 通过，79 轮全部满足预期 Tool、结果状态、grounding 与医疗边界。
+当前混合编排的确定性结果：64/64 通过，79 轮的任务结果、编排合规与安全有效性均为 100%；
+Tool 参数、Skill 路由、Prediction Grounding、Citation、提示注入、医疗边界和 no-answer 也均为
+100%，关键失败、阻断 Tool 尝试和冗余 Tool 尝试均为 0。
+
+评测不再把三个不同问题压成一个布尔值：`task_success_rate` 表示必需 Tool 按顺序完成、预期
+结果与 grounding 有效的用户任务结果；`orchestration_compliance_rate` 单独统计是否存在未声明、
+冗余、被阻断或参数非法的 Tool 尝试；`safety_validity` 单独统计 grounding、citation、医疗边界
+和 no-answer。额外调用不能抹掉已经完成的业务目标，但也不会从编排报告中消失；任何安全失败
+仍会使任务失败。
 真实 `qwen-plus` 已完成全部 64 条场景的一次运行，原始结果为 55/64（85.94%），183 次模型
 请求共 347,727 Token；工具参数有效率 98.44%，医疗边界、no-answer、提示注入和安全友好
 拒答均为 100%。9 条原始失败中有 6 条经审计属于等价工作流或状态统计误判，相关规则已通过
@@ -25,11 +33,18 @@ grounding 与 citation 均为 100%。原始结果不因事后审计而回写成�
 同一数据集上的 `qwen3.7-plus-2026-05-26` 单次对照为 `36/64`（56.25%）、222 次模型请求、
 489,683 Token，平均/p95 延迟 9.46/16.49 秒，明显弱于当前 qwen-plus 基线。28 条失败中，
 9 条属于工作流口径、10 条是旧评测无法解释的零 Step 提前结束、9 条是实质失败。这次模型升级
-失败推动系统把 Prompt 中的建议升级为代码约束：请求级最小 Tool 可见性、知识检索一次成功即
-终止、失败最多一次重试、显式 Skill 才允许激活、显式越权在 LLM 前拒绝，并为所有终止路径
-增加稳定错误码。治理后的 Fake LLM 回归仍为 64/64、79 轮，grounding/citation 均为 100%。
+失败推动系统把 Prompt 中的建议升级为混合编排：高置信预测、解释、历史、比较、知识和显式
+Skill 请求走确定性阶段，每轮只暴露一个必需 Tool，完成后显式关闭 Tool；模糊或组合请求仍保留
+受 Guard 约束的开放 Agent Loop。个体处方、确定诊断、虚构来源和显式越权在首次 LLM 调用前
+拒绝。治理后的 Fake LLM 回归仍为 64/64、79 轮，三组指标均为 100%。
 生产默认因此固定为 `qwen-plus-2025-07-28`，模型升级必须经过同数据集的 promotion gate，不能
 按名称新旧直接替换。
+
+真实模型不要求随机评测 64/64。发布目标为总体任务结果至少 85%、关键非安全任务至少 90%、
+Tool 参数至少 95%、Skill 路由至少 90%、编排合规至少 80%；Prediction Grounding、Citation、
+提示注入和关键医疗边界仍必须 100%，no-answer 至少 90%。治理前 qwen3.7 的受限 12 场景严格
+结果为 5/12，但所有 grounding 与安全硬门槛均通过；该结果只作为混合编排前基线，不回写为
+新版本成绩。新的 12 场景预检预计 13 轮、约 64,533 Token，尚未执行付费复测。
 
 正式运行前必须先执行 `run_evaluation.py --preflight-only`。当前以完整单次实测为基线：
 64 场景、79 轮消耗 347,727 Token；44 个关键场景各执行三次后共 177 轮，按均值估算约需
