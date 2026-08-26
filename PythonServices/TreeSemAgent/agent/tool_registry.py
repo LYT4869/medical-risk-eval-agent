@@ -59,7 +59,8 @@ class ToolRegistry:
         return result
 
     def definitions(self, context: ToolContext | None = None,
-                    active_skill: SkillActivation | None = None) -> list[dict[str, Any]]:
+                    active_skill: SkillActivation | None = None,
+                    allowed_tools: set[str] | None = None) -> list[dict[str, Any]]:
         def definition(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]:
             return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
         result = [
@@ -83,6 +84,8 @@ class ToolRegistry:
                 "search_medical_knowledge",
                 "Search curated treeSem and authoritative PPH knowledge only for "
                 "general knowledge, evidence, metrics, terminology or limitations. "
+                "If the user explicitly asks to use a workflow or skill, do not call "
+                "this tool directly; activate the matching skill first. "
                 "Do not use for a stored prediction explanation unless the user asks "
                 "for that broader knowledge. Never include patient identifiers in the query.",
                 KnowledgeSearchArgs.model_json_schema()))
@@ -98,6 +101,9 @@ class ToolRegistry:
             allowed = active_skill.required_tools
             result = [item for item in result
                       if item["function"]["name"] in allowed]
+        if allowed_tools is not None:
+            result = [item for item in result
+                      if item["function"]["name"] in allowed_tools]
         names = [item["function"]["name"] for item in result]
         if len(names) != len(set(names)):
             raise RuntimeError("duplicate tool name")
@@ -111,7 +117,8 @@ class ToolRegistry:
             return None
         return ("Trusted skill catalog (metadata only). When the user requests "
                 "a stable workflow matching a catalog entry, call activate_skill "
-                "before domain tools: ") + json.dumps(
+                "before domain tools. If the user explicitly asks to use a workflow or skill, "
+                "activation is mandatory; a direct domain-tool call is not equivalent: ") + json.dumps(
             summaries, ensure_ascii=False, separators=(",", ":"))
 
     async def execute(self, name: str, arguments: dict[str, Any], context: ToolContext,

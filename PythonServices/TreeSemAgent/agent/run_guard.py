@@ -40,6 +40,11 @@ _SUMMARY = (
     "标签", "概率", "置信度", "模型版本", "label", "probability",
     "confidence", "model version",
 )
+_STORED_PREDICTION = _SUMMARY + (
+    "当前预测", "当前结果", "刚才的结果", "上一次", "特征", "决策路径",
+    "stored prediction", "current prediction", "current result", "feature",
+    "decision path",
+)
 _KNOWLEDGE = (
     "资料", "指南", "知识", "引用", "什么是", "介绍", "evidence",
     "guideline", "documentation", "what is", "overview",
@@ -104,12 +109,16 @@ class AgentRunGuard:
             return cls(RequestScope.COMPARISON)
         if cls._contains(normalized, _HISTORY):
             return cls(RequestScope.HISTORY)
-        if cls._contains(normalized, _EXPLANATION):
+        has_explanation = cls._contains(normalized, _EXPLANATION)
+        has_knowledge = cls._contains(normalized, _KNOWLEDGE)
+        if (has_explanation and
+                (not has_knowledge or
+                 cls._contains(normalized, _STORED_PREDICTION))):
             return cls(
                 RequestScope.EXPLANATION,
                 include_summary=cls._contains(normalized, _SUMMARY),
             )
-        if cls._contains(normalized, _KNOWLEDGE):
+        if has_knowledge:
             return cls(RequestScope.KNOWLEDGE)
         return cls(RequestScope.UNKNOWN)
 

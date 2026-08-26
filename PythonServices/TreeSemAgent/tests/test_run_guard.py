@@ -50,6 +50,20 @@ class AgentRunGuardTest(unittest.TestCase):
         self.assertEqual(guard.scope, RequestScope.EXPLANATION)
         self.assertIsNone(guard.security_refusal)
 
+    def test_general_knowledge_explanation_prefers_knowledge_scope(self):
+        guard = AgentRunGuard.for_request("请解释产后出血知识")
+
+        self.assertEqual(guard.scope, RequestScope.KNOWLEDGE)
+        self.assertEqual(
+            guard.allowed_tools(), {"search_medical_knowledge"})
+
+    def test_stored_prediction_explanation_stays_in_prediction_scope(self):
+        guard = AgentRunGuard.for_request("请根据资料解释当前预测概率")
+
+        self.assertEqual(guard.scope, RequestScope.EXPLANATION)
+        self.assertEqual(guard.allowed_tools(), {
+            "get_prediction", "get_explanation"})
+
     def test_successful_knowledge_search_is_terminal(self):
         guard = AgentRunGuard.for_request("请引用资料说明PPH")
         self.assertIsNone(guard.before_tool("search_medical_knowledge"))
