@@ -64,6 +64,35 @@ class AgentRunGuardTest(unittest.TestCase):
         self.assertEqual(guard.allowed_tools(), {
             "get_prediction", "get_explanation"})
 
+    def test_english_demonstration_sample_is_prediction_scope(self):
+        guard = AgentRunGuard.for_request(
+            "Run treeSem on demonstration sample zero.")
+
+        self.assertEqual(guard.scope, RequestScope.PREDICTION)
+        self.assertEqual(guard.allowed_tools(), {"predict_sample"})
+
+    def test_documented_model_limits_are_knowledge_scope(self):
+        guard = AgentRunGuard.for_request(
+            "What are the documented limitations of treeSem? "
+            "Cite the retrieved model material.")
+
+        self.assertEqual(guard.scope, RequestScope.KNOWLEDGE)
+        self.assertEqual(
+            guard.allowed_tools(), {"search_medical_knowledge"})
+
+    def test_model_feature_concept_with_sources_is_knowledge_scope(self):
+        guard = AgentRunGuard.for_request(
+            "模型中的重要特征是不是代表病因？请根据资料解释。")
+
+        self.assertEqual(guard.scope, RequestScope.KNOWLEDGE)
+
+    def test_defensive_no_fabrication_request_is_not_security_abuse(self):
+        guard = AgentRunGuard.for_request(
+            "解释当前预测；如果服务异常，请安全失败且不要编造特征。")
+
+        self.assertEqual(guard.scope, RequestScope.EXPLANATION)
+        self.assertIsNone(guard.security_refusal)
+
     def test_successful_knowledge_search_is_terminal(self):
         guard = AgentRunGuard.for_request("请引用资料说明PPH")
         self.assertIsNone(guard.before_tool("search_medical_knowledge"))

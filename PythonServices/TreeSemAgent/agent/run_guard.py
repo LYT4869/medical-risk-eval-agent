@@ -27,8 +27,8 @@ _SKILL = (
     "trusted workflow",
 )
 _PREDICTION = (
-    "演示样本", "预测演示样本", "demo sample", "predict sample",
-    "运行第",
+    "演示样本", "预测演示样本", "demo sample", "demonstration sample",
+    "predict sample", "运行第",
 )
 _COMPARISON = ("比较", "compare", "difference", "差异", "变化")
 _HISTORY = ("历史", "history", "recent prediction", "最近预测")
@@ -41,13 +41,13 @@ _SUMMARY = (
     "confidence", "model version",
 )
 _STORED_PREDICTION = _SUMMARY + (
-    "当前预测", "当前结果", "刚才的结果", "上一次", "特征", "决策路径",
-    "stored prediction", "current prediction", "current result", "feature",
-    "decision path",
+    "当前预测", "当前结果", "刚才的结果", "上一次",
+    "stored prediction", "current prediction", "current result",
 )
 _KNOWLEDGE = (
     "资料", "指南", "知识", "引用", "什么是", "介绍", "evidence",
-    "guideline", "documentation", "what is", "overview",
+    "guideline", "documentation", "documented", "cite", "material",
+    "source", "what is", "overview",
 )
 
 _ABUSE = re.compile(
@@ -56,6 +56,11 @@ _ABUSE = re.compile(
 )
 _PROTECTED = re.compile(
     r"(?:预测|概率|引用|权限|其他患者|另一名患者|prediction|probability|citation|authorization|other patient)",
+    re.IGNORECASE,
+)
+_DEFENSIVE_ABUSE = re.compile(
+    r"(?:不要|不得|不能|避免|拒绝|do not|don't|must not|never)\s*"
+    r"(?:伪造|编造|fabricate|invent)",
     re.IGNORECASE,
 )
 
@@ -99,7 +104,9 @@ class AgentRunGuard:
     @classmethod
     def for_request(cls, message: str) -> AgentRunGuard:
         normalized = " ".join(message.lower().split())
-        if _ABUSE.search(normalized) and _PROTECTED.search(normalized):
+        abuse_candidate = _DEFENSIVE_ABUSE.sub("", normalized)
+        if (_ABUSE.search(abuse_candidate) and
+                _PROTECTED.search(abuse_candidate)):
             return cls(RequestScope.SECURITY_ABUSE)
         if cls._contains(normalized, _SKILL):
             return cls(RequestScope.SKILL)
