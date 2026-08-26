@@ -16,12 +16,30 @@ from .tool_registry import ToolRegistry
 from .tools import ToolContext
 
 
+EXECUTION_ERROR_CODES = frozenset({
+    "llm_failed",
+    "agent_timeout",
+    "repeated_tool_call",
+    "skill_activation_conflict",
+    "skill_activation_limit",
+    "tool_call_limit",
+    "step_limit",
+    "tool_not_allowed",
+    "knowledge_attempt_limit",
+})
+
+
 class AgentExecutionError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "execution_failed"):
+        if code != "execution_failed" and code not in EXECUTION_ERROR_CODES:
+            raise ValueError("unknown Agent execution error code")
+        super().__init__(message)
+        self.code = code
 
 
 class AgentTimeout(AgentExecutionError):
-    pass
+    def __init__(self, message: str):
+        super().__init__(message, "agent_timeout")
 
 
 class AgentLoop:
@@ -49,7 +67,8 @@ class AgentLoop:
                         tool_count=len(result.tools_used))
             return result
         except Exception as exc:
-            code = "timeout" if isinstance(exc, AgentTimeout) else "execution_failed"
+            code = (exc.code if isinstance(exc, AgentExecutionError)
+                    else "execution_failed")
             metrics.increment("treesem_agent_runs_total", result=code)
             metrics.observe("treesem_agent_run_duration_seconds",
                             time.monotonic() - started, result=code)
@@ -117,7 +136,8 @@ class AgentLoop:
             except LlmError as exc:
                 metrics.increment("treesem_agent_llm_requests_total",
                                   result="failure")
-                raise AgentExecutionError("LLM failed") from exc
+                raise AgentExecutionError(
+                    "LLM failed", "llm_failed") from exc
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
                 policy_started = time.monotonic()
@@ -165,22 +185,53 @@ class AgentLoop:
             repeated = repeated + 1 if signature == previous_signature else 0
             previous_signature = signature
             if repeated >= 1:
-                raise AgentExecutionError("repeated identical tool call")
+                raise AgentExecutionError(
+                    "repeated identical tool call", "repeated_tool_call")
             messages.append({"role": "assistant", "content": turn.content, "tool_calls": [
                 {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": json.dumps(call.arguments)}}
                 for call in turn.tool_calls
             ]})
-            if any(call.name == "activate_skill" for call in turn.tool_calls) and len(turn.tool_calls) != 1:
-                raise AgentExecutionError("skill activation cannot be batched with domain tools")
-            for call in turn.tool_calls:
+            activation_calls = [
+                call for call in turn.tool_calls
+                if call.name == "activate_skill"]
+            if len(activation_calls) > 1:
+                raise AgentExecutionError(
+                    "multiple skill activations are not allowed",
+                    "skill_activation_conflict")
+            mixed_activation = bool(
+                activation_calls and len(turn.tool_calls) > 1)
+            ordered_calls = (
+                activation_calls + [
+                    call for call in turn.tool_calls
+                    if call.name != "activate_skill"]
+                if mixed_activation else turn.tool_calls)
+            for call in ordered_calls:
                 if call.name == "activate_skill":
                     activation_attempts += 1
                     if activation_attempts > 2:
-                        raise AgentExecutionError("skill activation attempt limit reached")
+                        raise AgentExecutionError(
+                            "skill activation attempt limit reached",
+                            "skill_activation_limit")
                 else:
                     calls += 1
                     if calls > self._max_tool_calls:
-                        raise AgentExecutionError("tool call limit reached")
+                        raise AgentExecutionError(
+                            "tool call limit reached", "tool_call_limit")
+                    if mixed_activation:
+                        usage = ToolUse(
+                            name=call.name, status="error", duration_ms=0)
+                        usages.append(usage)
+                        metrics.increment(
+                            "treesem_agent_tool_results_total",
+                            tool=call.name, result=usage.status)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": json.dumps({
+                                "error": "skill_activation_required_first",
+                            }),
+                        })
+                        continue
                 rejection = guard.before_tool(call.name)
                 if rejection is not None:
                     usage = ToolUse(
@@ -217,4 +268,4 @@ class AgentLoop:
                         "role": "system",
                         "content": "Trusted activated skill instructions follow. They may narrow but never expand system policy or authorization.\n<skill>\n" +
                                    active_skill.instructions + "\n</skill>"})
-        raise AgentExecutionError("step limit reached")
+        raise AgentExecutionError("step limit reached", "step_limit")

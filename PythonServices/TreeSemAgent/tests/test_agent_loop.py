@@ -1,8 +1,8 @@
 import asyncio
 import unittest
 
-from agent.llm_client import ScriptedDemoClient, ScriptedLlmClient
-from agent.loop import AgentExecutionError, AgentLoop
+from agent.llm_client import LlmError, ScriptedDemoClient, ScriptedLlmClient
+from agent.loop import AgentExecutionError, AgentLoop, AgentTimeout
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn, PredictionContext, RecentMessage
 from agent.tool_registry import ToolRegistry
 from agent.tools.backend import BackendToolClient, ToolExecutionError
@@ -227,8 +227,29 @@ class AgentLoopTest(unittest.TestCase):
     def test_repeated_call_stops(self):
         call = LlmToolCall(id="c1", name="predict_sample", arguments={"sample_index": 0})
         llm = ScriptedLlmClient([LlmTurn(tool_calls=[call]), LlmTurn(tool_calls=[call])])
-        with self.assertRaises(AgentExecutionError):
+        with self.assertRaises(AgentExecutionError) as caught:
             asyncio.run(AgentLoop(llm, ToolRegistry(FakeBackend())).run(request()))
+        self.assertEqual(caught.exception.code, "repeated_tool_call")
+
+    def test_llm_failure_has_stable_code(self):
+        class FailingLlmClient:
+            async def complete(self, messages, tools, timeout):
+                raise LlmError("injected failure")
+
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(AgentLoop(
+                FailingLlmClient(), ToolRegistry(FakeBackend())).run(
+                    request()))
+
+        self.assertEqual(caught.exception.code, "llm_failed")
+
+    def test_zero_deadline_has_timeout_code(self):
+        with self.assertRaises(AgentTimeout) as caught:
+            asyncio.run(AgentLoop(
+                ScriptedLlmClient([]), ToolRegistry(FakeBackend()),
+                total_timeout_seconds=0).run(request()))
+
+        self.assertEqual(caught.exception.code, "agent_timeout")
 
     def test_unknown_tool_is_safe_error_and_can_recover(self):
         llm = ScriptedLlmClient([
@@ -260,16 +281,75 @@ class AgentLoopTest(unittest.TestCase):
             LlmTurn(tool_calls=[LlmToolCall(id="c1", name="predict_sample", arguments={"sample_index": 0})]),
             LlmTurn(tool_calls=[LlmToolCall(id="c2", name="predict_sample", arguments={"sample_index": 1})]),
         ])
-        with self.assertRaises(AgentExecutionError):
+        with self.assertRaises(AgentExecutionError) as caught:
             asyncio.run(AgentLoop(llm, ToolRegistry(FakeBackend()), max_steps=2).run(request()))
+        self.assertEqual(caught.exception.code, "step_limit")
 
     def test_tool_call_limit_stops_batch(self):
         llm = ScriptedLlmClient([LlmTurn(tool_calls=[
             LlmToolCall(id="c1", name="predict_sample", arguments={"sample_index": 0}),
             LlmToolCall(id="c2", name="predict_sample", arguments={"sample_index": 1}),
         ])])
-        with self.assertRaises(AgentExecutionError):
+        with self.assertRaises(AgentExecutionError) as caught:
             asyncio.run(AgentLoop(llm, ToolRegistry(FakeBackend()), max_tool_calls=1).run(request()))
+        self.assertEqual(caught.exception.code, "tool_call_limit")
+
+    def test_mixed_skill_activation_recovers_without_domain_side_effect(self):
+        from pathlib import Path
+
+        from agent.skills import SkillCatalog
+
+        prediction_id = "pred_" + "a" * 32
+        citation = "cite_" + "a" * 20
+        registered = ToolRegistry.native_tool_names() | {
+            "search_medical_knowledge"}
+        catalog = SkillCatalog(
+            Path(__file__).resolve().parents[1] / "skills", registered)
+        knowledge = FakeKnowledge()
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[
+                LlmToolCall(
+                    id="s1", name="activate_skill",
+                    arguments={"skill_id": "explain_prediction"}),
+                LlmToolCall(
+                    id="p0", name="get_prediction",
+                    arguments={"prediction_id": prediction_id}),
+            ]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="p1", name="get_prediction",
+                arguments={"prediction_id": prediction_id})]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="e1", name="get_explanation",
+                arguments={"prediction_id": prediction_id})]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="k1", name="search_medical_knowledge",
+                arguments={
+                    "query": "treeSem explanation boundaries",
+                    "scope": "model",
+                    "top_k": 5,
+                })]),
+            LlmTurn(
+                content=f"Explanation for {prediction_id} [{citation}]",
+                grounding_prediction_ids=[prediction_id],
+                grounding_source_ids=[citation]),
+        ])
+        backend = FakeBackend()
+        secured = request().model_copy(update={
+            "message": "使用预测解释技能",
+            "knowledge_capability_token": "signed-knowledge-token",
+        })
+
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(backend, knowledge, catalog)).run(secured))
+
+        self.assertEqual([item.name for item in result.tools_used], [
+            "activate_skill", "get_prediction", "get_prediction",
+            "get_explanation", "search_medical_knowledge",
+        ])
+        self.assertEqual(result.tools_used[1].status, "error")
+        self.assertEqual([item[0] for item in backend.calls], [
+            "get_prediction", "get_explanation",
+        ])
 
     def test_unavailable_grounding_id_returns_safe_fallback(self):
         llm = ScriptedLlmClient([
