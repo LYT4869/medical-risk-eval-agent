@@ -8,6 +8,8 @@ class AgentRunGuardTest(unittest.TestCase):
         cases = [
             ("请对演示样本0执行预测", RequestScope.PREDICTION,
              {"predict_sample"}),
+            ("读取当前预测的标签和概率", RequestScope.SUMMARY,
+             {"get_prediction"}),
             ("解释当前结果的主要特征和路径", RequestScope.EXPLANATION,
              {"get_explanation"}),
             ("读取当前预测概率并解释特征", RequestScope.EXPLANATION,
@@ -49,6 +51,12 @@ class AgentRunGuardTest(unittest.TestCase):
 
         self.assertEqual(guard.scope, RequestScope.EXPLANATION)
         self.assertIsNone(guard.security_refusal)
+
+    def test_general_probability_question_is_not_a_stored_summary_read(self):
+        guard = AgentRunGuard.for_request("概率是什么意思？")
+
+        self.assertNotEqual(guard.scope, RequestScope.SUMMARY)
+        self.assertNotEqual(guard.allowed_tools(), {"get_prediction"})
 
     def test_general_knowledge_explanation_prefers_knowledge_scope(self):
         guard = AgentRunGuard.for_request("请解释产后出血知识")

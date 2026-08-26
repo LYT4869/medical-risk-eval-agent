@@ -8,6 +8,7 @@ from enum import Enum
 class RequestScope(str, Enum):
     SKILL = "skill"
     PREDICTION = "prediction"
+    SUMMARY = "summary"
     EXPLANATION = "explanation"
     HISTORY = "history"
     COMPARISON = "comparison"
@@ -39,6 +40,10 @@ _EXPLANATION = (
 _SUMMARY = (
     "标签", "概率", "置信度", "模型版本", "label", "probability",
     "confidence", "model version",
+)
+_STORED_READ = (
+    "读取", "查看", "当前预测", "当前结果", "刚才", "记录",
+    "read", "retrieve", "stored", "current prediction", "current result",
 )
 _STORED_PREDICTION = _SUMMARY + (
     "当前预测", "当前结果", "刚才的结果", "上一次",
@@ -77,6 +82,7 @@ _REGISTERED_DOMAIN_TOOLS = _READ_ONLY_NATIVE_TOOLS | {
 _INITIAL_TOOLS = {
     RequestScope.SKILL: {"activate_skill"},
     RequestScope.PREDICTION: {"predict_sample"},
+    RequestScope.SUMMARY: {"get_prediction"},
     RequestScope.EXPLANATION: {"get_explanation"},
     RequestScope.HISTORY: {"get_prediction_history"},
     RequestScope.COMPARISON: {
@@ -125,6 +131,9 @@ class AgentRunGuard:
                 RequestScope.EXPLANATION,
                 include_summary=cls._contains(normalized, _SUMMARY),
             )
+        if (cls._contains(normalized, _SUMMARY) and
+                cls._contains(normalized, _STORED_READ)):
+            return cls(RequestScope.SUMMARY)
         if has_knowledge:
             return cls(RequestScope.KNOWLEDGE)
         return cls(RequestScope.UNKNOWN)
