@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 
-from .llm_client import LlmClient, LlmError
+from .llm_client import LlmClient, LlmError, LlmToolPolicy
 from .policy import (SAFE_POLICY_FALLBACK, SAFE_SECURITY_REFUSAL,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
@@ -14,6 +14,7 @@ from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
 from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
+from .workflow import WorkflowMode, WorkflowPlanner
 
 
 EXECUTION_ERROR_CODES = frozenset({
@@ -88,6 +89,8 @@ class AgentLoop:
                 grounding_source_ids=[],
                 citations=[],
             )
+        plan = WorkflowPlanner.for_request(request.message, guard)
+        stage_index = 0
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in request.recent_messages)
         if request.current_prediction:
@@ -112,12 +115,27 @@ class AgentLoop:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AgentTimeout("agent deadline exceeded")
+            expected_tool: str | None = None
+            if plan.mode == WorkflowMode.DETERMINISTIC:
+                if stage_index < len(plan.stages):
+                    expected_tool = plan.stages[stage_index]
+                    definitions = self._tools.definitions(
+                        context, active_skill, {expected_tool})
+                    if not definitions:
+                        raise AgentExecutionError(
+                            "required tool is unavailable", "tool_not_allowed")
+                    tool_policy = LlmToolPolicy.required(expected_tool)
+                else:
+                    definitions = []
+                    tool_policy = LlmToolPolicy.none()
+            else:
+                definitions = self._tools.definitions(
+                    context, active_skill, guard.allowed_tools())
+                tool_policy = LlmToolPolicy.auto()
             try:
                 turn = await asyncio.wait_for(
                     self._llm.complete(
-                        messages, self._tools.definitions(
-                            context, active_skill, guard.allowed_tools()),
-                        remaining),
+                        messages, definitions, remaining, tool_policy),
                     timeout=remaining)
                 metrics.increment("treesem_agent_llm_requests_total",
                                   result="success")
@@ -139,6 +157,9 @@ class AgentLoop:
                 raise AgentExecutionError(
                     "LLM failed", "llm_failed") from exc
             if not turn.tool_calls:
+                if expected_tool is not None:
+                    raise AgentExecutionError(
+                        "required tool call is missing", "tool_not_allowed")
                 answer = (turn.content or "").strip()
                 policy_started = time.monotonic()
                 try:
@@ -181,6 +202,17 @@ class AgentLoop:
                                         citations=citations,
                                         knowledge_index_version=knowledge_index_version,
                                         skill_used=skill)
+            if (plan.mode == WorkflowMode.DETERMINISTIC and
+                    expected_tool is None):
+                raise AgentExecutionError(
+                    "tool call is forbidden during finalization",
+                    "tool_not_allowed")
+            if (expected_tool is not None and
+                    (len(turn.tool_calls) != 1 or
+                     turn.tool_calls[0].name != expected_tool)):
+                raise AgentExecutionError(
+                    "model did not call the required tool",
+                    "tool_not_allowed")
             signature = json.dumps([call.model_dump() for call in turn.tool_calls], sort_keys=True)
             repeated = repeated + 1 if signature == previous_signature else 0
             previous_signature = signature
@@ -262,10 +294,27 @@ class AgentLoop:
                     citation_count=len(result.citations))
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result.content, ensure_ascii=False)})
                 if result.skill_activation is not None:
+                    if (plan.expected_skill_id is not None and
+                            result.skill_activation.skill_id !=
+                            plan.expected_skill_id):
+                        raise AgentExecutionError(
+                            "model activated an unexpected skill",
+                            "tool_not_allowed")
                     active_skill = result.skill_activation
                     guard.record_skill_activation(active_skill.required_tools)
                     messages.append({
                         "role": "system",
                         "content": "Trusted activated skill instructions follow. They may narrow but never expand system policy or authorization.\n<skill>\n" +
                                    active_skill.instructions + "\n</skill>"})
+                if expected_tool is not None:
+                    if result.usage.status == "success":
+                        stage_index += 1
+                        if (call.name == "get_prediction_history" and
+                                stage_index < len(plan.stages) and
+                                plan.stages[stage_index] ==
+                                "compare_predictions" and
+                                len(result.prediction_ids) < 2):
+                            stage_index = len(plan.stages)
+                    else:
+                        stage_index = len(plan.stages)
         raise AgentExecutionError("step limit reached", "step_limit")

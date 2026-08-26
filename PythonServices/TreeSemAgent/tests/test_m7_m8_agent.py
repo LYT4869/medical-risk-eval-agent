@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from agent.llm_client import ScriptedLlmClient
-from agent.loop import AgentLoop
+from agent.loop import AgentExecutionError, AgentLoop
 from agent.prompt import SYSTEM_PROMPT
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn
 from agent.skills import SkillCatalog
@@ -146,7 +146,9 @@ class KnowledgeGroundingTest(unittest.TestCase):
             content="Unsupported [cite_" + "f" * 20 + "].",
             grounding_source_ids=["cite_" + "f" * 20])])
         result = asyncio.run(AgentLoop(
-            llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(run_request()))
+            llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(
+                run_request().model_copy(update={
+                    "message": "帮我看看这个情况"})))
         self.assertIn("无法提供未经可信工具结果验证", result.answer)
         self.assertEqual(result.grounding_source_ids, [])
 
@@ -216,6 +218,14 @@ class SkillTest(unittest.TestCase):
             "search_medical_knowledge": {
                 "query": "PPH evidence", "scope": "all", "top_k": 5},
         }
+        staged_tools = {
+            "compare_prediction_history": [
+                "get_prediction_history", "compare_predictions"],
+            "explain_prediction": [
+                "get_prediction", "get_explanation",
+                "search_medical_knowledge"],
+            "pph_evidence_education": ["search_medical_knowledge"],
+        }
         executed = 0
         for directory in sorted(self.root.iterdir()):
             if not directory.is_dir():
@@ -223,23 +233,25 @@ class SkillTest(unittest.TestCase):
             skill_id = directory.name
             examples = json.loads((directory / "examples.json").read_text())
             for number, example in enumerate(examples):
-                calls = [LlmToolCall(
-                    id=f"t{index}", name=name, arguments=arguments[name])
-                    for index, name in enumerate(example["expected_tools"])]
+                tools = staged_tools[skill_id]
+                calls = [LlmTurn(tool_calls=[LlmToolCall(
+                    id=f"t{index}", name=name, arguments=arguments[name])])
+                    for index, name in enumerate(tools)]
                 prediction_ids = []
-                if any(name != "search_medical_knowledge"
-                       for name in example["expected_tools"]):
+                if any(name not in {
+                        "search_medical_knowledge",
+                        "get_prediction_history"} for name in tools):
                     prediction_ids = [first]
-                    if "compare_predictions" in example["expected_tools"]:
+                    if "compare_predictions" in tools:
                         prediction_ids.append(second)
-                source_ids = ([citation] if "search_medical_knowledge" in
-                              example["expected_tools"] else [])
+                source_ids = ([citation] if
+                              "search_medical_knowledge" in tools else [])
                 mentions = " ".join(prediction_ids + source_ids) or "general answer"
                 llm = ScriptedLlmClient([
                     LlmTurn(tool_calls=[LlmToolCall(
                         id="activate", name="activate_skill",
                         arguments={"skill_id": skill_id})]),
-                    LlmTurn(tool_calls=calls),
+                    *calls,
                     LlmTurn(content=mentions,
                             grounding_prediction_ids=prediction_ids,
                             grounding_source_ids=source_ids),
@@ -248,11 +260,13 @@ class SkillTest(unittest.TestCase):
                     "message": f"使用 {skill_id} Skill：{example['input']}",
                     "run_id": "run_" + format(number + executed + 1, "032x")[-32:]})
                 result = asyncio.run(AgentLoop(
-                    llm, ToolRegistry(FakeBackend(), FakeKnowledge(), catalog)).run(
+                    llm, ToolRegistry(
+                        FakeBackend(history_count=2), FakeKnowledge(),
+                        catalog)).run(
                         scenario))
                 self.assertEqual(
                     [item.name for item in result.tools_used[1:]],
-                    example["expected_tools"])
+                    tools)
                 self.assertEqual(result.skill_used.id, skill_id)
                 executed += 1
         self.assertGreaterEqual(executed, 24)
@@ -260,15 +274,25 @@ class SkillTest(unittest.TestCase):
     def test_progressive_activation_and_persistence_metadata(self):
         catalog = SkillCatalog(self.root, self.tools)
         prediction = "pred_" + "a" * 32
+        citation = "cite_" + "a" * 20
         llm = ScriptedLlmClient([
             LlmTurn(tool_calls=[LlmToolCall(
                 id="s1", name="activate_skill",
                 arguments={"skill_id": "explain_prediction"})]),
             LlmTurn(tool_calls=[LlmToolCall(
-                id="p1", name="get_explanation",
+                id="p1", name="get_prediction",
                 arguments={"prediction_id": prediction})]),
-            LlmTurn(content=f"Explanation for {prediction}.",
-                    grounding_prediction_ids=[prediction]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="e1", name="get_explanation",
+                arguments={"prediction_id": prediction})]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="k1", name="search_medical_knowledge",
+                arguments={
+                    "query": "treeSem explanation", "scope": "model",
+                    "top_k": 5})]),
+            LlmTurn(content=f"Explanation for {prediction}. {citation}",
+                    grounding_prediction_ids=[prediction],
+                    grounding_source_ids=[citation]),
         ])
         result = asyncio.run(AgentLoop(
             llm, ToolRegistry(FakeBackend(), FakeKnowledge(), catalog)).run(
@@ -281,19 +305,21 @@ class SkillTest(unittest.TestCase):
 
     def test_active_skill_cannot_call_undeclared_tool(self):
         catalog = SkillCatalog(self.root, self.tools)
+        backend = FakeBackend()
         llm = ScriptedLlmClient([
             LlmTurn(tool_calls=[LlmToolCall(
                 id="s1", name="activate_skill",
                 arguments={"skill_id": "pph_evidence_education"})]),
             LlmTurn(tool_calls=[LlmToolCall(
                 id="x1", name="predict_sample", arguments={"sample_index": 0})]),
-            LlmTurn(content="The undeclared operation was rejected."),
         ])
-        result = asyncio.run(AgentLoop(
-            llm, ToolRegistry(FakeBackend(), FakeKnowledge(), catalog)).run(
-                run_request().model_copy(update={
-                    "message": "使用PPH循证教育技能"})))
-        self.assertEqual(result.tools_used[-1].status, "error")
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(AgentLoop(
+                llm, ToolRegistry(backend, FakeKnowledge(), catalog)).run(
+                    run_request().model_copy(update={
+                        "message": "使用PPH循证教育技能"})))
+        self.assertEqual(caught.exception.code, "tool_not_allowed")
+        self.assertEqual(backend.calls, [])
 
     def test_patient_cannot_activate_doctor_only_skill(self):
         with tempfile.TemporaryDirectory() as temporary:
