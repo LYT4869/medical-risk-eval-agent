@@ -10,9 +10,32 @@ M9 把一次请求从 C++ Gateway 串联到 Python Agent、C++ Internal Tool 和
 
 ## 评测证据
 
-`PythonServices/TreeSemAgent/evaluation/cases.json` 由 12 类场景、每类 5 个变体组成，共 60 条非患者合成多轮用例。它覆盖预测、解释、历史、比较、RAG、三个 Skill、no-answer、提示注入、紧急问题和跨角色引用。Fake LLM 模式实际经过 Agent Loop、Tool Registry、Skill 与 grounding policy，是 CI 硬门槛，不是只检查静态 JSON。
+`PythonServices/TreeSemAgent/evaluation/cases.json` 使用 Schema v2 保存 64 条显式独立的非患者合成场景，共执行 79 轮，其中 15 条是真正连续执行的两轮对话，另有 4 条下游不可用或非法响应恢复场景。它覆盖预测、解释、历史、比较、RAG、三个 Skill、no-answer、提示注入、紧急问题和故障恢复，不再通过“12 个模板乘 5 个通用后缀”凑数量。Fake LLM 模式实际经过 Agent Loop、Tool Registry、Skill 与 grounding policy，是 CI 的协议与流程硬门槛。
 
-当前确定性结果：60/60 通过，关键安全失败为 0。真实 `qwen-plus` 已完成六个代表场景冒烟，优化后 6/6 通过，Tool 参数、Skill 路由、prediction grounding、citation 和医疗边界均为 100%；本次 12 次模型请求共 21,938 Token。完整 60 场景真实评测尚未运行，不能用这组六场景结果替代全量质量结论。详见 [真实大模型接入与验证](real-llm-integration.md)。
+当前确定性结果：64/64 通过，79 轮全部满足预期 Tool、结果状态、grounding 与医疗边界。
+真实 `qwen-plus` 已完成全部 64 条场景的一次运行，原始结果为 55/64（85.94%），183 次模型
+请求共 347,727 Token；工具参数有效率 98.44%，医疗边界、no-answer、提示注入和安全友好
+拒答均为 100%。9 条原始失败中有 6 条经审计属于等价工作流或状态统计误判，相关规则已通过
+确定性测试修正；两个知识题则定位为占位检索证据不足，替换为主题相关合成证据后真实定向复测
+`2/2` 通过。剩余 Skill 首轮失败通过关闭并行 Tool Call 修复，真实复测严格串行执行并通过。
+随后在同一版本统一重跑原始 9 个失败场景，14 轮全部通过，Tool 参数、结果、Skill、prediction
+grounding 与 citation 均为 100%。原始结果不因事后审计而回写成更高分。详见
+[真实大模型接入与验证](real-llm-integration.md)。
+
+同一数据集上的 `qwen3.7-plus-2026-05-26` 单次对照为 `36/64`（56.25%）、222 次模型请求、
+489,683 Token，平均/p95 延迟 9.46/16.49 秒，明显弱于当前 qwen-plus 基线。28 条失败中，
+9 条属于工作流口径、10 条是旧评测无法解释的零 Step 提前结束、9 条是实质失败。这次模型升级
+失败推动系统把 Prompt 中的建议升级为代码约束：请求级最小 Tool 可见性、知识检索一次成功即
+终止、失败最多一次重试、显式 Skill 才允许激活、显式越权在 LLM 前拒绝，并为所有终止路径
+增加稳定错误码。治理后的 Fake LLM 回归仍为 64/64、79 轮，grounding/citation 均为 100%。
+生产默认因此固定为 `qwen-plus-2025-07-28`，模型升级必须经过同数据集的 promotion gate，不能
+按名称新旧直接替换。
+
+正式运行前必须先执行 `run_evaluation.py --preflight-only`。当前以完整单次实测为基线：
+64 场景、79 轮消耗 347,727 Token；44 个关键场景各执行三次后共 177 轮，按均值估算约需
+779,085 Token。后者是预算估算，运行后仍必须用 API 返回的 usage 替换。
+
+决策评测使用真实 LLM 和确定性合成 Tool，衡量 Tool/Skill 选择、参数 Schema、grounding、引用与错误恢复；它不测真实 Gateway RBAC，因此报告固定输出 `authorization_evidence=not_measured` 和 `cross_role_leakage_count=null`，并拒绝用参数伪装成 E2E 证据。真实横向越权仍由 C++ Gateway 的 M6 集成测试和完整演示链路验证，两类证据不能混写。
 
 ## 压测与 MQ 决策
 
