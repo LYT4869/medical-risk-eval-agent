@@ -19,6 +19,12 @@ SAFE_SECURITY_REFUSAL = (
     "或访问其他患者的记录。"
 )
 
+SAFE_MEDICAL_REFUSAL = (
+    "我不能根据有限信息提供个体化处方、具体药物剂量或确定诊断，"
+    "也不能引用知识库中不存在的医疗资料。请咨询专业医生；"
+    "如有紧急症状，请立即联系当地急救服务。"
+)
+
 
 class ResponsePolicy:
     _prediction_id = re.compile(r"pred_[0-9a-f]{32}")

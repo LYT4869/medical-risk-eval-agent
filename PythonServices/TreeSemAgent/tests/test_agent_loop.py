@@ -129,6 +129,21 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(backend.calls, [])
         self.assertEqual(result.tools_used, [])
 
+    def test_individualized_prescription_refuses_without_llm_or_tools(self):
+        llm = ScriptedLlmClient([])
+        backend = FakeBackend()
+        unsafe = request().model_copy(update={
+            "message": "为我制定具体药物剂量和个体化处方"})
+
+        result = asyncio.run(
+            AgentLoop(llm, ToolRegistry(backend)).run(unsafe))
+
+        self.assertIn("不能", result.answer)
+        self.assertIn("专业医生", result.answer)
+        self.assertEqual(llm.requests, [])
+        self.assertEqual(backend.calls, [])
+        self.assertEqual(result.tools_used, [])
+
     def test_ordinary_knowledge_request_only_exposes_knowledge_tool(self):
         client = RecordingToolsClient([
             LlmTurn(tool_calls=[LlmToolCall(

@@ -41,6 +41,10 @@ _SKILL_EDUCATION = (
     "guideline", "knowledge", "pph", "postpartum haemorrhage",
     "postpartum hemorrhage",
 )
+_EXPLICIT_EDUCATION = (
+    "循证教育", "教育技能", "evidence-education", "evidence education",
+    "education skill",
+)
 
 
 class WorkflowPlanner:
@@ -72,6 +76,10 @@ class WorkflowPlanner:
     @classmethod
     def _skill_plan(cls, message: str) -> WorkflowPlan:
         normalized = " ".join(message.lower().split())
+        if cls._contains(normalized, _EXPLICIT_EDUCATION):
+            return WorkflowPlan.deterministic(
+                "activate_skill", "search_medical_knowledge",
+                expected_skill_id="pph_evidence_education")
         if cls._contains(normalized, _SKILL_COMPARISON):
             return WorkflowPlan.deterministic(
                 "activate_skill", "get_prediction_history",

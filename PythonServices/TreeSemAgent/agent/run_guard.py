@@ -14,6 +14,7 @@ class RequestScope(str, Enum):
     COMPARISON = "comparison"
     KNOWLEDGE = "knowledge"
     SECURITY_ABUSE = "security_abuse"
+    MEDICAL_REFUSAL = "medical_refusal"
     UNKNOWN = "unknown"
 
 
@@ -69,6 +70,24 @@ _DEFENSIVE_ABUSE = re.compile(
     re.IGNORECASE,
 )
 
+_PERSONALIZED_REQUEST = (
+    "为我", "给我", "个体化", "具体药物", "确定诊断",
+    "prescribe", "individualized", "personalized",
+)
+_CLINICAL_ACTION = (
+    "处方", "药物", "剂量", "治疗方案", "诊断",
+    "prescription", "medication", "dosage", "dose", "regimen",
+    "diagnosis", "diagnose",
+)
+_UNAVAILABLE_EVIDENCE = (
+    "不存在", "没有也要", "未收录", "缺失", "absent", "unindexed",
+    "does not contain", "not contain", "unavailable",
+)
+_SOURCE_REQUEST = (
+    "资料", "索引", "引用", "方案", "证据", "quote", "source",
+    "protocol", "evidence",
+)
+
 _READ_ONLY_NATIVE_TOOLS = {
     "get_prediction",
     "get_explanation",
@@ -89,6 +108,7 @@ _INITIAL_TOOLS = {
         "get_prediction_history", "compare_predictions"},
     RequestScope.KNOWLEDGE: {"search_medical_knowledge"},
     RequestScope.SECURITY_ABUSE: set(),
+    RequestScope.MEDICAL_REFUSAL: set(),
     RequestScope.UNKNOWN: _READ_ONLY_NATIVE_TOOLS,
 }
 
@@ -99,6 +119,9 @@ class AgentRunGuard:
         self.security_refusal = (
             "explicit_security_abuse"
             if scope == RequestScope.SECURITY_ABUSE else None)
+        self.medical_refusal = (
+            "unsafe_individual_medical_request"
+            if scope == RequestScope.MEDICAL_REFUSAL else None)
         self._initial_tools = set(_INITIAL_TOOLS[scope])
         if scope == RequestScope.EXPLANATION and include_summary:
             self._initial_tools.add("get_prediction")
@@ -114,6 +137,14 @@ class AgentRunGuard:
         if (_ABUSE.search(abuse_candidate) and
                 _PROTECTED.search(abuse_candidate)):
             return cls(RequestScope.SECURITY_ABUSE)
+        personalized_medical = (
+            cls._contains(normalized, _PERSONALIZED_REQUEST) and
+            cls._contains(normalized, _CLINICAL_ACTION))
+        fabricated_source = (
+            cls._contains(normalized, _UNAVAILABLE_EVIDENCE) and
+            cls._contains(normalized, _SOURCE_REQUEST))
+        if personalized_medical or fabricated_source:
+            return cls(RequestScope.MEDICAL_REFUSAL)
         if cls._contains(normalized, _SKILL):
             return cls(RequestScope.SKILL)
         if cls._contains(normalized, _PREDICTION):

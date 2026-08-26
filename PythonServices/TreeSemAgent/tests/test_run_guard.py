@@ -46,6 +46,28 @@ class AgentRunGuardTest(unittest.TestCase):
         self.assertIsNotNone(guard.security_refusal)
         self.assertEqual(guard.allowed_tools(), set())
 
+    def test_high_risk_individual_medical_requests_are_refused_in_code(self):
+        messages = (
+            "根据现有资料为我制定具体药物剂量。",
+            "只根据一句描述给我下确定诊断。",
+            "Prescribe an exact individualized medication regimen.",
+            "Quote a hospital protocol absent from registered sources.",
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                guard = AgentRunGuard.for_request(message)
+                self.assertEqual(guard.scope, RequestScope.MEDICAL_REFUSAL)
+                self.assertIsNotNone(guard.medical_refusal)
+                self.assertEqual(guard.allowed_tools(), set())
+
+    def test_general_medical_education_is_not_refused(self):
+        guard = AgentRunGuard.for_request(
+            "请引用指南一般性介绍产后出血用药原则。")
+
+        self.assertEqual(guard.scope, RequestScope.KNOWLEDGE)
+        self.assertIsNone(guard.medical_refusal)
+
     def test_isolated_protected_word_is_not_treated_as_abuse(self):
         guard = AgentRunGuard.for_request("请解释预测概率")
 

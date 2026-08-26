@@ -56,6 +56,15 @@ class WorkflowPlannerTest(unittest.TestCase):
             "activate_skill", "get_prediction", "get_explanation",
             "search_medical_knowledge"))
 
+    def test_explicit_evidence_education_beats_generic_explain_marker(self):
+        education = self.plan(
+            "Use the evidence-education skill to explain PPH for a patient.")
+
+        self.assertEqual(education.expected_skill_id,
+                         "pph_evidence_education")
+        self.assertEqual(education.stages, (
+            "activate_skill", "search_medical_knowledge"))
+
     def test_ambiguous_request_keeps_open_agent(self):
         result = self.plan("帮我看看这个情况")
 

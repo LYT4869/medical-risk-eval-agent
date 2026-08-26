@@ -5,7 +5,8 @@ import json
 import time
 
 from .llm_client import LlmClient, LlmError, LlmToolPolicy
-from .policy import (SAFE_POLICY_FALLBACK, SAFE_SECURITY_REFUSAL,
+from .policy import (SAFE_MEDICAL_REFUSAL, SAFE_POLICY_FALLBACK,
+                     SAFE_SECURITY_REFUSAL,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
@@ -83,6 +84,15 @@ class AgentLoop:
         if guard.security_refusal is not None:
             return AgentRunResponse(
                 answer=SAFE_SECURITY_REFUSAL,
+                step_count=1,
+                tools_used=[],
+                grounding_prediction_ids=[],
+                grounding_source_ids=[],
+                citations=[],
+            )
+        if guard.medical_refusal is not None:
+            return AgentRunResponse(
+                answer=SAFE_MEDICAL_REFUSAL,
                 step_count=1,
                 tools_used=[],
                 grounding_prediction_ids=[],
