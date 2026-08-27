@@ -35,7 +35,7 @@ from agent.workflow import WorkflowMode, WorkflowPlanner
 PRED_A = "pred_" + "a" * 32
 PRED_B = "pred_" + "b" * 32
 CITATION = "cite_" + "c" * 20
-DEFAULT_OBSERVED_TOTAL_TOKENS = 347_727
+DEFAULT_OBSERVED_TOTAL_TOKENS = 244_929
 DEFAULT_OBSERVED_TURNS = 79
 
 

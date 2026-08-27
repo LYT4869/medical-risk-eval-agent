@@ -247,6 +247,7 @@ class EvaluationTest(unittest.TestCase):
                 id="k1", name="search_medical_knowledge",
                 arguments={"query": "AUC", "scope": "model", "top_k": 5})]),
             module.LlmTurn(content="AUC measures discrimination."),
+            module.LlmTurn(content="AUC still has no citation."),
         ])
 
         result = asyncio.run(module.run_case(case, client))
@@ -320,10 +321,10 @@ class EvaluationTest(unittest.TestCase):
             observed_total_tokens=module.DEFAULT_OBSERVED_TOTAL_TOKENS,
             observed_runs=module.DEFAULT_OBSERVED_TURNS)
 
-        self.assertEqual(module.DEFAULT_OBSERVED_TOTAL_TOKENS, 347_727)
+        self.assertEqual(module.DEFAULT_OBSERVED_TOTAL_TOKENS, 244_929)
         self.assertEqual(module.DEFAULT_OBSERVED_TURNS, 79)
-        self.assertEqual(report["estimated_single_pass_tokens"], 347_727)
-        self.assertEqual(report["estimated_default_tokens"], 779_085)
+        self.assertEqual(report["estimated_single_pass_tokens"], 244_929)
+        self.assertEqual(report["estimated_default_tokens"], 548_765)
 
     def test_expected_backend_failure_can_recover_safely(self):
         module, _ = self.load_module("treesem_agent_evaluation_failure")
