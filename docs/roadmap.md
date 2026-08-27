@@ -125,7 +125,7 @@
 - [x] W3C Trace 和 request ID 跨 C++、Agent、领域 Tool 与 MCP 传播。
 - [x] 异步 before/after middleware 使用同一个不可变请求上下文。
 - [x] C++、Agent 和 Knowledge 提供低基数、有界内存的 Prometheus Metrics。
-- [x] 60 条 Agent 确定性评测 100% 通过；`qwen-plus` 六场景真实冒烟 6/6 通过，完整 60 场景待运行。
+- [x] 64 条独立 Agent 场景（79 轮）确定性评测 100% 通过；保留 `qwen-plus` 原始 55/64 与初始 qwen3.7 36/64 基线；混合编排和 Citation 修复后，真实 qwen3.7 完整单次评测为 64/64，Grounding、Citation 与医疗安全指标 100%，编排合规率 96.875%。
 - [x] k6 预测/混合流量、故障注入和统一 `verify-full` 入口已提供。
 - [x] RabbitMQ ADR 已形成；同步主链暂不引入 MQ。
 - [x] k6 以容器方式完成 1/4/16/64 VU 阶梯压测，过载快速 503、无未知状态且负载后队列归零。
@@ -150,4 +150,4 @@
 
 ## 当前停止线
 
-M0～M11 的代码、文档与本机运行验收已收口。C++/Python/Bundle/ONNX 测试、Docker Compose 完整演示、故障恢复、可观测性和 k6 阶梯压测均已实际执行；`qwen-plus` 六场景真实冒烟已完成并 6/6 通过，但完整 60 场景真实质量评测仍未运行，不能用六场景或 Scripted LLM 结果替代全量结论。
+M0～M11 的工程主链和本机运行验收已收口。C++/Python/Bundle/ONNX 测试、Docker Compose 完整演示、故障恢复、可观测性和 k6 阶梯压测均已实际执行；真实 qwen3.7 已完成 64 条场景单次评测。当前停止线是保留各阶段原始报告，不把最终任务成功率 100% 扩大解释为所有编排指标或真实患者质量；多次重复稳定性评测仍属于后续增强项。

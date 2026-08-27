@@ -6,7 +6,7 @@ M9 把一次请求从 C++ Gateway 串联到 Python Agent、C++ Internal Tool 和
 
 三个服务输出安全 JSON span。日志只含服务、operation、父子 Span、耗时、结果和稳定错误码，不记录临床输入、聊天正文、Token、Tool 参数或完整结果。`scripts/trace_query.py` 可按 trace ID 汇总本地或 Compose 日志并恢复父子调用链。
 
-`/internal/metrics` 输出 Prometheus 文本，覆盖 HTTP、隔离调度池、模型推理/fallback/shadow、数据库连接池、Agent/Tool/LLM、知识检索和认证拒绝。路由标签使用模板，Tool 标签使用固定名称，绝不使用 prediction/session/request ID。C++ Registry 与 Python histogram 都使用固定桶，内存不会随请求数增长。production 环境缺少 Metrics Bearer Token 会启动失败。
+`/internal/metrics` 输出 Prometheus 文本，覆盖 HTTP、隔离调度池、模型推理/fallback/shadow、数据库连接池、Agent/Tool/LLM、Citation Repair、知识检索和认证拒绝。Citation Repair 分别记录 attempted、success 和 failed，只有最终降级才计入 grounding rejection；路由标签使用模板，Tool 标签使用固定名称，绝不使用 prediction/session/request ID。C++ Registry 与 Python histogram 都使用固定桶，内存不会随请求数增长。production 环境缺少 Metrics Bearer Token 会启动失败。
 
 ## 评测证据
 
@@ -37,8 +37,8 @@ grounding 与 citation 均为 100%。原始结果不因事后审计而回写成�
 Skill 请求走确定性阶段，每轮只暴露一个必需 Tool，完成后显式关闭 Tool；模糊或组合请求仍保留
 受 Guard 约束的开放 Agent Loop。个体处方、确定诊断、虚构来源和显式越权在首次 LLM 调用前
 拒绝。治理后的 Fake LLM 回归仍为 64/64、79 轮，三组指标均为 100%。
-生产默认因此固定为 `qwen-plus-2025-07-28`，模型升级必须经过同数据集的 promotion gate，不能
-按名称新旧直接替换。
+当时生产默认因此继续固定为 `qwen-plus-2025-07-28`，模型升级必须经过同数据集的 promotion
+gate，不能按名称新旧直接替换。
 
 真实模型不要求随机评测 64/64。发布目标为总体任务结果至少 85%、关键非安全任务至少 90%、
 Tool 参数至少 95%、Skill 路由至少 90%、编排合规至少 80%；Prediction Grounding、Citation、
@@ -46,12 +46,16 @@ Tool 参数至少 95%、Skill 路由至少 90%、编排合规至少 80%；Predic
 结果为 5/12，但所有 grounding 与安全硬门槛均通过；该结果只作为混合编排前基线，不回写为
 新版本成绩。混合编排后使用相同 12 场景真实复测为 12/12，共 13 轮、32 次模型请求和 45,204
 Token；任务结果、编排合规、安全有效性、Tool 参数、Skill、grounding 与 citation 均为 100%，
-关键失败、冗余和阻断尝试均为 0。该结果达到完整 64 场景的晋级条件，但完整矩阵仍需单独预算
-确认，默认模型暂不切换。
+关键失败、冗余和阻断尝试均为 0。该结果达到完整 64 场景的晋级条件。随后第一次完整 qwen3.7
+混合编排评测为 61/64，两个知识场景漏 Citation、一个比较场景出现步骤与冗余问题；增加一次
+无 Tool、限定本轮 Citation ID 的受控修复后，最终完整单次结果为 64/64，Prediction Grounding、
+Citation 与医疗安全指标均为 100%，编排合规率 96.875%。LLM 请求 177 次、总 Token 244,929，
+平均/p95 延迟 6.82/12.86 秒。当前默认模型切换为 `qwen3.7-plus-2026-05-26`，保持关闭思考模式；
+多次重复稳定性评测仍属于后续增强项。
 
-正式运行前必须先执行 `run_evaluation.py --preflight-only`。当前以完整单次实测为基线：
-64 场景、79 轮消耗 347,727 Token；44 个关键场景各执行三次后共 177 轮，按均值估算约需
-779,085 Token。后者是预算估算，运行后仍必须用 API 返回的 usage 替换。
+正式运行前必须先执行 `run_evaluation.py --preflight-only`。当前以最新完整单次实测为基线：
+64 场景、79 轮消耗 244,929 Token；44 个关键场景各执行三次后共 177 轮，按均值估算约需
+548,765 Token。后者是预算估算，运行后仍必须用 API 返回的 usage 替换。
 
 决策评测使用真实 LLM 和确定性合成 Tool，衡量 Tool/Skill 选择、参数 Schema、grounding、引用与错误恢复；它不测真实 Gateway RBAC，因此报告固定输出 `authorization_evidence=not_measured` 和 `cross_role_leakage_count=null`，并拒绝用参数伪装成 E2E 证据。真实横向越权仍由 C++ Gateway 的 M6 集成测试和完整演示链路验证，两类证据不能混写。
 

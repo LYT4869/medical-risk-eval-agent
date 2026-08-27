@@ -8,7 +8,7 @@ Browser -> C++ Gateway -> ONNX treeSem / MySQL
                                     \-> Knowledge MCP / RAG
 ```
 
-当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。60 条确定性 Agent 场景全部通过。完整证据不手工写死在代码中，由质量审计和评测脚本生成。
+当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。64 条独立 Agent 场景（79 轮）确定性评测全部通过；真实 `qwen3.7-plus-2026-05-26` 完整单次评测任务成功率、Prediction Grounding、Citation 与医疗安全指标均为 `100%`，编排合规率 `96.875%`。完整历史、口径和失败审计由评测脚本及报告保留。
 
 ## 快速演示
 
@@ -41,6 +41,7 @@ make demo-flow
 - [M11 模型质量、Bundle v2 与发布治理](docs/m11-model-quality.md)
 - [RabbitMQ 选型 ADR](docs/adr/0001-rabbitmq-decision.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
+- [真实大模型调优面试案例](docs/agent-llm-optimization-interview-case.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 
@@ -53,7 +54,7 @@ make demo-flow
 ## 验证入口
 
 ```bash
-make verify       # C++ 注册测试 + 60 条确定性 Agent Evaluation
+make verify       # C++ 注册测试 + 64 条确定性 Agent Evaluation
 make verify-full  # 具备私有 Artifact 与 Docker 的本地完整门槛
 ```
 

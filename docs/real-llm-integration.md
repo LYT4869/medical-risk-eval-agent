@@ -3,7 +3,7 @@
 ## 当前配置
 
 treeSem Agent 已通过 OpenAI-compatible Chat Completions 协议接入
-`qwen-plus`。API Key、工作空间地址和代理地址只保存在未提交的 `.env`
+`qwen3.7-plus-2026-05-26`。API Key、工作空间地址和代理地址只保存在未提交的 `.env`
 与进程环境中，不进入 Git、日志、Trace 或响应。
 
 Agent 使用 `temperature=0`，单次最多生成 1024 Token。容器只继承访问云端
@@ -16,7 +16,8 @@ Agent 使用 `temperature=0`，单次最多生成 1024 Token。容器只继承�
 - OpenAI-compatible Client 显式限制温度和输出长度，并统计请求、输入、输出和总 Token。
 - 支持解析 JSON 代码围栏，避免模型输出 Markdown 包装后丢失结构化字段。
 - 预测 grounding 由本轮可信 Tool Result 确定性生成；模型伪造或跨 Run ID 仍会被拒绝。
-- Citation 取模型声明与正文中合法引用的并集；模型遗漏正文尾注时由编排层补齐。
+- Citation 取模型声明与正文中合法引用的并集；已经获得有效知识证据但最终回答漏引用时，
+  编排层只允许一次无 Tool、限定本轮 Citation ID 的受控修复，二次失败则安全降级。
 - Skill Catalog 明确要求先激活匹配 Skill，再调用该 Skill 声明的领域 Tool。
 - 真实评测可按 case 限量执行，并控制关键场景重复次数，避免直接运行完整矩阵造成意外消耗。
 
@@ -258,7 +259,7 @@ Latency mean / p95                 9.46 s / 16.49 s
 
 治理后的 Fake LLM 全量门槛为 64/64 场景、79/79 轮通过，Prediction Grounding 与 Citation
 Validity 均为 100%，关键失败为 0。该结果证明编排协议已确定性收敛，不能替代后续真实模型
-复测。当前生产默认继续固定为北京地域的 `qwen-plus-2025-07-28`，默认关闭思考模式；只有
+复测。该阶段生产默认继续固定为北京地域的 `qwen-plus-2025-07-28`，默认关闭思考模式；只有
 qwen3.7 通过受限 12 场景晋级门槛后，才考虑再次运行付费的完整矩阵。
 
 #### Tool Guard 后、混合编排前的 qwen3.7 受限复测
@@ -285,7 +286,7 @@ grounding、citation 和安全场景保持 100%，但评测不会把被拒绝的
 `failure_code_counts={}` 也说明这些场景最终产生了安全回答，并非 Agent Loop 异常终止。
 
 该结果没有达到当时的严格晋级门槛，因此停止测试，不运行新的 64 场景，
-默认模型继续使用 `qwen-plus-2025-07-28`。受限报告位于
+该阶段默认模型继续使用 `qwen-plus-2025-07-28`。受限报告位于
 `artifacts/evaluation/qwen37-governance-targeted-20260826.json`，数据集 SHA-256 为
 `3d72e3b710f5dee09b74c17b1af91e63781dfaf8fdf1968acc5bef314f58915c`，报告 SHA-256 为
 `f141c66bfecb8c9e62f241a4c1a4fbe3446a149cec287b93b18fd4d97ae1e912`。这是一轮 12 场景
@@ -333,6 +334,55 @@ Latency mean / p95                      10.32 s / 22.01 s
 稳定性评测。它已超过至少 10/12 且安全硬门槛 100% 的晋级条件；完整矩阵必须再次确认预算后
 运行，默认模型在此之前仍为 `qwen-plus-2025-07-28`。
 
+#### qwen3.7 完整矩阵与 Citation 修复
+
+通过 12 场景晋级门槛后，2026-08-27 对相同 64 场景、79 轮执行一次完整真实评测。首次结果为：
+
+```text
+Task outcome success                    61 / 64 = 95.3125%
+Prediction grounding validity                         100%
+Citation validity                                  96.875%
+Orchestration compliance                           96.875%
+LLM requests                                           177
+Total tokens                                        245,222
+Latency mean / p95                         6.84 s / 12.32 s
+```
+
+三个失败中，一个比较场景已完成必要比较但出现额外读取和步骤上限；两个知识场景已经得到有效
+MCP 证据，但最终回答遗漏 Citation。后者与“没有可靠答案”分开处理：没有证据继续拒答；只有
+存在本轮有效 Citation 且错误原因恰好为漏引用时，才执行一次受控最终回答修复。修复阶段关闭
+全部 Tool，只允许使用本轮 Citation 白名单，修复结果再次校验，第二次仍失败或伪造引用则返回
+安全降级回答。
+
+Citation 修复先通过单元测试和 Fake LLM 64/64 确定性评测，再对目标知识场景真实复测，最后
+重新运行完整矩阵。最终单次结果为：
+
+```text
+Task outcome success                    64 / 64 = 100%
+Prediction grounding validity                         100%
+Citation validity                                     100%
+Medical boundary / safety validity                    100%
+Orchestration compliance                           96.875%
+Tool argument / outcome validity                   96.875%
+LLM requests                                           177
+Prompt / completion tokens                 230,065 / 14,864
+Total tokens                                        244,929
+Latency mean / p95                         6.82 s / 12.86 s
+```
+
+编排合规没有写成 100%：`history_patient_changes` 和 `compare_doctor_english` 仍出现冗余或被
+Guard 阻断的额外 Tool 尝试，但必要业务流程、最终回答、Grounding 和安全校验均通过。与初始
+qwen3.7 相比，Token 从 489,683 降至 244,929，约下降 49.98%。当前默认模型因此切换为
+`qwen3.7-plus-2026-05-26`，保持关闭思考模式；多次重复稳定性评测仍是后续增强项。
+
+原始报告保持独立，不追溯覆盖：
+
+```text
+artifacts/evaluation/qwen37-hybrid-full64-single-20260827.json
+artifacts/evaluation/qwen37-citation-full64-single-20260827.json
+final SHA-256: 8c9a9f2252e2f149944e73d19b116dd37021f799fb6ee06a785285db8e9095c0
+```
+
 ## 复现方式
 
 先把真实配置写入未提交的 `.env`：
@@ -340,9 +390,10 @@ Latency mean / p95                      10.32 s / 22.01 s
 ```text
 TREESEM_AGENT_LLM_MODE=real
 TREESEM_AGENT_LLM_BASE_URL=<OpenAI-compatible /v1 URL>
-TREESEM_AGENT_LLM_MODEL=qwen-plus-2025-07-28
+TREESEM_AGENT_LLM_MODEL=qwen3.7-plus-2026-05-26
 TREESEM_AGENT_LLM_API_KEY=<local secret>
 TREESEM_AGENT_LLM_TEMPERATURE=0
+TREESEM_AGENT_LLM_ENABLE_THINKING=false
 TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS=1024
 ```
 
@@ -359,8 +410,8 @@ docker compose ps agent
 python evaluation/run_evaluation.py --preflight-only
 ```
 
-当前改用完整 64 场景、79 轮的 347,727 Token 实测作为预算基线：单次完整执行按实测为
-347,727 Token，44 个关键场景各执行三次后共 177 轮，按平均值约为 779,085 Token。后一个
+当前改用最新完整 64 场景、79 轮的 244,929 Token 实测作为预算基线：单次完整执行按实测为
+244,929 Token，44 个关键场景各执行三次后共 177 轮，按平均值约为 548,765 Token。后一个
 数字仍是预算估算，不包含上游重试和输出波动，运行前需要留出余量。
 该 runner 使用确定性 Tool fixture 评估 LLM 决策，不得将
 `cross_role_leakage_count=null` 改写为真实权限零泄漏。
