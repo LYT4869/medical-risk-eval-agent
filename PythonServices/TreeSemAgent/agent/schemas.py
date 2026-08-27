@@ -56,6 +56,13 @@ class AgentRunResponse(StrictModel):
     citations: list["KnowledgeCitation"] = Field(default_factory=list)
     knowledge_index_version: str | None = Field(default=None, max_length=128)
     skill_used: "SkillUse | None" = None
+    policy_rejection_code: Literal[
+        "empty_answer",
+        "unavailable_prediction",
+        "missing_prediction_grounding",
+        "unavailable_knowledge",
+        "missing_knowledge_citation",
+    ] | None = Field(default=None, exclude=True)
 
 
 class KnowledgeCitation(StrictModel):

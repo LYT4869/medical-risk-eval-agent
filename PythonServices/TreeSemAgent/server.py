@@ -10,7 +10,8 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from agent.llm_client import (OpenAiCompatibleClient, OpenAiCompatibleConfig,
-                              ScriptedDemoClient)
+                              ScriptedDemoClient,
+                              optional_boolean_environment)
 from agent.loop import AgentExecutionError, AgentLoop, AgentTimeout
 from agent.schemas import AgentRunRequest, AgentRunResponse
 from agent.skills import SkillCatalog
@@ -72,6 +73,8 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
                 request_timeout_seconds=_integer("TREESEM_AGENT_LLM_REQUEST_TIMEOUT_MS", 20000) / 1000,
                 temperature=_temperature("TREESEM_AGENT_LLM_TEMPERATURE", 0.0),
                 max_output_tokens=_integer("TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS", 1024),
+                enable_thinking=optional_boolean_environment(
+                    "TREESEM_AGENT_LLM_ENABLE_THINKING"),
             ))
         else:
             raise RuntimeError("TREESEM_AGENT_LLM_MODE must be real or scripted_demo")

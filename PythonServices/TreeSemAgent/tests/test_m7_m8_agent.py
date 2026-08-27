@@ -2,9 +2,11 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.llm_client import ScriptedLlmClient
 from agent.loop import AgentExecutionError, AgentLoop
+from agent.observability import Metrics
 from agent.prompt import SYSTEM_PROMPT
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn
 from agent.skills import SkillCatalog
@@ -125,21 +127,64 @@ class KnowledgeGroundingTest(unittest.TestCase):
         self.assertIn(citation, result.answer)
         self.assertEqual(result.grounding_source_ids, [citation])
 
+    def test_missing_citation_is_repaired_once_with_verified_source(self):
+        citation = "cite_" + "a" * 20
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="k1", name="search_medical_knowledge",
+                arguments={"query": "PPH", "scope": "clinical", "top_k": 5})]),
+            LlmTurn(content="Evidence is available, but the citation was omitted."),
+            LlmTurn(content=f"Evidence is available [{citation}]."),
+        ])
+
+        registry = Metrics()
+        with patch("agent.loop.metrics", registry):
+            result = asyncio.run(AgentLoop(
+                llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(
+                    run_request()))
+
+        self.assertEqual(result.grounding_source_ids, [citation])
+        self.assertEqual(result.citations[0].citation_id, citation)
+        self.assertEqual(len(llm.requests), 3)
+        self.assertEqual(len(result.tools_used), 1)
+        rendered = registry.render()
+        self.assertIn(
+            'treesem_agent_grounding_repairs_total{reason="missing_knowledge_citation",result="attempted"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_grounding_repairs_total{reason="missing_knowledge_citation",result="success"} 1',
+            rendered)
+        self.assertNotIn(
+            'treesem_agent_grounding_rejections_total{reason="missing_knowledge_citation",result="safe_fallback"}',
+            rendered)
+
     def test_missing_citation_has_internal_reason_without_public_leakage(self):
         llm = ScriptedLlmClient([
             LlmTurn(tool_calls=[LlmToolCall(
                 id="k1", name="search_medical_knowledge",
                 arguments={"query": "PPH", "scope": "clinical", "top_k": 5})]),
             LlmTurn(content="Evidence is available, but no citation was supplied."),
+            LlmTurn(content="The repaired answer still has no citation."),
         ])
 
-        result = asyncio.run(AgentLoop(
-            llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(run_request()))
+        registry = Metrics()
+        with patch("agent.loop.metrics", registry):
+            result = asyncio.run(AgentLoop(
+                llm, ToolRegistry(FakeBackend(), FakeKnowledge())).run(
+                    run_request()))
 
         self.assertEqual(result.policy_rejection_code,
                          "missing_knowledge_citation")
         self.assertNotIn("policy_rejection_code", result.model_dump())
         self.assertIn("无法提供未经可信工具结果验证", result.answer)
+        self.assertEqual(len(llm.requests), 3)
+        rendered = registry.render()
+        self.assertIn(
+            'treesem_agent_grounding_repairs_total{reason="missing_knowledge_citation",result="failed"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_grounding_rejections_total{reason="missing_knowledge_citation",result="safe_fallback"} 1',
+            rendered)
 
     def test_fabricated_citation_returns_safe_fallback(self):
         llm = ScriptedLlmClient([LlmTurn(

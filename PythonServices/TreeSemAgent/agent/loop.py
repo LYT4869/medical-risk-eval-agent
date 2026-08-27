@@ -121,12 +121,19 @@ class AgentLoop:
         calls = 0
         previous_signature: str | None = None
         repeated = 0
+        citation_repair_attempted = False
+        citation_repair_pending = False
         for step in range(1, self._max_steps + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AgentTimeout("agent deadline exceeded")
             expected_tool: str | None = None
-            if plan.mode == WorkflowMode.DETERMINISTIC:
+            repairing_citation = citation_repair_pending
+            citation_repair_pending = False
+            if repairing_citation:
+                definitions = []
+                tool_policy = LlmToolPolicy.none()
+            elif plan.mode == WorkflowMode.DETERMINISTIC:
                 if stage_index < len(plan.stages):
                     expected_tool = plan.stages[stage_index]
                     definitions = self._tools.definitions(
@@ -178,12 +185,53 @@ class AgentLoop:
                         turn.grounding_source_ids, set(available_citations),
                         require_prediction_grounding=bool(available_ids))
                 except PolicyViolation as exc:
-                    metrics.increment(
-                        "treesem_agent_grounding_rejections_total",
-                        result="safe_fallback", reason=exc.code)
                     trace_event(
                         trace.child(), "agent.response_policy", policy_started,
                         "error", error_code=exc.code)
+                    if (exc.code == "missing_knowledge_citation" and
+                            available_citations and
+                            not citation_repair_attempted and
+                            step < self._max_steps):
+                        metrics.increment(
+                            "treesem_agent_grounding_repairs_total",
+                            result="attempted", reason=exc.code)
+                        citation_repair_attempted = True
+                        citation_repair_pending = True
+                        allowed_citations = sorted(available_citations)
+                        messages.extend([
+                            {
+                                "role": "assistant",
+                                "content": json.dumps({
+                                    "answer": answer,
+                                    "grounding_prediction_ids":
+                                        turn.grounding_prediction_ids,
+                                    "grounding_source_ids":
+                                        turn.grounding_source_ids,
+                                }, ensure_ascii=False),
+                            },
+                            {
+                                "role": "system",
+                                "content": (
+                                    "The previous final answer was rejected because "
+                                    "it omitted a required knowledge citation. Rewrite "
+                                    "the answer once using only the earlier Tool "
+                                    "evidence. Include at least one allowed citation ID "
+                                    "literally in the answer and in "
+                                    "grounding_source_ids. Allowed citation IDs: " +
+                                    json.dumps(allowed_citations) +
+                                    ". Do not call any Tool. Return exactly the JSON "
+                                    "object required by the system prompt."
+                                ),
+                            },
+                        ])
+                        continue
+                    if repairing_citation:
+                        metrics.increment(
+                            "treesem_agent_grounding_repairs_total",
+                            result="failed", reason=exc.code)
+                    metrics.increment(
+                        "treesem_agent_grounding_rejections_total",
+                        result="safe_fallback", reason=exc.code)
                     skill = None if active_skill is None else SkillUse(
                         id=active_skill.skill_id, version=active_skill.version,
                         catalog_version=active_skill.catalog_version)
@@ -197,6 +245,11 @@ class AgentLoop:
                         knowledge_index_version=knowledge_index_version,
                         skill_used=skill,
                         policy_rejection_code=exc.code)
+                if repairing_citation:
+                    metrics.increment(
+                        "treesem_agent_grounding_repairs_total",
+                        result="success",
+                        reason="missing_knowledge_citation")
                 citations = [available_citations[item]
                              for item in source_grounding]
                 missing_citations = [item for item in source_grounding
@@ -212,8 +265,9 @@ class AgentLoop:
                                         citations=citations,
                                         knowledge_index_version=knowledge_index_version,
                                         skill_used=skill)
-            if (plan.mode == WorkflowMode.DETERMINISTIC and
-                    expected_tool is None):
+            if (repairing_citation or
+                    (plan.mode == WorkflowMode.DETERMINISTIC and
+                     expected_tool is None)):
                 raise AgentExecutionError(
                     "tool call is forbidden during finalization",
                     "tool_not_allowed")
