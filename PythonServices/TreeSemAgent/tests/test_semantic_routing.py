@@ -1,8 +1,13 @@
 import math
 import unittest
 
-from agent.routing_types import RequestScope, RoutingSource
-from agent.semantic_routing import RoutingThresholds, SemanticScorer
+from agent.routing_types import RequestScope, RoutingDecision, RoutingSource
+from agent.routing_executor import RoutingOverloaded, RoutingTimeout
+from agent.semantic_routing import (
+    RoutingThresholds,
+    SemanticRouter,
+    SemanticScorer,
+)
 from agent.task_registry import load_default_registry
 
 
@@ -92,6 +97,63 @@ class SemanticScorerTest(unittest.TestCase):
             RoutingThresholds(1.1, 0.1, 0.7)
         with self.assertRaises(ValueError):
             RoutingThresholds(0.6, -0.1, 0.7)
+
+
+class FakeExecutor:
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.closed = False
+
+    async def run(self, function, *args):
+        if self.error is not None:
+            raise self.error
+        return self.result if self.result is not None else function(*args)
+
+    async def close(self):
+        self.closed = True
+
+
+class FixedScorer:
+    def route(self, message):
+        return RoutingDecision(RequestScope.HISTORY, RoutingSource.SEMANTIC)
+
+
+class SemanticRouterTest(unittest.IsolatedAsyncioTestCase):
+    async def test_optional_overload_degrades_to_unknown(self):
+        router = SemanticRouter(
+            FixedScorer(), FakeExecutor(error=RoutingOverloaded("full")),
+            optional=True)
+        decision = await router.route("message")
+        self.assertEqual(decision.scope, RequestScope.UNKNOWN)
+        self.assertEqual(decision.reason, "semantic_overloaded")
+
+    async def test_optional_timeout_degrades_to_unknown(self):
+        router = SemanticRouter(
+            FixedScorer(), FakeExecutor(error=RoutingTimeout("slow")),
+            optional=True)
+        decision = await router.route("message")
+        self.assertEqual(decision.reason, "semantic_timeout")
+
+    async def test_optional_runtime_failure_degrades_to_unknown(self):
+        router = SemanticRouter(
+            FixedScorer(), FakeExecutor(error=ValueError("bad vector")),
+            optional=True)
+        decision = await router.route("message")
+        self.assertEqual(decision.reason, "semantic_error")
+
+    async def test_required_runtime_failure_is_not_hidden(self):
+        router = SemanticRouter(
+            FixedScorer(), FakeExecutor(error=ValueError("bad vector")),
+            optional=False)
+        with self.assertRaisesRegex(ValueError, "bad vector"):
+            await router.route("message")
+
+    async def test_close_delegates_to_executor(self):
+        executor = FakeExecutor()
+        router = SemanticRouter(FixedScorer(), executor, optional=True)
+        await router.close()
+        self.assertTrue(executor.closed)
 
 
 if __name__ == "__main__":

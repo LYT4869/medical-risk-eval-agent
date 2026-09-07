@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Protocol, Sequence
 
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
+from .routing_executor import (
+    RoutingExecutorClosed,
+    RoutingOverloaded,
+    RoutingTimeout,
+    SemanticRoutingExecutor,
+)
 from .task_registry import TaskRegistry
 
 
@@ -95,3 +101,36 @@ class SemanticScorer:
         return RoutingDecision(
             RequestScope.UNKNOWN, RoutingSource.UNKNOWN,
             reason=reason, **scores)
+
+
+class SemanticRouter:
+    def __init__(self, scorer: SemanticScorer,
+                 executor: SemanticRoutingExecutor,
+                 *, optional: bool):
+        self._scorer = scorer
+        self._executor = executor
+        self._optional = optional
+
+    async def route(self, message: str) -> RoutingDecision:
+        try:
+            return await self._executor.run(self._scorer.route, message)
+        except RoutingOverloaded:
+            return self._unknown("semantic_overloaded")
+        except RoutingTimeout:
+            return self._unknown("semantic_timeout")
+        except RoutingExecutorClosed:
+            if self._optional:
+                return self._unknown("semantic_unavailable")
+            raise
+        except Exception:
+            if self._optional:
+                return self._unknown("semantic_error")
+            raise
+
+    async def close(self) -> None:
+        await self._executor.close()
+
+    @staticmethod
+    def _unknown(reason: str) -> RoutingDecision:
+        return RoutingDecision(
+            RequestScope.UNKNOWN, RoutingSource.UNKNOWN, reason=reason)
