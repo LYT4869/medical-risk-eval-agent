@@ -136,10 +136,25 @@ class RuleOnlyRouter:
             reason="rule_miss")
 
 
+class HybridRouter:
+    def __init__(self, rules: RuleRouter, semantic):
+        self._rules = rules
+        self._semantic = semantic
+
+    async def route(self, message: str) -> RoutingDecision:
+        decision = self._rules.route(message)
+        if decision is not None:
+            return decision
+        if self._semantic is None:
+            return RoutingDecision(
+                RequestScope.UNKNOWN, RoutingSource.UNKNOWN,
+                reason="semantic_disabled")
+        return await self._semantic.route(message)
+
+
 def normalize(message: str) -> str:
     return " ".join(message.casefold().split())
 
 
 def contains(message: str, markers: tuple[str, ...]) -> bool:
     return any(marker in message for marker in markers)
-

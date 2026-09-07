@@ -1,7 +1,7 @@
 import unittest
 
-from agent.routing import RuleRouter, SafetyGate
-from agent.routing_types import RequestScope, RoutingSource
+from agent.routing import HybridRouter, RuleRouter, SafetyGate
+from agent.routing_types import RequestScope, RoutingDecision, RoutingSource
 
 
 class SafetyGateTest(unittest.TestCase):
@@ -55,6 +55,39 @@ class RuleRouterTest(unittest.TestCase):
     def test_rule_decision_records_source(self):
         decision = self.router.route("查看预测历史")
         self.assertEqual(decision.source, RoutingSource.RULE)
+
+
+class FakeSemanticRouter:
+    def __init__(self, decision):
+        self.decision = decision
+        self.calls = 0
+
+    async def route(self, message):
+        self.calls += 1
+        return self.decision
+
+
+class HybridRouterTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rule_hit_does_not_call_semantic_router(self):
+        semantic = FakeSemanticRouter(RoutingDecision(
+            RequestScope.KNOWLEDGE, RoutingSource.SEMANTIC))
+        router = HybridRouter(RuleRouter(), semantic)
+        decision = await router.route("查看预测历史")
+        self.assertEqual(decision.scope, RequestScope.HISTORY)
+        self.assertEqual(semantic.calls, 0)
+
+    async def test_rule_miss_uses_semantic_router(self):
+        semantic = FakeSemanticRouter(RoutingDecision(
+            RequestScope.PREDICTION, RoutingSource.SEMANTIC))
+        router = HybridRouter(RuleRouter(), semantic)
+        decision = await router.route("评估编号八的示例")
+        self.assertEqual(decision.scope, RequestScope.PREDICTION)
+        self.assertEqual(semantic.calls, 1)
+
+    async def test_disabled_semantic_router_returns_unknown(self):
+        decision = await HybridRouter(RuleRouter(), None).route("模糊请求")
+        self.assertEqual(decision.scope, RequestScope.UNKNOWN)
+        self.assertEqual(decision.reason, "semantic_disabled")
 
 
 if __name__ == "__main__":
