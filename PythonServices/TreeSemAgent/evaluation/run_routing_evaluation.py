@@ -155,22 +155,72 @@ def _rule(case: RoutingCase) -> str:
     return decision.scope.value if decision is not None else "unknown"
 
 
+def _hybrid_scope(case: RoutingCase, scorer, thresholds, rules, safety) -> str:
+    from agent.routing_types import RequestScope
+
+    safety_decision = safety.evaluate(case.message)
+    if not safety_decision.allowed:
+        return (safety_decision.refusal_scope or RequestScope.UNKNOWN).value
+    rule = rules.route(case.message)
+    if rule is not None:
+        return rule.scope.value
+    scores = scorer.score(case.message)
+    if scores.top_similarity < thresholds.min_similarity:
+        return RequestScope.UNKNOWN.value
+    if scores.margin < thresholds.min_margin:
+        return RequestScope.UNKNOWN.value
+    if scores.secondary_similarity >= thresholds.secondary_intent_similarity:
+        return RequestScope.UNKNOWN.value
+    return scores.top_scope.value
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate treeSem Agent routing")
     parser.add_argument(
         "--cases", type=Path,
         default=Path(__file__).with_name("routing_cases.json"))
-    parser.add_argument("--router", choices=("current-rule", "rule"),
+    parser.add_argument("--router", choices=("current-rule", "rule", "hybrid"),
                         default="current-rule")
     parser.add_argument("--split", choices=tuple(sorted(SPLITS)) + ("all",),
                         default="all")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--tasks", type=Path)
+    parser.add_argument("--thresholds", type=Path)
+    parser.add_argument("--model")
+    parser.add_argument("--revision")
     args = parser.parse_args()
 
     cases = load_cases(args.cases)
     if args.split != "all":
         cases = [case for case in cases if case.split == args.split]
-    router = _current_rule if args.router == "current-rule" else _rule
+    if args.router == "current-rule":
+        router = _current_rule
+    elif args.router == "rule":
+        router = _rule
+    else:
+        if not all((args.tasks, args.thresholds, args.model, args.revision)):
+            parser.error(
+                "hybrid router requires --tasks, --thresholds, --model and --revision")
+        from agent.embedding_provider import SentenceTransformerEmbeddingProvider
+        from agent.routing import RuleRouter, SafetyGate
+        from agent.semantic_routing import RoutingThresholds, SemanticScorer
+        from agent.task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
+
+        threshold_payload = json.loads(args.thresholds.read_text(encoding="utf-8"))
+        if (threshold_payload.get("schema_version") != 1 or
+                threshold_payload.get("model") != args.model or
+                threshold_payload.get("revision") != args.revision):
+            raise ValueError("routing thresholds do not match model configuration")
+        thresholds = RoutingThresholds(**threshold_payload["thresholds"])
+        registry = TaskRegistry.load(args.tasks, SUPPORTED_DOMAIN_TOOLS)
+        scorer = SemanticScorer(
+            registry,
+            SentenceTransformerEmbeddingProvider(args.model, args.revision),
+            thresholds)
+        rules = RuleRouter(registry)
+        safety = SafetyGate()
+        router = lambda case: _hybrid_scope(
+            case, scorer, thresholds, rules, safety)
     report = evaluate_cases(cases, router)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)

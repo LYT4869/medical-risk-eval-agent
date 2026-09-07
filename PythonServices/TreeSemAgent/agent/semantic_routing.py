@@ -15,7 +15,10 @@ from .task_registry import TaskRegistry
 
 
 class EmbeddingProvider(Protocol):
-    def encode(self, texts: Sequence[str]) -> Sequence[Sequence[float]]: ...
+    def encode_examples(
+            self, texts: Sequence[str]) -> Sequence[Sequence[float]]: ...
+
+    def encode_query(self, text: str) -> Sequence[float]: ...
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,14 @@ class RoutingThresholds:
                 "secondary_intent_similarity must be between -1 and 1")
 
 
+@dataclass(frozen=True)
+class SemanticScores:
+    top_scope: RequestScope
+    top_similarity: float
+    margin: float
+    secondary_similarity: float
+
+
 class SemanticScorer:
     def __init__(self, registry: TaskRegistry, provider: EmbeddingProvider,
                  thresholds: RoutingThresholds):
@@ -45,7 +56,7 @@ class SemanticScorer:
             for example in definition.intent_examples:
                 scopes.append(definition.scope)
                 examples.append(example)
-        vectors = provider.encode(examples)
+        vectors = provider.encode_examples(examples)
         if len(vectors) != len(examples):
             raise ValueError("embedding count mismatch")
         normalized = tuple(self._normalize(vector) for vector in vectors)
@@ -58,10 +69,24 @@ class SemanticScorer:
         self._examples = tuple(zip(scopes, normalized))
 
     def route(self, message: str) -> RoutingDecision:
-        vectors = self._provider.encode([message])
-        if len(vectors) != 1:
-            raise ValueError("query embedding count mismatch")
-        query = self._normalize(vectors[0])
+        scored = self.score(message)
+        common = {
+            "similarity_score": scored.top_similarity,
+            "margin": scored.margin,
+            "secondary_score": scored.secondary_similarity,
+        }
+        if scored.top_similarity < self._thresholds.min_similarity:
+            return self._unknown("semantic_low_similarity", **common)
+        if scored.margin < self._thresholds.min_margin:
+            return self._unknown("semantic_ambiguous_margin", **common)
+        if (scored.secondary_similarity >=
+                self._thresholds.secondary_intent_similarity):
+            return self._unknown("semantic_multiple_intents", **common)
+        return RoutingDecision(
+            scored.top_scope, RoutingSource.SEMANTIC, **common)
+
+    def score(self, message: str) -> SemanticScores:
+        query = self._normalize(self._provider.encode_query(message))
         if len(query) != self._dimension:
             raise ValueError("query embedding dimension mismatch")
         scores: dict[RequestScope, float] = {}
@@ -71,19 +96,7 @@ class SemanticScorer:
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         (top_scope, top_score), (_, second_score) = ranked[:2]
         margin = top_score - second_score
-        common = {
-            "similarity_score": top_score,
-            "margin": margin,
-            "secondary_score": second_score,
-        }
-        if top_score < self._thresholds.min_similarity:
-            return self._unknown("semantic_low_similarity", **common)
-        if margin < self._thresholds.min_margin:
-            return self._unknown("semantic_ambiguous_margin", **common)
-        if second_score >= self._thresholds.secondary_intent_similarity:
-            return self._unknown("semantic_multiple_intents", **common)
-        return RoutingDecision(
-            top_scope, RoutingSource.SEMANTIC, **common)
+        return SemanticScores(top_scope, top_score, margin, second_score)
 
     @staticmethod
     def _normalize(vector: Sequence[float]) -> tuple[float, ...]:

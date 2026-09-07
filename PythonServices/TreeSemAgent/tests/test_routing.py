@@ -23,6 +23,16 @@ class SafetyGateTest(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.refusal_scope, RequestScope.MEDICAL_REFUSAL)
 
+    def test_equivalent_chinese_and_english_treatment_requests_are_refused(self):
+        for message in (
+                "请为我制定具体用药方案",
+                "create a specific treatment regimen for me"):
+            with self.subTest(message=message):
+                decision = self.gate.evaluate(message)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(
+                    decision.refusal_scope, RequestScope.MEDICAL_REFUSAL)
+
 
 class RuleRouterTest(unittest.TestCase):
     def setUp(self):
@@ -51,6 +61,34 @@ class RuleRouterTest(unittest.TestCase):
 
     def test_rule_miss_is_none_for_semantic_fallback(self):
         self.assertIsNone(self.router.route("评估编号八的示例"))
+
+    def test_general_self_introduction_is_not_medical_knowledge(self):
+        self.assertIsNone(self.router.route("你好，可以介绍一下你自己吗"))
+
+    def test_compositional_requests_do_not_take_single_intent_fast_path(self):
+        messages = (
+            "先预测样本 0 再和上一次结果比较",
+            "解释当前结果并查找相关产后出血指南",
+            "查看历史然后给第 2 个样本做新预测",
+            "比较最近两次结果并解释各自决策路径",
+            "告诉我当前概率同时介绍产后出血是什么",
+            "运行样本 5 并列出全部历史记录",
+            "查询模型限制后再预测演示样本 3",
+            "解释刚才结果并和上次概率做对比",
+            "查看历史、比较结果并给出医学资料",
+            "预测一个样本然后说明模型版本和指南来源",
+            "explain my latest result and retrieve PPH guidance",
+            "run sample 6 then display all recent predictions",
+            "find model limitations and execute a new prediction",
+            "explain the result while comparing it to my earlier score",
+            "retrieve history, compare records, and search medical knowledge",
+            "predict a demo case and cite guidance about the condition",
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                decision = self.router.route(message)
+                self.assertEqual(decision.scope, RequestScope.UNKNOWN)
+                self.assertEqual(decision.reason, "rule_compositional")
 
     def test_rule_decision_records_source(self):
         decision = self.router.route("查看预测历史")

@@ -4,11 +4,15 @@ import unittest
 from pathlib import Path
 
 from evaluation.run_routing_evaluation import (
+    _hybrid_scope,
     _rule,
     evaluate_cases,
     load_cases,
     normalized_message,
 )
+from agent.routing import RuleRouter, SafetyGate
+from agent.routing_types import RequestScope
+from agent.semantic_routing import RoutingThresholds, SemanticScores
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +20,21 @@ ROUTING_CASES = ROOT / "evaluation" / "routing_cases.json"
 
 
 class RoutingCorpusTest(unittest.TestCase):
+    def test_hybrid_adapter_preserves_rules_and_applies_semantic_thresholds(self):
+        class Scorer:
+            def score(self, message):
+                return SemanticScores(RequestScope.PREDICTION, 0.9, 0.4, 0.5)
+
+        cases = load_cases(ROUTING_CASES)
+        by_id = {case.case_id: case for case in cases}
+        thresholds = RoutingThresholds(0.8, 0.1, 0.7)
+        self.assertEqual(_hybrid_scope(
+            by_id["known_history_01"], Scorer(), thresholds,
+            RuleRouter(), SafetyGate()), "history")
+        self.assertEqual(_hybrid_scope(
+            by_id["known_prediction_06"], Scorer(), thresholds,
+            RuleRouter(), SafetyGate()), "prediction")
+
     def test_rule_adapter_includes_safety_and_rule_miss(self):
         cases = load_cases(ROUTING_CASES)
         by_id = {case.case_id: case for case in cases}

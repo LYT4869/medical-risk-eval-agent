@@ -9,6 +9,13 @@ tasks:
       - demonstration sample
       - predict sample
       - 运行第
+      - 预测样本
+      - 新预测
+      - 运行样本
+      - 预测一个样本
+      - run sample
+      - new prediction
+      - predict a demo case
     intent_examples:
       - 预测演示样本 0
       - 请运行第 3 个演示样本
@@ -89,6 +96,8 @@ tasks:
       - difference
       - 差异
       - 变化
+      - 对比
+      - comparing
     intent_examples:
       - 比较最近两次预测
       - 这次和上次有什么差异
@@ -120,6 +129,7 @@ tasks:
       - source
       - what is
       - overview
+      - knowledge
     intent_examples:
       - 什么是产后出血
       - 查找产后出血指南

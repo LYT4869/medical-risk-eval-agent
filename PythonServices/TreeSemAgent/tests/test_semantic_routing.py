@@ -23,13 +23,17 @@ class FakeEmbeddingProvider:
             for example in definition.intent_examples:
                 self.example_vectors[example] = vector
 
-    def encode(self, texts):
+    def encode_examples(self, texts):
         self.encode_calls += 1
         return [
             self.query_vectors[text]
             if text in self.query_vectors else self.example_vectors[text]
             for text in texts
         ]
+
+    def encode_query(self, text):
+        self.encode_calls += 1
+        return self.query_vectors[text]
 
 
 class SemanticScorerTest(unittest.TestCase):
@@ -47,8 +51,11 @@ class SemanticScorerTest(unittest.TestCase):
 
     def test_clear_top_one_match_returns_business_scope(self):
         scorer, _ = self.scorer({"clear": [1, 0, 0, 0, 0, 0]})
+        scores = scorer.score("clear")
         decision = scorer.route("clear")
         expected = self.registry.business_definitions[0].scope
+        self.assertEqual(scores.top_scope, expected)
+        self.assertAlmostEqual(scores.top_similarity, 1.0)
         self.assertEqual(decision.scope, expected)
         self.assertEqual(decision.source, RoutingSource.SEMANTIC)
         self.assertAlmostEqual(decision.similarity_score, 1.0)
