@@ -10,11 +10,14 @@ from .policy import (SAFE_MEDICAL_REFUSAL, SAFE_POLICY_FALLBACK,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
+from .routing import RuleOnlyRouter, SafetyGate
+from .routing_types import RequestScope
 from .run_guard import AgentRunGuard
 from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
 from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
+from .task_registry import TaskRegistry
 from .workflow import WorkflowMode, WorkflowPlanner
 
 
@@ -47,13 +50,19 @@ class AgentTimeout(AgentExecutionError):
 class AgentLoop:
     def __init__(self, llm: LlmClient, tools: ToolRegistry, max_steps: int = 5,
                  max_tool_calls: int = 8, total_timeout_seconds: float = 25.0,
-                 policy: ResponsePolicy | None = None):
+                 policy: ResponsePolicy | None = None,
+                 router: RuleOnlyRouter | None = None,
+                 safety_gate: SafetyGate | None = None,
+                 task_registry: TaskRegistry | None = None):
         self._llm = llm
         self._tools = tools
         self._max_steps = max_steps
         self._max_tool_calls = max_tool_calls
         self._total_timeout = total_timeout_seconds
         self._policy = policy or ResponsePolicy()
+        self._router = router or RuleOnlyRouter()
+        self._safety_gate = safety_gate or SafetyGate()
+        self._task_registry = task_registry
 
     async def run(self, request: AgentRunRequest) -> AgentRunResponse:
         trace = TraceState.from_headers(request.request_id, request.traceparent)
@@ -78,9 +87,16 @@ class AgentLoop:
             raise
 
     async def _run_steps(self, request: AgentRunRequest,
-                         trace: TraceState) -> AgentRunResponse:
+        trace: TraceState) -> AgentRunResponse:
         deadline = time.monotonic() + self._total_timeout
-        guard = AgentRunGuard.for_request(request.message)
+        safety = self._safety_gate.evaluate(request.message)
+        if safety.allowed:
+            routing = await self._router.route(request.message)
+            guard = AgentRunGuard.for_scope(
+                routing.scope, include_summary=routing.include_summary)
+        else:
+            guard = AgentRunGuard.for_scope(
+                safety.refusal_scope or RequestScope.UNKNOWN)
         if guard.security_refusal is not None:
             return AgentRunResponse(
                 answer=SAFE_SECURITY_REFUSAL,
@@ -99,7 +115,8 @@ class AgentLoop:
                 grounding_source_ids=[],
                 citations=[],
             )
-        plan = WorkflowPlanner.for_request(request.message, guard)
+        plan = WorkflowPlanner.for_request(
+            request.message, guard, self._task_registry)
         stage_index = 0
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in request.recent_messages)

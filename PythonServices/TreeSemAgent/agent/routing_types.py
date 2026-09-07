@@ -31,4 +31,5 @@ class RoutingDecision:
     margin: float | None = None
     secondary_score: float | None = None
     reason: str | None = None
+    include_summary: bool = False
 

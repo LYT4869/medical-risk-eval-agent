@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from evaluation.run_routing_evaluation import (
+    _rule,
     evaluate_cases,
     load_cases,
     normalized_message,
@@ -15,6 +16,12 @@ ROUTING_CASES = ROOT / "evaluation" / "routing_cases.json"
 
 
 class RoutingCorpusTest(unittest.TestCase):
+    def test_rule_adapter_includes_safety_and_rule_miss(self):
+        cases = load_cases(ROUTING_CASES)
+        by_id = {case.case_id: case for case in cases}
+        self.assertEqual(_rule(by_id["safety_01"]), "security_abuse")
+        self.assertEqual(_rule(by_id["known_prediction_06"]), "unknown")
+
     def test_corpus_has_expected_shape_and_disjoint_messages(self):
         cases = load_cases(ROUTING_CASES)
 

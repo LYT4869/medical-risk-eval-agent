@@ -144,12 +144,24 @@ def _current_rule(case: RoutingCase) -> str:
     return AgentRunGuard.for_request(case.message).scope.value
 
 
+def _rule(case: RoutingCase) -> str:
+    from agent.routing import RuleRouter, SafetyGate
+
+    safety = SafetyGate().evaluate(case.message)
+    if not safety.allowed:
+        return (safety.refusal_scope.value if safety.refusal_scope is not None
+                else "unknown")
+    decision = RuleRouter().route(case.message)
+    return decision.scope.value if decision is not None else "unknown"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate treeSem Agent routing")
     parser.add_argument(
         "--cases", type=Path,
         default=Path(__file__).with_name("routing_cases.json"))
-    parser.add_argument("--router", choices=("current-rule",), default="current-rule")
+    parser.add_argument("--router", choices=("current-rule", "rule"),
+                        default="current-rule")
     parser.add_argument("--split", choices=tuple(sorted(SPLITS)) + ("all",),
                         default="all")
     parser.add_argument("--output", type=Path)
@@ -158,7 +170,8 @@ def main() -> int:
     cases = load_cases(args.cases)
     if args.split != "all":
         cases = [case for case in cases if case.split == args.split]
-    report = evaluate_cases(cases, _current_rule)
+    router = _current_rule if args.router == "current-rule" else _rule
+    report = evaluate_cases(cases, router)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.output is not None:
