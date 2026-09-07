@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .run_guard import AgentRunGuard, RequestScope
+from .routing_types import RequestScope
+from .run_guard import AgentRunGuard
+from .task_registry import BUSINESS_SCOPES, TaskRegistry, load_default_registry
 
 
 class WorkflowMode(str, Enum):
@@ -50,27 +52,18 @@ _EXPLICIT_EDUCATION = (
 class WorkflowPlanner:
     @classmethod
     def for_request(cls, message: str,
-                    guard: AgentRunGuard) -> WorkflowPlan:
+                    guard: AgentRunGuard,
+                    registry: TaskRegistry | None = None) -> WorkflowPlan:
         scope = guard.scope
-        if scope == RequestScope.PREDICTION:
-            return WorkflowPlan.deterministic("predict_sample")
-        if scope == RequestScope.SUMMARY:
-            return WorkflowPlan.deterministic("get_prediction")
-        if scope == RequestScope.EXPLANATION:
-            stages = []
-            if "get_prediction" in guard.allowed_tools():
-                stages.append("get_prediction")
-            stages.append("get_explanation")
-            return WorkflowPlan.deterministic(*stages)
-        if scope == RequestScope.HISTORY:
-            return WorkflowPlan.deterministic("get_prediction_history")
-        if scope == RequestScope.COMPARISON:
-            return WorkflowPlan.deterministic(
-                "get_prediction_history", "compare_predictions")
-        if scope == RequestScope.KNOWLEDGE:
-            return WorkflowPlan.deterministic("search_medical_knowledge")
         if scope == RequestScope.SKILL:
             return cls._skill_plan(message)
+        if scope in BUSINESS_SCOPES:
+            definition = (registry or load_default_registry()).definition(scope)
+            stages = list(definition.workflow_stages)
+            if (scope == RequestScope.EXPLANATION and
+                    "get_prediction" in guard.allowed_tools()):
+                stages.insert(0, "get_prediction")
+            return WorkflowPlan.deterministic(*stages)
         return WorkflowPlan.open_agent()
 
     @classmethod

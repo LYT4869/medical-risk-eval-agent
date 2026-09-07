@@ -2,20 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
 
-
-class RequestScope(str, Enum):
-    SKILL = "skill"
-    PREDICTION = "prediction"
-    SUMMARY = "summary"
-    EXPLANATION = "explanation"
-    HISTORY = "history"
-    COMPARISON = "comparison"
-    KNOWLEDGE = "knowledge"
-    SECURITY_ABUSE = "security_abuse"
-    MEDICAL_REFUSAL = "medical_refusal"
-    UNKNOWN = "unknown"
+from .routing_types import RequestScope
 
 
 @dataclass(frozen=True)
