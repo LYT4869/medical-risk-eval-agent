@@ -140,6 +140,7 @@ def create_onnx_provider(
     artifact = load_routing_artifact(
         settings.artifact_dir,
         task_registry_path=settings.task_registry,
+        thresholds_path=settings.thresholds,
         registry=registry,
         expected_backend=settings.embedding_backend.value,
         expected_model_id=settings.model,

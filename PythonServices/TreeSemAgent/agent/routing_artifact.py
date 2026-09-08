@@ -41,6 +41,7 @@ _MANIFEST_FIELDS = frozenset({
     "tokenizer_library_version",
     "exporter_version",
     "task_registry_sha256",
+    "routing_thresholds_sha256",
     "model_sha256",
     "tokenizer_sha256",
     "tokenizer_config_sha256",
@@ -76,6 +77,7 @@ class RoutingArtifactManifest:
     tokenizer_library_version: str
     exporter_version: str
     task_registry_sha256: str
+    routing_thresholds_sha256: str
     model_sha256: str
     tokenizer_sha256: str
     tokenizer_config_sha256: str
@@ -184,6 +186,8 @@ def _parse_manifest(path: Path) -> RoutingArtifactManifest:
             payload, "tokenizer_library_version"),
         exporter_version=_string(payload, "exporter_version"),
         task_registry_sha256=_checksum(payload, "task_registry_sha256"),
+        routing_thresholds_sha256=_checksum(
+            payload, "routing_thresholds_sha256"),
         model_sha256=_checksum(payload, "model_sha256"),
         tokenizer_sha256=_checksum(payload, "tokenizer_sha256"),
         tokenizer_config_sha256=_checksum(
@@ -247,6 +251,7 @@ def _load_matrix(path: Path, rows: int,
 
 def load_routing_artifact(
         directory: Path, *, task_registry_path: Path,
+        thresholds_path: Path,
         registry: TaskRegistry, expected_backend: str,
         expected_model_id: str, expected_revision: str) -> RoutingArtifact:
     directory = Path(directory)
@@ -264,6 +269,8 @@ def load_routing_artifact(
 
     if _sha256(task_registry_path) != manifest.task_registry_sha256:
         raise RoutingArtifactError("routing artifact Task Registry mismatch")
+    if _sha256(thresholds_path) != manifest.routing_thresholds_sha256:
+        raise RoutingArtifactError("routing artifact routing thresholds mismatch")
     examples = canonical_intent_examples(registry)
     if (len(examples) != manifest.intent_example_count or
             intent_examples_sha256(examples) !=

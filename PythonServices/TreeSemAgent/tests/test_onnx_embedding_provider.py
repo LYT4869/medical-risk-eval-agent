@@ -95,6 +95,7 @@ def manifest(*, examples, dimension=2):
         tokenizer_library_version="0.22.2",
         exporter_version="1",
         task_registry_sha256=digest,
+        routing_thresholds_sha256=digest,
         model_sha256=digest,
         tokenizer_sha256=digest,
         tokenizer_config_sha256=digest,

@@ -53,6 +53,24 @@ class RoutingCalibrationTest(unittest.TestCase):
                 observations, minimum_known_accuracy=1.0,
                 minimum_fallback_recall=1.0)
 
+    def test_calibration_leaves_numeric_clearance_at_observed_boundary(self):
+        boundary = 0.9186771161315093
+        observations = [RoutingObservation(
+            "known", RequestScope.SUMMARY,
+            SemanticScores(RequestScope.SUMMARY, 0.9340228783969391,
+                           0.01534576226542983, boundary))]
+
+        thresholds = choose_thresholds(
+            observations, minimum_known_accuracy=1.0,
+            minimum_fallback_recall=0.0)
+
+        self.assertEqual(thresholds.secondary_intent_similarity, 0.918678)
+        self.assertGreater(
+            thresholds.secondary_intent_similarity - boundary, 8e-7)
+        self.assertEqual(
+            apply_thresholds(observations[0], thresholds),
+            RequestScope.SUMMARY)
+
 
 if __name__ == "__main__":
     unittest.main()

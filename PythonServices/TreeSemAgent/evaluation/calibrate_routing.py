@@ -6,6 +6,7 @@ import itertools
 import json
 import math
 from dataclasses import asdict, dataclass
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
 from agent.embedding_provider import SentenceTransformerEmbeddingProvider
@@ -75,6 +76,30 @@ def _quality(observations: list[RoutingObservation],
     }
 
 
+def _stable_threshold(value: float, *, upper_boundary: bool) -> float:
+    """Move a learned boundary to a reproducible six-decimal grid.
+
+    Minimum similarity and margin are lower bounds, so rounding them down
+    preserves accepted calibration examples.  Secondary similarity is an
+    upper rejection boundary, so rounding it up provides the same protection.
+    This also leaves enough numeric clearance for normal PyTorch/ONNX drift.
+    """
+    rounding = ROUND_CEILING if upper_boundary else ROUND_FLOOR
+    return float(Decimal(str(value)).quantize(
+        Decimal("0.000001"), rounding=rounding))
+
+
+def _stabilize_thresholds(thresholds: RoutingThresholds) -> RoutingThresholds:
+    return RoutingThresholds(
+        min_similarity=_stable_threshold(
+            thresholds.min_similarity, upper_boundary=False),
+        min_margin=_stable_threshold(
+            thresholds.min_margin, upper_boundary=False),
+        secondary_intent_similarity=_stable_threshold(
+            thresholds.secondary_intent_similarity, upper_boundary=True),
+    )
+
+
 def choose_thresholds(
         observations: list[RoutingObservation], *,
         minimum_known_accuracy: float,
@@ -90,7 +115,8 @@ def choose_thresholds(
     best: tuple[tuple[float, ...], RoutingThresholds] | None = None
     for minimum, margin, secondary in itertools.product(
             similarity_candidates, margin_candidates, secondary_candidates):
-        thresholds = RoutingThresholds(minimum, margin, secondary)
+        thresholds = _stabilize_thresholds(
+            RoutingThresholds(minimum, margin, secondary))
         quality = _quality(observations, thresholds)
         known_accuracy = float(quality["known_accuracy"])
         fallback_recall = float(quality["fallback_recall"])

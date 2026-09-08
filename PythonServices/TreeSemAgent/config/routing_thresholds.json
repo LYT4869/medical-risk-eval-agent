@@ -12,8 +12,8 @@
   "rule_known_accuracy": 0.3,
   "schema_version": 1,
   "thresholds": {
-    "min_margin": 0.002103112350333336,
-    "min_similarity": 0.8800822593018546,
-    "secondary_intent_similarity": 0.9186771161315094
+    "min_margin": 0.002539,
+    "min_similarity": 0.880862,
+    "secondary_intent_similarity": 0.918678
   }
 }

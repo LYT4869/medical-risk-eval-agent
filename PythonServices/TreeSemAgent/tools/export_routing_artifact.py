@@ -421,6 +421,7 @@ def export_routing_artifact(settings: ExportSettings) -> Path:
             "embedding_backend": settings.backend,
             "onnx_opset": settings.opset,
             "task_registry_sha256": _sha256(settings.tasks_path),
+            "routing_thresholds_sha256": _sha256(settings.thresholds_path),
             "intent_examples_sha256": intent_examples_sha256(
                 canonical_intent_examples(registry)),
             "exporter_version": EXPORTER_VERSION,
@@ -450,6 +451,8 @@ def export_routing_artifact(settings: ExportSettings) -> Path:
             "tokenizer_library_version": tokenizers.__version__,
             "exporter_version": EXPORTER_VERSION,
             "task_registry_sha256": version_input["task_registry_sha256"],
+            "routing_thresholds_sha256": version_input[
+                "routing_thresholds_sha256"],
             **checksums,
         }
         (staging / "manifest.json").write_bytes(stable_json_bytes(manifest))

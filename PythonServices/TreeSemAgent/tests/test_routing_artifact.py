@@ -19,6 +19,7 @@ from agent.task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
 TASKS = ROOT / "config" / "tasks.yaml"
+THRESHOLDS = ROOT / "config" / "routing_thresholds.json"
 MODEL = "intfloat/multilingual-e5-small"
 REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 
@@ -73,6 +74,7 @@ class RoutingArtifactTest(unittest.TestCase):
             "tokenizer_library_version": "0.22.2",
             "exporter_version": "1",
             "task_registry_sha256": sha256(TASKS),
+            "routing_thresholds_sha256": sha256(THRESHOLDS),
             "model_sha256": sha256(directory / "model.onnx"),
             "tokenizer_sha256": sha256(directory / "tokenizer.json"),
             "tokenizer_config_sha256": sha256(
@@ -100,6 +102,7 @@ class RoutingArtifactTest(unittest.TestCase):
         return load_routing_artifact(
             directory,
             task_registry_path=TASKS,
+            thresholds_path=THRESHOLDS,
             registry=self.registry,
             expected_backend=backend,
             expected_model_id=MODEL,
@@ -155,11 +158,13 @@ class RoutingArtifactTest(unittest.TestCase):
         with self.assertRaisesRegex(RoutingArtifactError, "model"):
             load_routing_artifact(
                 directory, task_registry_path=TASKS, registry=self.registry,
+                thresholds_path=THRESHOLDS,
                 expected_backend="onnx_fp32", expected_model_id="wrong",
                 expected_revision=REVISION)
         with self.assertRaisesRegex(RoutingArtifactError, "revision"):
             load_routing_artifact(
                 directory, task_registry_path=TASKS, registry=self.registry,
+                thresholds_path=THRESHOLDS,
                 expected_backend="onnx_fp32", expected_model_id=MODEL,
                 expected_revision="wrong")
 
@@ -175,6 +180,16 @@ class RoutingArtifactTest(unittest.TestCase):
         manifest["intent_examples_sha256"] = "1" * 64
         self.write_manifest(directory, manifest)
         with self.assertRaisesRegex(RoutingArtifactError, "intent examples"):
+            self.load(directory)
+
+    def test_rejects_routing_threshold_mismatch(self):
+        directory = self.write_artifact()
+        manifest = self.read_manifest(directory)
+        manifest["routing_thresholds_sha256"] = "2" * 64
+        self.write_manifest(directory, manifest)
+
+        with self.assertRaisesRegex(RoutingArtifactError,
+                                    "routing thresholds"):
             self.load(directory)
 
     def test_rejects_modified_business_file(self):
