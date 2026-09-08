@@ -54,7 +54,7 @@ class SemanticRoutingExecutor:
         try:
             await asyncio.wait_for(
                 self._admission.acquire(), timeout=self._admission_timeout)
-        except TimeoutError as exc:
+        except asyncio.TimeoutError as exc:
             raise RoutingOverloaded("semantic routing admission is full") from exc
         if self._closed:
             self._admission.release()
@@ -73,7 +73,7 @@ class SemanticRoutingExecutor:
         try:
             return await asyncio.wait_for(
                 asyncio.shield(future), timeout=self._route_timeout)
-        except TimeoutError as exc:
+        except asyncio.TimeoutError as exc:
             raise RoutingTimeout("semantic routing deadline exceeded") from exc
 
     def _on_future_done(self, future: asyncio.Future) -> None:

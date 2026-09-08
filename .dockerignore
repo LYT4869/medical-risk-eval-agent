@@ -2,6 +2,8 @@
 .env
 build*
 artifacts
+.cache
+**/.cache
 **/__pycache__
 **/.pytest_cache
 PythonServices/TreeSemKnowledge/corpus/raw
