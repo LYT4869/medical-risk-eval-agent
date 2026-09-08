@@ -12,6 +12,8 @@ ROUTING_ARTIFACT_DIR ?= artifacts/agent-routing/disabled
 ROUTING_BACKEND ?= onnx_int8
 ROUTING_HF_CACHE ?= $(HOME)/.cache/huggingface
 ROUTING_EXPORT_IMAGE ?= treesem-routing-export:local
+ROUTING_RUNTIME_IMAGE ?= treesem-agent-routing-onnx:benchmark
+ROUTING_BASELINE_DEPLOYMENT_BYTES ?=
 ROUTING_REPORT_DIR := artifacts/evaluation/routing
 
 prepare-demo:
@@ -83,8 +85,19 @@ routing-parity:
 		--output /reports/$(ROUTING_BACKEND)-parity.json
 
 routing-benchmark:
-	PYTHONPATH=$(ROUTING_ROOT) python3 -m evaluation.benchmark_routing_runtime \
-		--artifact-dir $(ROUTING_ARTIFACT_DIR) --tasks $(ROUTING_TASKS) \
-		--thresholds $(ROUTING_THRESHOLDS) --backend $(ROUTING_BACKEND) \
-		--warmup 100 --iterations 1000 \
-		--output $(ROUTING_REPORT_DIR)/$(ROUTING_BACKEND)-runtime-benchmark.json
+	mkdir -p $(ROUTING_REPORT_DIR)
+	docker build --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+		--build-arg NO_PROXY --build-arg TREESEM_INSTALL_SEMANTIC_ROUTING=true \
+		-f deploy/docker/agent.Dockerfile -t $(ROUTING_RUNTIME_IMAGE) .
+	docker run --rm --user "$$(id -u):$$(id -g)" --entrypoint python \
+		-v $(abspath $(ROUTING_ARTIFACT_DIR)):/routing/artifact:ro \
+		-v $(abspath $(ROUTING_REPORT_DIR)):/reports \
+		$(ROUTING_RUNTIME_IMAGE) -m evaluation.benchmark_routing_runtime \
+		--artifact-dir /routing/artifact --tasks /app/config/tasks.yaml \
+		--thresholds /app/config/routing_thresholds.json \
+		--backend $(ROUTING_BACKEND) --model $(ROUTING_MODEL) \
+		--revision $(ROUTING_REVISION) --warmup 100 --iterations 1000 \
+		--container-image-bytes "$$(docker image inspect \
+			--format '{{.Size}}' $(ROUTING_RUNTIME_IMAGE))" \
+		$(if $(ROUTING_BASELINE_DEPLOYMENT_BYTES),--baseline-deployment-bytes $(ROUTING_BASELINE_DEPLOYMENT_BYTES),) \
+		--output /reports/$(ROUTING_BACKEND)-runtime-benchmark.json
