@@ -1,10 +1,16 @@
 import asyncio
+import contextlib
+import io
+import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.llm_client import (LlmError, LlmToolPolicy, ScriptedDemoClient,
                               ScriptedLlmClient)
 from agent.loop import AgentExecutionError, AgentLoop, AgentTimeout
+from agent.observability import Metrics
+from agent.routing_types import RequestScope, RoutingDecision, RoutingSource
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn, PredictionContext, RecentMessage
 from agent.skills import SkillCatalog
 from agent.tool_registry import ToolRegistry
@@ -100,6 +106,16 @@ class RecordingToolsClient(ScriptedLlmClient):
             item["function"]["name"] for item in tools})
         return await super().complete(
             messages, tools, timeout, tool_policy)
+
+
+class FakeRouter:
+    def __init__(self, decision):
+        self.decision = decision
+        self.messages = []
+
+    async def route(self, message):
+        self.messages.append(message)
+        return self.decision
 
 
 def request():
@@ -316,6 +332,64 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual([policy.mode for policy in client.tool_policies],
                          ["auto", "auto"])
         self.assertEqual(result.grounding_prediction_ids, [prediction_id])
+
+    def test_injected_semantic_router_drives_deterministic_history_workflow(self):
+        prediction_id = "pred_" + "a" * 32
+        router = FakeRouter(RoutingDecision(
+            RequestScope.HISTORY, RoutingSource.SEMANTIC,
+            similarity_score=0.82, margin=0.17,
+            secondary_score=0.65))
+        client = RecordingToolsClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="h1", name="get_prediction_history",
+                arguments={"limit": 5})]),
+            LlmTurn(content=f"Stored result {prediction_id}.",
+                    grounding_prediction_ids=[prediction_id]),
+        ])
+        routed = request().model_copy(update={
+            "message": "能不能翻一下之前做过的结果"})
+
+        result = asyncio.run(AgentLoop(
+            client, ToolRegistry(FakeBackend()), router=router).run(routed))
+
+        self.assertEqual(router.messages, [routed.message])
+        self.assertEqual(client.tool_name_sets,
+                         [{"get_prediction_history"}, set()])
+        self.assertEqual([item.name for item in result.tools_used],
+                         ["get_prediction_history"])
+
+    def test_routing_metrics_and_trace_are_bounded_and_exclude_message(self):
+        router = FakeRouter(RoutingDecision(
+            RequestScope.UNKNOWN, RoutingSource.UNKNOWN,
+            reason="semantic_timeout"))
+        routed = request().model_copy(update={
+            "message": "private patient routing text"})
+        isolated_metrics = Metrics()
+        output = io.StringIO()
+
+        with patch("agent.loop.metrics", isolated_metrics), \
+                patch.dict("os.environ", {"TREESEM_TRACE_STDOUT": "true"}), \
+                contextlib.redirect_stdout(output):
+            asyncio.run(AgentLoop(
+                ScriptedLlmClient([LlmTurn(content="General guidance.")]),
+                ToolRegistry(FakeBackend()), router=router).run(routed))
+
+        rendered = isolated_metrics.render()
+        self.assertIn(
+            'treesem_agent_routing_total{scope="unknown",source="unknown"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_routing_fallback_total{reason="semantic_timeout"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_routing_duration_seconds_count{source="unknown"} 1',
+            rendered)
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        routing = next(
+            event for event in events
+            if event["operation"] == "agent.routing")
+        self.assertEqual(routing["reason"], "semantic_timeout")
+        self.assertNotIn(routed.message, output.getvalue())
 
     def test_empty_knowledge_result_finalizes_without_semantic_retry(self):
         client = ScriptedLlmClient([

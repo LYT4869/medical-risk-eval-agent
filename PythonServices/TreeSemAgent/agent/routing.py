@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
 from .task_registry import TaskRegistry, load_default_registry
@@ -71,6 +72,10 @@ class SafetyDecision:
     allowed: bool
     refusal_scope: RequestScope | None = None
     reason: str | None = None
+
+
+class AgentRouter(Protocol):
+    async def route(self, message: str) -> RoutingDecision: ...
 
 
 class SafetyGate:

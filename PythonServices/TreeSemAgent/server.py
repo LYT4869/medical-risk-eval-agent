@@ -18,6 +18,8 @@ from agent.skills import SkillCatalog
 from agent.tool_registry import ToolRegistry
 from agent.tools import BackendToolClient, McpKnowledgeClient
 from agent.observability import metrics
+from agent.routing_config import (RoutingRuntime, RoutingSettings,
+                                  build_routing_runtime)
 
 
 def _integer(name: str, default: int) -> int:
@@ -53,6 +55,7 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
     backend = None
     knowledge = None
     skills = None
+    routing_runtime: RoutingRuntime | None = None
     if loop is None:
         if len(service_secret) < 32:
             raise RuntimeError("TREESEM_AGENT_SERVICE_SECRET must contain at least 32 characters")
@@ -93,15 +96,21 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
             default_skills = Path(__file__).resolve().parent / "skills"
             skills = SkillCatalog(Path(os.getenv(
                 "TREESEM_AGENT_SKILLS_DIR", str(default_skills))), available_tools)
+        routing_settings = RoutingSettings.from_environment()
+        routing_runtime = build_routing_runtime(routing_settings)
         loop = AgentLoop(llm, ToolRegistry(backend, knowledge, skills),
                          _integer("TREESEM_AGENT_MAX_STEPS", 5),
                          _integer("TREESEM_AGENT_MAX_TOOL_CALLS", 8),
-                         _integer("TREESEM_AGENT_TOTAL_TIMEOUT_MS", 25000) / 1000)
+                         _integer("TREESEM_AGENT_TOTAL_TIMEOUT_MS", 25000) / 1000,
+                         router=routing_runtime.router,
+                         task_registry=routing_runtime.registry)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
         if owned:
+            if routing_runtime is not None:
+                await routing_runtime.close()
             if llm is not None:
                 await llm.close()
             if backend is not None:
@@ -114,14 +123,24 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict:
         result = {"status": "ok", "service": "treeSem-agent",
-                  "llm_backend": os.getenv("TREESEM_AGENT_LLM_MODE", "real")}
+                  "llm_backend": os.getenv("TREESEM_AGENT_LLM_MODE", "real"),
+                  "routing_mode": (
+                      routing_runtime.mode.value
+                      if routing_runtime is not None else "injected"),
+                  "semantic_routing_available": (
+                      routing_runtime.semantic_available
+                      if routing_runtime is not None else False)}
+        if (routing_runtime is not None and
+                routing_runtime.degradation_reason is not None):
+            result["routing_degradation_reason"] = (
+                routing_runtime.degradation_reason)
         if skills is not None:
             result.update({"skill_count": skills.count,
                            "skill_catalog_version": skills.version})
         return result
 
     @app.get("/ready")
-    async def ready() -> dict[str, str]:
+    async def ready() -> dict[str, object]:
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
                 response = await client.get(backend_url.rstrip("/") + "/health")
@@ -130,7 +149,20 @@ def create_app(loop: AgentLoop | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="tool backend unavailable") from exc
         if knowledge is not None and not await knowledge.ready():
             raise HTTPException(status_code=503, detail="knowledge MCP unavailable")
-        return {"status": "ready"}
+        result: dict[str, object] = {
+            "status": "ready",
+            "routing_mode": (
+                routing_runtime.mode.value
+                if routing_runtime is not None else "injected"),
+            "semantic_routing_available": (
+                routing_runtime.semantic_available
+                if routing_runtime is not None else False),
+        }
+        if (routing_runtime is not None and
+                routing_runtime.degradation_reason is not None):
+            result["routing_degradation_reason"] = (
+                routing_runtime.degradation_reason)
+        return result
 
     @app.get("/internal/metrics", response_class=PlainTextResponse)
     async def service_metrics(authorization: str = Header(default="")) -> str:

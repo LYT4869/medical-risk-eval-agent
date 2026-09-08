@@ -10,8 +10,8 @@ from .policy import (SAFE_MEDICAL_REFUSAL, SAFE_POLICY_FALLBACK,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
-from .routing import RuleOnlyRouter, SafetyGate
-from .routing_types import RequestScope
+from .routing import AgentRouter, RuleOnlyRouter, SafetyGate
+from .routing_types import RequestScope, RoutingDecision, RoutingSource
 from .run_guard import AgentRunGuard
 from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
 from .skills import SkillActivation
@@ -51,7 +51,7 @@ class AgentLoop:
     def __init__(self, llm: LlmClient, tools: ToolRegistry, max_steps: int = 5,
                  max_tool_calls: int = 8, total_timeout_seconds: float = 25.0,
                  policy: ResponsePolicy | None = None,
-                 router: RuleOnlyRouter | None = None,
+                 router: AgentRouter | None = None,
                  safety_gate: SafetyGate | None = None,
                  task_registry: TaskRegistry | None = None):
         self._llm = llm
@@ -89,14 +89,19 @@ class AgentLoop:
     async def _run_steps(self, request: AgentRunRequest,
         trace: TraceState) -> AgentRunResponse:
         deadline = time.monotonic() + self._total_timeout
+        routing_started = time.monotonic()
         safety = self._safety_gate.evaluate(request.message)
         if safety.allowed:
             routing = await self._router.route(request.message)
             guard = AgentRunGuard.for_scope(
                 routing.scope, include_summary=routing.include_summary)
         else:
-            guard = AgentRunGuard.for_scope(
-                safety.refusal_scope or RequestScope.UNKNOWN)
+            routing = RoutingDecision(
+                safety.refusal_scope or RequestScope.UNKNOWN,
+                RoutingSource.RULE,
+                reason=safety.reason)
+            guard = AgentRunGuard.for_scope(routing.scope)
+        self._observe_routing(trace, routing_started, routing)
         if guard.security_refusal is not None:
             return AgentRunResponse(
                 answer=SAFE_SECURITY_REFUSAL,
@@ -399,3 +404,29 @@ class AgentLoop:
                     else:
                         stage_index = len(plan.stages)
         raise AgentExecutionError("step limit reached", "step_limit")
+
+    @staticmethod
+    def _observe_routing(trace: TraceState, started: float,
+                         decision: RoutingDecision) -> None:
+        source = decision.source.value
+        scope = decision.scope.value
+        metrics.increment(
+            "treesem_agent_routing_total", source=source, scope=scope)
+        metrics.observe(
+            "treesem_agent_routing_duration_seconds",
+            time.monotonic() - started, source=source)
+        if decision.source == RoutingSource.SEMANTIC:
+            metrics.increment("treesem_agent_routing_admitted")
+        if decision.scope == RequestScope.UNKNOWN and decision.reason:
+            metrics.increment(
+                "treesem_agent_routing_fallback_total",
+                reason=decision.reason)
+            if decision.reason == "semantic_overloaded":
+                metrics.increment(
+                    "treesem_agent_routing_overloaded_total")
+        trace_event(
+            trace.child(), "agent.routing", started, "success",
+            source=source, scope=scope, reason=decision.reason,
+            similarity_score=decision.similarity_score,
+            margin=decision.margin,
+            secondary_score=decision.secondary_score)
