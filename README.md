@@ -10,6 +10,8 @@ Browser -> C++ Gateway -> ONNX treeSem / MySQL
 
 当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。64 条独立 Agent 场景（79 轮）确定性评测全部通过；真实 `qwen3.7-plus-2026-05-26` 完整单次评测任务成功率、Prediction Grounding、Citation 与医疗安全指标均为 `100%`，编排合规率 `96.875%`。完整历史、口径和失败审计由评测脚本及报告保留。
 
+Agent 意图路由采用“确定性安全策略 + 高精度规则快路径 + 可选语义回退”。E5 held-out 将已知意图准确率从 `56.67%` 提升到 `60.00%`，但镜像增加约 `1078.1 MiB`、运行时 RSS 增加约 `745.6 MiB`，且 8 场景真实模型定向回归为 `6/8`。因此默认仍使用低成本 `rule`，语义路由仅作为可选、可降级能力，不因技术更新而强行进入主链。
+
 ## 快速演示
 
 ```bash
@@ -42,6 +44,7 @@ make demo-flow
 - [RabbitMQ 选型 ADR](docs/adr/0001-rabbitmq-decision.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 - [真实大模型调优面试案例](docs/agent-llm-optimization-interview-case.md)
+- [Agent 混合路由评测与取舍](docs/reports/agent-routing-evaluation.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 
@@ -56,6 +59,7 @@ make demo-flow
 ```bash
 make verify       # C++ 注册测试 + 64 条确定性 Agent Evaluation
 make verify-full  # 具备私有 Artifact 与 Docker 的本地完整门槛
+make routing-unit routing-evaluate routing-load-smoke
 ```
 
 2026-08-18 已完成真实 Docker 构建、完整离线 E2E、可选服务故障隔离、MySQL 重启恢复、Prometheus/Grafana 抓取和 SIGTERM 验收。详见 [M10 验证边界](docs/m10-deployment-demo.md)。

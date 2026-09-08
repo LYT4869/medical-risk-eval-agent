@@ -175,10 +175,10 @@ Skills after the request is classified as `SKILL`.
 
 ### Semantic router
 
-The first candidate is
-`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, pinned to a
-specific revision during implementation. It is a candidate, not a claim of
-superiority; the hybrid mode is promoted only after held-out evaluation.
+The evaluated implementation uses `intfloat/multilingual-e5-small`, pinned to
+revision `614241f622f53c4eeff9890bdc4f31cfecc418b3`. The model is an evaluated
+candidate, not a claim of superiority; the hybrid mode is promoted only after
+held-out and targeted real-Agent evaluation.
 
 At startup:
 

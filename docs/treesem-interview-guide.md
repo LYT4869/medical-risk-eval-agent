@@ -712,9 +712,10 @@ MVCC 让普通一致性读通过版本链减少读写阻塞；锁定当前 Sessi
 
 **参考回答：**
 
-每次 Run 先做保守意图分类。预测、解释、历史、比较、知识和显式 Skill 等高置信请求生成有序
-工作流，每个阶段只暴露一个必需 Tool，完成后关闭 Tool 并让 LLM 组织回答；模糊或组合请求才
-进入开放 Agent Loop。两条路径都经过 Registry、Schema、Capability、grounding 和总预算。
+每次 Run 先经过确定性安全策略，再走高精度规则快路径；可选语义路由只处理规则未命中的单一
+业务意图。预测、解释、历史、比较、知识和显式 Skill 等高置信请求生成有序工作流，每个阶段只
+暴露一个必需 Tool，完成后关闭 Tool 并让 LLM 组织回答；低置信、模糊或组合请求进入受限开放
+Agent Loop。所有路径都经过 Registry、Schema、Capability、grounding 和总预算。
 因此系统既保留自然语言参数抽取与表达能力，又不把清晰业务流程完全交给模型自由规划。
 
 ## F3. Agent 怎么判断任务完成，怎么防止死循环【P0】
@@ -842,6 +843,36 @@ System Prompt 定义角色、回答边界、事实来源、Tool 使用规则和�
 让模型反复规划只会增加 Token、延迟和错误面。项目采用混合方案：清晰意图走确定性阶段，LLM
 仍提取参数并生成自然语言；歧义和组合问题保留开放 Loop。qwen3.7 对照中出现的过度规划、重复
 检索和追加 Tool 正是这个取舍的实验证据，而不是仅凭经验做架构选择。
+
+## F18. 为什么没有用语义路由完全替代关键词规则【P0】
+
+**参考回答：**
+
+规则只保留在确定性安全、显式 Skill 和少量高精度业务表达上，优势是延迟低、行为稳定且不需要
+加载模型；它不是完整的自然语言分类器。规则未命中时，系统可以用多语言 Embedding 做语义回退，
+但相似度还要经过最低分、Top-1/Top-2 margin 和次意图门槛，无法确定就退回受限开放 Agent。
+最终 held-out 只多覆盖一条英文历史问法，而镜像和 RSS 成本明显增加，所以默认仍用规则、语义
+能力按需开启。技术选型应看业务增益和资源证据，不按“传统或新潮”二选一。
+
+## F19. Embedding 是阻塞计算，怎样避免拖住 Agent EventLoop【P0】
+
+**参考回答：**
+
+没有为路由再造复杂调度系统，而是用固定大小线程池隔离阻塞编码，在提交前用有界 admission
+控制正在执行和等待的总量，再用 `asyncio` deadline 限制调用时间。队列满、超时或可选依赖故障
+时快速降级到受限开放 Agent。超时只停止等待，资源许可要等后台任务真正结束后再释放，避免任务
+仍在运行却继续超卖线程和内存。这满足不阻塞 EventLoop、资源有界和可降级三个目标。
+
+## F20. 语义路由是否进入默认主链，你怎么决策【P0】
+
+**参考回答：**
+
+我先用独立 calibration 选择阈值，再在 held-out 上比较已知意图准确率、错误确定性路由、Unknown/
+组合回退和 p95；随后跑 64 场景确定性 Agent 回归及少量真实模型定向回归，最后结合镜像、RSS 和
+初始化成本。E5 将已知意图准确率从 56.67% 提升到 60.00%，p95 为 23.441 ms，安全与回退为
+100%，但只新增一条正确路由，镜像增加约 1078.1 MiB、RSS 增加约 745.6 MiB，真实定向回归两轮
+均为 6/8。因此实现保留但没有默认启用，也没有继续花费完整 64 场景 API 成本去证明已经失败的
+推广假设。
 
 ---
 
@@ -1402,6 +1433,8 @@ Knowledge、Adapter 与 MySQL，只向宿主暴露 Web 入口；Bundle 和知识
 | qwen-plus 失败集回归 | 原始 9 个失败场景修正后统一 `9/9`，14 轮、77,287 Token | 评测口径、知识证据和串行 Skill 修正确实覆盖原失败 | 不能替代修正后的完整 64 场景重跑 |
 | qwen3.7 模型升级对照 | 64 场景原始 `36/64`（56.25%），222 次调用、489,683 Token，平均/p95 9.46/16.49 秒 | 新模型与当前 Agent 协议存在规划和终止差异，升级必须做项目内 A/B | 不能据此评价模型的通用能力，也不是治理后的复测结果 |
 | 混合编排确定性回归 | `64/64`、79 轮；任务结果、编排合规、安全有效性均 100%，冗余/阻断均 0 | 分阶段 Tool Choice、开放 Loop、Skill 和确定性拒绝在协议层闭环 | 仍不能证明任一真实 LLM 的表达和路由稳定性 |
+| 可选 E5 语义路由 | held-out 已知意图 `56.67% → 60.00%`，p95 `23.441 ms`，Unknown/组合/安全 `100%`；镜像 `+1078.1 MiB`、RSS `+745.6 MiB` | 语义回退能补充规则改写覆盖，并可在有界线程中安全降级 | 实际只新增 1 条正确路由，资源性价比不足，未设为默认 |
+| 语义路由真实定向回归 | 8 场景两轮均 `6/8`；第二轮修复知识重复 Tool，但模糊指代和组合规划仍失败 | 真实模型暴露的协议偏差能够被定位，安全硬门槛保持通过 | 未达到默认推广门槛，未继续运行完整付费 64 场景 |
 | qwen3.7 混合编排定向对照 | 同一 12 场景由严格 `5/12` 提升为 `12/12`；13 轮、32 次请求、45,204 Token，三组指标 100% | 分阶段 Tool Choice 修复了代表性过度规划路径，并达到完整矩阵晋级门槛 | 只运行一次且只有 12 场景，不能替代完整 64 场景和重复稳定性评测 |
 | qwen3.7 首次混合编排全量 | 64 场景、79 轮 `61/64`，Citation 96.875%，245,222 Token | 混合编排已覆盖主体路径，并暴露漏引用和冗余步骤问题 | 仍是修复前的独立原始报告，不能用最终结果覆盖 |
 | qwen3.7 最终完整单次评测 | `64/64`，Grounding、Citation、医疗安全 100%，编排合规 96.875%，244,929 Token，平均/p95 6.82/12.86 秒 | 混合编排、动态 Tool 收窄和受控 Citation 修复在完整固定集上闭环 | 只运行一次，使用合成 Tool fixture，不测真实 Gateway RBAC 或真实患者质量 |
@@ -1774,6 +1807,7 @@ MQ 不会减少实际计算时间，只会增加任务状态和重复消费问�
 | `WebApps/TreeSemServer/src/application/PredictionService.cpp` | 推理与短事务的边界、预测快照 | E |
 | `WebApps/TreeSemServer/src/infrastructure/persistence` | 连接池 Lease、事务、PreparedStatement、坏连接 | E |
 | `PythonServices/TreeSemAgent/agent/loop.py` | Agent 状态机、终止、重试、deadline、重复 Tool | F |
+| `agent/routing.py`、`semantic_routing.py`、`routing_executor.py` | 安全前置、规则快路径、语义阈值、有界 admission 与降级 | F、H |
 | `PythonServices/TreeSemAgent/agent/tool_registry.py` 与 `tools/` | Schema、上下文绑定、Tool 错误和 MCP provider | F、J |
 | `WebApps/TreeSemServer/src/security` 与认证应用层 | JWT、Refresh、RBAC、Capability 与审计 | G |
 | `PythonServices/TreeSemKnowledge/knowledge/retrieval` | BM25、Dense、RRF、rerank、过滤和降级 | J |
