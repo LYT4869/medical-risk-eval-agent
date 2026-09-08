@@ -160,6 +160,23 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(backend.calls, [])
         self.assertEqual(result.tools_used, [])
 
+    def test_current_emergency_returns_immediate_help_without_routing_or_llm(self):
+        llm = ScriptedLlmClient([])
+        backend = FakeBackend()
+        router = FakeRouter(RoutingDecision(
+            RequestScope.KNOWLEDGE, RoutingSource.SEMANTIC))
+        emergency = request().model_copy(update={
+            "message": "我现在大量出血并且头晕，应该怎么办？"})
+
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(backend), router=router).run(emergency))
+
+        self.assertIn("立即", result.answer)
+        self.assertIn("急救", result.answer)
+        self.assertEqual(router.messages, [])
+        self.assertEqual(llm.requests, [])
+        self.assertEqual(backend.calls, [])
+
     def test_ordinary_knowledge_request_only_exposes_knowledge_tool(self):
         client = RecordingToolsClient([
             LlmTurn(tool_calls=[LlmToolCall(
@@ -294,7 +311,7 @@ class AgentLoopTest(unittest.TestCase):
             "get_explanation" not in names
             for names in client.tool_name_sets))
 
-    def test_tool_call_during_none_finalization_never_executes(self):
+    def test_tool_call_during_none_finalization_is_rejected_then_repaired(self):
         backend = FakeBackend()
         client = ScriptedLlmClient([
             LlmTurn(tool_calls=[LlmToolCall(
@@ -303,15 +320,38 @@ class AgentLoopTest(unittest.TestCase):
             LlmTurn(tool_calls=[LlmToolCall(
                 id="p2", name="get_prediction", arguments={
                     "prediction_id": "pred_" + "a" * 32})]),
+            LlmTurn(
+                content="Prediction pred_" + "a" * 32,
+                grounding_prediction_ids=["pred_" + "a" * 32]),
         ])
 
-        with self.assertRaises(AgentExecutionError) as caught:
-            asyncio.run(AgentLoop(
-                client, ToolRegistry(backend)).run(request()))
+        result = asyncio.run(AgentLoop(
+            client, ToolRegistry(backend)).run(request()))
 
-        self.assertEqual(caught.exception.code, "tool_not_allowed")
+        self.assertEqual(result.grounding_prediction_ids,
+                         ["pred_" + "a" * 32])
         self.assertEqual([item[0] for item in backend.calls],
                          ["predict_sample"])
+        self.assertEqual(
+            [policy.mode for policy in client.tool_policies],
+            ["required", "none", "none"])
+
+    def test_open_agent_does_not_receive_unavailable_skill_catalog(self):
+        client = RecordingToolsClient([
+            LlmTurn(content="Please clarify which stored result you mean.")])
+        ambiguous = request().model_copy(update={
+            "message": "解释当前结果并和上次概率做对比"})
+
+        asyncio.run(AgentLoop(
+            client,
+            ToolRegistry(FakeBackend(), skills=self.skill_catalog())).run(
+                ambiguous))
+
+        first_messages = client.requests[0]
+        self.assertFalse(any(
+            "Trusted skill catalog" in str(item.get("content", ""))
+            for item in first_messages))
+        self.assertNotIn("activate_skill", client.tool_name_sets[0])
 
     def test_ambiguous_request_retains_open_agent_policy(self):
         prediction_id = "pred_" + "a" * 32

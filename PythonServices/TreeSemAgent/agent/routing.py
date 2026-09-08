@@ -34,6 +34,10 @@ _KNOWLEDGE_RETRIEVAL_ACTION = (
     "查找", "检索", "搜索", "查询资料", "find", "retrieve", "search",
     "provide general medical evidence",
 )
+_VAGUE_REFERENCE = (
+    "这个情况", "处理一下这个", "看看这个",
+    "help me with this", "with this situation",
+)
 
 _ABUSE = re.compile(
     r"(?:伪造|编造|绕过|忽略.*规则|ignore.*instruction|fabricate|invent|bypass)",
@@ -65,6 +69,18 @@ _SOURCE_REQUEST = (
     "资料", "索引", "引用", "方案", "证据", "quote", "source",
     "protocol", "evidence",
 )
+_EMERGENCY_BLEEDING = (
+    "大量出血", "持续大出血", "产后出血",
+    "heavy bleeding", "active bleeding", "postpartum hemorrhage",
+)
+_EMERGENCY_INSTABILITY = (
+    "头晕", "晕倒", "意识不清", "昏厥", "昏倒",
+    "feel faint", "fainting", "altered consciousness", "unconscious",
+)
+_EMERGENCY_CURRENT = (
+    "现在", "当前", "立刻", "同时", "正在",
+    "right now", "currently", "active", "immediate",
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +103,14 @@ class SafetyGate:
             return SafetyDecision(
                 False, RequestScope.SECURITY_ABUSE,
                 "explicit_security_abuse")
+        urgent_symptoms = (
+            contains(normalized, _EMERGENCY_BLEEDING) and
+            contains(normalized, _EMERGENCY_INSTABILITY) and
+            contains(normalized, _EMERGENCY_CURRENT))
+        if urgent_symptoms:
+            return SafetyDecision(
+                False, RequestScope.MEDICAL_REFUSAL,
+                "urgent_medical_symptoms")
         personalized_medical = (
             contains(normalized, _PERSONALIZED_REQUEST) and
             contains(normalized, _CLINICAL_ACTION))
@@ -160,6 +184,10 @@ class RuleRouter:
             return self._decision(RequestScope.SUMMARY)
         if has_knowledge:
             return self._decision(RequestScope.KNOWLEDGE)
+        if contains(normalized, _VAGUE_REFERENCE):
+            return RoutingDecision(
+                RequestScope.UNKNOWN, RoutingSource.RULE,
+                reason="rule_ambiguous_reference")
         return None
 
     def _matches(self, scope: RequestScope, message: str) -> bool:

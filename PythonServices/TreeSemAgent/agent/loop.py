@@ -5,7 +5,8 @@ import json
 import time
 
 from .llm_client import LlmClient, LlmError, LlmToolPolicy
-from .policy import (SAFE_MEDICAL_REFUSAL, SAFE_POLICY_FALLBACK,
+from .policy import (SAFE_EMERGENCY_RESPONSE, SAFE_MEDICAL_REFUSAL,
+                     SAFE_POLICY_FALLBACK,
                      SAFE_SECURITY_REFUSAL,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
@@ -113,7 +114,10 @@ class AgentLoop:
             )
         if guard.medical_refusal is not None:
             return AgentRunResponse(
-                answer=SAFE_MEDICAL_REFUSAL,
+                answer=(
+                    SAFE_EMERGENCY_RESPONSE
+                    if safety.reason == "urgent_medical_symptoms"
+                    else SAFE_MEDICAL_REFUSAL),
                 step_count=1,
                 tools_used=[],
                 grounding_prediction_ids=[],
@@ -131,7 +135,9 @@ class AgentLoop:
         context = ToolContext(request.session_id, request.capability_token,
                               request.knowledge_capability_token,
                               request.actor_role, trace)
-        catalog_prompt = self._tools.skill_catalog_prompt(context.actor_role)
+        catalog_prompt = (
+            self._tools.skill_catalog_prompt(context.actor_role)
+            if "activate_skill" in guard.allowed_tools() else None)
         if catalog_prompt:
             messages.insert(1, {"role": "system", "content": catalog_prompt})
         usages = []
@@ -145,6 +151,7 @@ class AgentLoop:
         repeated = 0
         citation_repair_attempted = False
         citation_repair_pending = False
+        finalization_repair_attempted = False
         for step in range(1, self._max_steps + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -287,6 +294,43 @@ class AgentLoop:
                                         citations=citations,
                                         knowledge_index_version=knowledge_index_version,
                                         skill_used=skill)
+            if (plan.mode == WorkflowMode.DETERMINISTIC and
+                    expected_tool is None and not repairing_citation and
+                    not finalization_repair_attempted and
+                    step < self._max_steps):
+                finalization_repair_attempted = True
+                messages.append({
+                    "role": "assistant",
+                    "content": turn.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments),
+                            },
+                        }
+                        for call in turn.tool_calls
+                    ],
+                })
+                for call in turn.tool_calls:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": "workflow_already_completed",
+                        }),
+                    })
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "The required workflow is already complete. Do not call "
+                        "any Tool. Return only the final JSON answer grounded in "
+                        "the Tool results already present in this conversation."
+                    ),
+                })
+                continue
             if (repairing_citation or
                     (plan.mode == WorkflowMode.DETERMINISTIC and
                      expected_tool is None)):

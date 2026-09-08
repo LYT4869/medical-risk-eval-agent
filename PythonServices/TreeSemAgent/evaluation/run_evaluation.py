@@ -304,6 +304,9 @@ def load_cases(path: Path) -> tuple[list[Scenario], str]:
     root = json.loads(raw)
     if root.get("dataset_version") != 2:
         raise ValueError("unsupported evaluation dataset")
+    dataset_kind = root.get("dataset_kind", "full")
+    if dataset_kind not in {"full", "targeted"}:
+        raise ValueError("unsupported evaluation dataset kind")
     cases: list[Scenario] = []
     for item in root.get("cases", []):
         case_id = str(item["case_id"])
@@ -323,8 +326,12 @@ def load_cases(path: Path) -> tuple[list[Scenario], str]:
         if not turns:
             raise ValueError(f"evaluation case has no turns: {case_id}")
         cases.append(Scenario(case_id, category, actor_role, turns, critical))
-    if len(cases) < 60 or len({case.case_id for case in cases}) != len(cases):
-        raise ValueError("evaluation dataset must contain at least 60 unique cases")
+    minimum_cases = 1 if dataset_kind == "targeted" else 60
+    if (len(cases) < minimum_cases or
+            len({case.case_id for case in cases}) != len(cases)):
+        raise ValueError(
+            f"{dataset_kind} evaluation dataset must contain at least "
+            f"{minimum_cases} unique cases")
     final_messages = [case.turns[-1].message for case in cases]
     if len(final_messages) != len(set(final_messages)):
         raise ValueError("evaluation cases must have unique final messages")
@@ -390,10 +397,12 @@ def registry(case: Case | None = None) -> tuple[ToolRegistry, FakeBackend, FakeK
 
 
 async def run_case(case: Case, llm,
-                   recent_messages: list[dict[str, str]] | None = None) -> dict[str, Any]:
+                   recent_messages: list[dict[str, str]] | None = None,
+                   *, router=None, task_registry=None) -> dict[str, Any]:
     from agent.schemas import AgentRunRequest
     tools, backend, knowledge = registry(case)
-    loop = AgentLoop(llm, tools)
+    loop = AgentLoop(
+        llm, tools, router=router, task_registry=task_registry)
     request = AgentRunRequest(
         run_id="run_" + "1" * 32, session_id="ses_" + "2" * 32,
         message=case.message, actor_role=case.actor_role,
@@ -537,12 +546,15 @@ async def run_case(case: Case, llm,
                 "latency_ms": (time.monotonic() - started) * 1000}
 
 
-async def run_scenario(scenario: Scenario, real_client=None) -> dict[str, Any]:
+async def run_scenario(scenario: Scenario, real_client=None, *,
+                       router=None, task_registry=None) -> dict[str, Any]:
     recent_messages: list[dict[str, str]] = []
     turn_results: list[dict[str, Any]] = []
     for turn in scenario.turns:
         client = real_client if real_client is not None else scripted_client(turn)
-        result = await run_case(turn, client, recent_messages)
+        result = await run_case(
+            turn, client, recent_messages,
+            router=router, task_registry=task_registry)
         turn_results.append(result)
         if "answer" in result:
             recent_messages.extend([
@@ -625,6 +637,8 @@ async def evaluate(args) -> dict[str, Any]:
         raise ValueError("critical_repeats must be positive")
     results: list[dict[str, Any]] = []
     real_client = None
+    routing_runtime = None
+    routing_mode = getattr(args, "routing_mode", "rule")
     if args.mode == "real":
         base_url = os.getenv("TREESEM_AGENT_LLM_BASE_URL", "")
         model = os.getenv("TREESEM_AGENT_LLM_MODEL", "")
@@ -640,13 +654,27 @@ async def evaluate(args) -> dict[str, Any]:
                 "TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS", "1024")),
             enable_thinking=optional_boolean_environment(
                 "TREESEM_AGENT_LLM_ENABLE_THINKING")))
+    if routing_mode != "rule":
+        from agent.routing_config import (
+            RoutingSettings, build_routing_runtime)
+
+        routing_environment = dict(os.environ)
+        routing_environment["TREESEM_AGENT_ROUTING_MODE"] = routing_mode
+        routing_runtime = build_routing_runtime(
+            RoutingSettings.from_environment(routing_environment))
     try:
         for case in cases:
             repeats = critical_repeats if args.mode == "real" and case.critical else 1
             for _ in range(repeats):
-                results.append(await run_scenario(case, real_client))
+                results.append(await run_scenario(
+                    case, real_client,
+                    router=(None if routing_runtime is None
+                            else routing_runtime.router),
+                    task_registry=(None if routing_runtime is None
+                                   else routing_runtime.registry)))
     finally:
         if real_client is not None: await real_client.close()
+        if routing_runtime is not None: await routing_runtime.close()
     success = sum(bool(item["task_outcome_success"]) for item in results)
     latencies = [float(item["latency_ms"]) for item in results]
     hard_failures = [item["case_id"] for item in results
@@ -681,6 +709,7 @@ async def evaluate(args) -> dict[str, Any]:
     orchestration_failures = [
         item for item in results if not item["orchestration_compliant"]]
     return {"status": "completed", "mode": args.mode,
+            "routing_mode": routing_mode,
             "evidence_profile": evidence_profile,
             "authorization_evidence": "not_measured",
             "dataset_sha256": dataset_sha,
@@ -780,6 +809,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("deterministic", "real"),
                         default="deterministic")
+    parser.add_argument(
+        "--routing-mode",
+        choices=("rule", "hybrid_optional", "hybrid_required"),
+        default="rule")
     parser.add_argument("--cases", default=str(Path(__file__).with_name("cases.json")))
     parser.add_argument("--case-id", dest="case_ids", action="append")
     parser.add_argument("--max-cases", type=int)

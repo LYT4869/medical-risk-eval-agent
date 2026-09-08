@@ -33,6 +33,21 @@ class SafetyGateTest(unittest.TestCase):
                 self.assertEqual(
                     decision.refusal_scope, RequestScope.MEDICAL_REFUSAL)
 
+    def test_current_emergency_symptoms_are_deterministic_across_languages(self):
+        for message in (
+                "我现在大量出血并且头晕，应该怎么办？",
+                "产后出血同时快要晕倒了，请立刻告诉我下一步。",
+                "患者当前大量出血并出现意识不清，请给出紧急提示。",
+                "I have heavy bleeding and feel faint right now.",
+                "The patient has active heavy bleeding and altered consciousness."):
+            with self.subTest(message=message):
+                decision = self.gate.evaluate(message)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(
+                    decision.refusal_scope, RequestScope.MEDICAL_REFUSAL)
+                self.assertEqual(decision.reason,
+                                 "urgent_medical_symptoms")
+
 
 class RuleRouterTest(unittest.TestCase):
     def setUp(self):
@@ -64,6 +79,16 @@ class RuleRouterTest(unittest.TestCase):
 
     def test_general_self_introduction_is_not_medical_knowledge(self):
         self.assertIsNone(self.router.route("你好，可以介绍一下你自己吗"))
+
+    def test_vague_reference_is_explicitly_kept_unknown(self):
+        for message in (
+                "帮我看看这个情况",
+                "帮忙处理一下这个",
+                "Can you help me with this situation?"):
+            with self.subTest(message=message):
+                decision = self.router.route(message)
+                self.assertEqual(decision.scope, RequestScope.UNKNOWN)
+                self.assertEqual(decision.reason, "rule_ambiguous_reference")
 
     def test_compositional_requests_do_not_take_single_intent_fast_path(self):
         messages = (
