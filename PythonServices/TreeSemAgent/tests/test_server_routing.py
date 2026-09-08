@@ -7,10 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.routing_config import (
+    RoutingEmbeddingBackend,
     RoutingMode,
     RoutingSettings,
     build_routing_runtime,
 )
+from agent.routing_artifact import RoutingArtifactError
 from agent.routing import RuleOnlyRouter
 from agent.task_registry import load_default_registry
 
@@ -68,13 +70,16 @@ class HealthyAsyncClient:
 
 
 class ServerRoutingTest(unittest.TestCase):
-    def settings(self, mode: RoutingMode) -> RoutingSettings:
+    def settings(self, mode: RoutingMode, *,
+                 artifact_dir: Path | None = None) -> RoutingSettings:
         return RoutingSettings(
             mode=mode,
             task_registry=ROOT / "config" / "tasks.yaml",
             thresholds=ROOT / "config" / "routing_thresholds.json",
             model="intfloat/multilingual-e5-small",
             revision="614241f622f53c4eeff9890bdc4f31cfecc418b3",
+            embedding_backend=RoutingEmbeddingBackend.ONNX_FP32,
+            artifact_dir=artifact_dir or ROOT / "missing-routing-artifact",
             workers=1,
             queue_capacity=8,
             admission_timeout_seconds=0.005,
@@ -92,7 +97,7 @@ class ServerRoutingTest(unittest.TestCase):
 
     def test_optional_mode_degrades_when_provider_is_unavailable(self):
         def fail(*args):
-            raise RuntimeError("model unavailable")
+            raise RoutingArtifactError("model unavailable")
 
         runtime = build_routing_runtime(
             self.settings(RoutingMode.HYBRID_OPTIONAL),
@@ -103,18 +108,63 @@ class ServerRoutingTest(unittest.TestCase):
 
     def test_required_mode_fails_when_provider_is_unavailable(self):
         def fail(*args):
-            raise RuntimeError("model unavailable")
+            raise RoutingArtifactError("model unavailable")
 
-        with self.assertRaisesRegex(RuntimeError, "model unavailable"):
+        with self.assertRaisesRegex(RoutingArtifactError, "model unavailable"):
             build_routing_runtime(
                 self.settings(RoutingMode.HYBRID_REQUIRED),
                 provider_factory=fail)
+
+    def test_provider_factory_receives_settings_and_registry(self):
+        calls = []
+
+        class Provider:
+            def encode_examples(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+            def encode_query(self, text):
+                del text
+                return [1.0, 0.0]
+
+        settings = self.settings(RoutingMode.HYBRID_REQUIRED)
+        runtime = build_routing_runtime(
+            settings,
+            provider_factory=lambda received_settings, registry: (
+                calls.append((received_settings, registry)) or Provider()))
+
+        self.assertTrue(runtime.semantic_available)
+        self.assertEqual(calls[0][0], settings)
+        self.assertEqual(len(calls[0][1].business_definitions), 6)
 
     def test_environment_validation_rejects_invalid_capacity(self):
         with self.assertRaisesRegex(RuntimeError, "QUEUE_CAPACITY"):
             RoutingSettings.from_environment({
                 "TREESEM_AGENT_ROUTING_MODE": "rule",
                 "TREESEM_AGENT_ROUTING_QUEUE_CAPACITY": "-1",
+            }, root=ROOT)
+
+    def test_environment_parses_onnx_backend_and_artifact(self):
+        settings = RoutingSettings.from_environment({
+            "TREESEM_AGENT_ROUTING_MODE": "hybrid_optional",
+            "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "onnx_fp32",
+            "TREESEM_AGENT_ROUTING_ARTIFACT_DIR": "/routing/artifact",
+        }, root=ROOT)
+
+        self.assertEqual(settings.embedding_backend,
+                         RoutingEmbeddingBackend.ONNX_FP32)
+        self.assertEqual(settings.artifact_dir, Path("/routing/artifact"))
+
+    def test_semantic_environment_requires_artifact_directory(self):
+        with self.assertRaisesRegex(RuntimeError, "ARTIFACT_DIR"):
+            RoutingSettings.from_environment({
+                "TREESEM_AGENT_ROUTING_MODE": "hybrid_optional",
+            }, root=ROOT)
+
+    def test_environment_rejects_unknown_embedding_backend(self):
+        with self.assertRaisesRegex(RuntimeError, "EMBEDDING_BACKEND"):
+            RoutingSettings.from_environment({
+                "TREESEM_AGENT_ROUTING_MODE": "rule",
+                "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "pytorch",
             }, root=ROOT)
 
     def test_runtime_close_is_safe_in_rule_mode(self):

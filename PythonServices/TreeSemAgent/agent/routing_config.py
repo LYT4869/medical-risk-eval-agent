@@ -7,8 +7,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .embedding_provider import SentenceTransformerEmbeddingProvider
+from .onnx_embedding_provider import OnnxEmbeddingProvider
 from .routing import HybridRouter, RuleRouter
+from .routing_artifact import load_routing_artifact
 from .routing_executor import SemanticRoutingExecutor
 from .semantic_routing import RoutingThresholds, SemanticRouter, SemanticScorer
 from .task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
@@ -24,6 +25,11 @@ class RoutingMode(str, Enum):
     HYBRID_REQUIRED = "hybrid_required"
 
 
+class RoutingEmbeddingBackend(str, Enum):
+    ONNX_FP32 = "onnx_fp32"
+    ONNX_INT8 = "onnx_int8"
+
+
 @dataclass(frozen=True)
 class RoutingSettings:
     mode: RoutingMode
@@ -31,6 +37,8 @@ class RoutingSettings:
     thresholds: Path
     model: str
     revision: str
+    embedding_backend: RoutingEmbeddingBackend
+    artifact_dir: Path
     workers: int
     queue_capacity: int
     admission_timeout_seconds: float
@@ -48,6 +56,20 @@ class RoutingSettings:
         except ValueError as exc:
             raise RuntimeError(
                 "TREESEM_AGENT_ROUTING_MODE must be rule, hybrid_optional or hybrid_required") from exc
+        try:
+            embedding_backend = RoutingEmbeddingBackend(values.get(
+                "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND",
+                RoutingEmbeddingBackend.ONNX_INT8.value))
+        except ValueError as exc:
+            raise RuntimeError(
+                "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND must be onnx_fp32 or onnx_int8") from exc
+        artifact_value = values.get(
+            "TREESEM_AGENT_ROUTING_ARTIFACT_DIR", "").strip()
+        if mode != RoutingMode.RULE and not artifact_value:
+            raise RuntimeError(
+                "TREESEM_AGENT_ROUTING_ARTIFACT_DIR is required in hybrid modes")
+        artifact_dir = (Path(artifact_value) if artifact_value else
+                        root / "artifacts" / "agent-routing" / "disabled")
 
         workers = _integer(values, "TREESEM_AGENT_ROUTING_WORKERS", 1,
                            allow_zero=False)
@@ -73,6 +95,8 @@ class RoutingSettings:
             revision=values.get(
                 "TREESEM_AGENT_ROUTING_MODEL_REVISION",
                 DEFAULT_ROUTING_REVISION).strip(),
+            embedding_backend=embedding_backend,
+            artifact_dir=artifact_dir,
             workers=workers,
             queue_capacity=queue_capacity,
             admission_timeout_seconds=admission_ms / 1000.0,
@@ -110,10 +134,23 @@ class RoutingRuntime:
             self.semantic_router = None
 
 
+def create_onnx_provider(
+        settings: RoutingSettings,
+        registry: TaskRegistry) -> OnnxEmbeddingProvider:
+    artifact = load_routing_artifact(
+        settings.artifact_dir,
+        task_registry_path=settings.task_registry,
+        registry=registry,
+        expected_backend=settings.embedding_backend.value,
+        expected_model_id=settings.model,
+        expected_revision=settings.revision)
+    return OnnxEmbeddingProvider(artifact)
+
+
 def build_routing_runtime(
         settings: RoutingSettings,
-        *, provider_factory: Callable[[str, str], object] =
-        SentenceTransformerEmbeddingProvider) -> RoutingRuntime:
+        *, provider_factory: Callable[[RoutingSettings, TaskRegistry], object] =
+        create_onnx_provider) -> RoutingRuntime:
     registry = TaskRegistry.load(
         settings.task_registry, SUPPORTED_DOMAIN_TOOLS)
     rules = RuleRouter(registry)
@@ -135,7 +172,7 @@ def build_routing_runtime(
         thresholds = RoutingThresholds(**payload["thresholds"])
         if not settings.model or not settings.revision:
             raise RuntimeError("routing model and revision are required")
-        provider = provider_factory(settings.model, settings.revision)
+        provider = provider_factory(settings, registry)
         scorer = SemanticScorer(registry, provider, thresholds)
         executor = SemanticRoutingExecutor(
             workers=settings.workers,
