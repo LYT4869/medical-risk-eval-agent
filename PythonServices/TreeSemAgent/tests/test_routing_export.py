@@ -12,6 +12,7 @@ from agent.task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
 from tools.export_routing_artifact import (
     ExportError,
     artifact_version,
+    publish_artifact_directory,
     stable_json_bytes,
     validate_source_model,
     write_intent_embeddings,
@@ -169,6 +170,17 @@ class RoutingExportTest(unittest.TestCase):
                          "产后出血")
         with self.assertRaisesRegex(ExportError, "finite JSON"):
             stable_json_bytes({"value": math.inf})
+
+    def test_published_artifact_directory_is_container_readable(self):
+        staging = self.root / "staging"
+        destination = self.root / "routing-version"
+        staging.mkdir(mode=0o700)
+        (staging / "manifest.json").write_text("{}\n", encoding="utf-8")
+
+        publish_artifact_directory(staging, destination)
+
+        self.assertEqual(destination.stat().st_mode & 0o777, 0o755)
+        self.assertTrue((destination / "manifest.json").is_file())
 
 
 if __name__ == "__main__":

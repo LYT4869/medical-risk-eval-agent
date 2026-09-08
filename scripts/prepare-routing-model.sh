@@ -4,52 +4,42 @@ set -euo pipefail
 readonly MODEL_ID="intfloat/multilingual-e5-small"
 readonly MODEL_REVISION="614241f622f53c4eeff9890bdc4f31cfecc418b3"
 readonly CACHE_DIR="${TREESEM_HF_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/huggingface}"
-readonly MANIFEST_PATH="${TREESEM_ROUTING_MODEL_MANIFEST:-artifacts/evaluation/routing/routing-model-files.sha256}"
+readonly EXPORT_BACKEND="${TREESEM_ROUTING_EXPORT_BACKEND:-onnx_int8}"
+readonly OUTPUT_ROOT="${TREESEM_ROUTING_OUTPUT_ROOT:-artifacts/agent-routing}"
+readonly EXPORT_IMAGE="${TREESEM_ROUTING_EXPORT_IMAGE:-treesem-routing-export:local}"
+readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-TREESEM_ROUTING_MODEL_ID="$MODEL_ID" \
-TREESEM_ROUTING_MODEL_REVISION="$MODEL_REVISION" \
-TREESEM_ROUTING_CACHE_DIR="$CACHE_DIR" \
-TREESEM_ROUTING_MODEL_MANIFEST="$MANIFEST_PATH" \
-python3 - <<'PY'
-from __future__ import annotations
+if [[ "$EXPORT_BACKEND" != "onnx_fp32" && "$EXPORT_BACKEND" != "onnx_int8" ]]; then
+  echo "TREESEM_ROUTING_EXPORT_BACKEND must be onnx_fp32 or onnx_int8" >&2
+  exit 2
+fi
+if [[ ! -d "$CACHE_DIR" ]]; then
+  echo "routing source model cache is missing: $CACHE_DIR" >&2
+  exit 2
+fi
 
-import hashlib
-import os
-from pathlib import Path
+mkdir -p "$OUTPUT_ROOT"
+readonly OUTPUT_ABSOLUTE="$(cd "$OUTPUT_ROOT" && pwd)"
 
-from huggingface_hub import snapshot_download
+docker build \
+  --build-arg HTTP_PROXY \
+  --build-arg HTTPS_PROXY \
+  --build-arg NO_PROXY \
+  -f "$PROJECT_ROOT/deploy/docker/routing-export.Dockerfile" \
+  -t "$EXPORT_IMAGE" "$PROJECT_ROOT"
 
-
-model_id = os.environ["TREESEM_ROUTING_MODEL_ID"]
-revision = os.environ["TREESEM_ROUTING_MODEL_REVISION"]
-cache_dir = Path(os.environ["TREESEM_ROUTING_CACHE_DIR"]).expanduser()
-manifest_path = Path(os.environ["TREESEM_ROUTING_MODEL_MANIFEST"])
-
-snapshot_download(
-    repo_id=model_id,
-    revision=revision,
-    cache_dir=cache_dir,
-)
-snapshot = Path(snapshot_download(
-    repo_id=model_id,
-    revision=revision,
-    cache_dir=cache_dir,
-    local_files_only=True,
-))
-
-entries = []
-for path in sorted(item for item in snapshot.rglob("*") if item.is_file()):
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(block)
-    entries.append(f"{digest.hexdigest()}  {path.relative_to(snapshot)}")
-
-if not entries:
-    raise SystemExit("routing model snapshot contains no files")
-manifest_path.parent.mkdir(parents=True, exist_ok=True)
-manifest_path.write_text("\n".join(entries) + "\n", encoding="utf-8")
-print(f"routing model ready: {model_id}@{revision}")
-print(f"snapshot: {snapshot}")
-print(f"checksum manifest: {manifest_path.resolve()}")
-PY
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HF_HOME=/models/huggingface \
+  -e HF_HUB_OFFLINE=1 \
+  -e TRANSFORMERS_OFFLINE=1 \
+  -v "$CACHE_DIR:/models/huggingface:ro" \
+  -v "$OUTPUT_ABSOLUTE:/artifacts" \
+  "$EXPORT_IMAGE" \
+  --backend "$EXPORT_BACKEND" \
+  --model "$MODEL_ID" \
+  --revision "$MODEL_REVISION" \
+  --tasks /app/config/tasks.yaml \
+  --parity-cases /app/evaluation/routing_cases.json \
+  --thresholds /app/config/routing_thresholds.json \
+  --output-root /artifacts

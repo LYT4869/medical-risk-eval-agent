@@ -155,7 +155,7 @@ def _rule(case: RoutingCase) -> str:
     return decision.scope.value if decision is not None else "unknown"
 
 
-def _hybrid_scope(case: RoutingCase, scorer, thresholds, rules, safety) -> str:
+def _hybrid_scope(case: RoutingCase, scorer, rules, safety) -> str:
     from agent.routing_types import RequestScope
 
     safety_decision = safety.evaluate(case.message)
@@ -164,14 +164,34 @@ def _hybrid_scope(case: RoutingCase, scorer, thresholds, rules, safety) -> str:
     rule = rules.route(case.message)
     if rule is not None:
         return rule.scope.value
-    scores = scorer.score(case.message)
-    if scores.top_similarity < thresholds.min_similarity:
-        return RequestScope.UNKNOWN.value
-    if scores.margin < thresholds.min_margin:
-        return RequestScope.UNKNOWN.value
-    if scores.secondary_similarity >= thresholds.secondary_intent_similarity:
-        return RequestScope.UNKNOWN.value
-    return scores.top_scope.value
+    return scorer.route(case.message).scope.value
+
+
+def create_evaluation_provider(
+        backend: str, *, model: str, revision: str,
+        artifact_dir: Path | None, tasks_path: Path,
+        thresholds_path: Path, registry: object):
+    if backend == "sentence_transformers":
+        from agent.embedding_provider import \
+            SentenceTransformerEmbeddingProvider
+        return SentenceTransformerEmbeddingProvider(model, revision)
+    if backend not in {"onnx_fp32", "onnx_int8"}:
+        raise ValueError("unsupported routing embedding backend")
+    if artifact_dir is None:
+        raise ValueError("ONNX evaluation requires an artifact directory")
+    from agent.onnx_embedding_provider import OnnxEmbeddingProvider
+    from agent.routing_artifact import load_routing_artifact
+
+    artifact = load_routing_artifact(
+        artifact_dir,
+        task_registry_path=tasks_path,
+        thresholds_path=thresholds_path,
+        registry=registry,
+        expected_backend=backend,
+        expected_model_id=model,
+        expected_revision=revision,
+    )
+    return OnnxEmbeddingProvider(artifact)
 
 
 def main() -> int:
@@ -188,6 +208,11 @@ def main() -> int:
     parser.add_argument("--thresholds", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--revision")
+    parser.add_argument(
+        "--embedding-backend",
+        choices=("sentence_transformers", "onnx_fp32", "onnx_int8"),
+        default="sentence_transformers")
+    parser.add_argument("--artifact-dir", type=Path)
     args = parser.parse_args()
 
     cases = load_cases(args.cases)
@@ -201,7 +226,6 @@ def main() -> int:
         if not all((args.tasks, args.thresholds, args.model, args.revision)):
             parser.error(
                 "hybrid router requires --tasks, --thresholds, --model and --revision")
-        from agent.embedding_provider import SentenceTransformerEmbeddingProvider
         from agent.routing import RuleRouter, SafetyGate
         from agent.semantic_routing import RoutingThresholds, SemanticScorer
         from agent.task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
@@ -215,12 +239,19 @@ def main() -> int:
         registry = TaskRegistry.load(args.tasks, SUPPORTED_DOMAIN_TOOLS)
         scorer = SemanticScorer(
             registry,
-            SentenceTransformerEmbeddingProvider(args.model, args.revision),
+            create_evaluation_provider(
+                args.embedding_backend,
+                model=args.model,
+                revision=args.revision,
+                artifact_dir=args.artifact_dir,
+                tasks_path=args.tasks,
+                thresholds_path=args.thresholds,
+                registry=registry),
             thresholds)
         rules = RuleRouter(registry)
         safety = SafetyGate()
         router = lambda case: _hybrid_scope(
-            case, scorer, thresholds, rules, safety)
+            case, scorer, rules, safety)
     report = evaluate_cases(cases, router)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)

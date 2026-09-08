@@ -68,6 +68,19 @@ def artifact_version(payload: Mapping[str, object]) -> str:
     return "routing-" + hashlib.sha256(stable_json_bytes(payload)).hexdigest()[:16]
 
 
+def publish_artifact_directory(staging: Path, destination: Path) -> None:
+    if destination.exists():
+        raise ExportError("routing artifact version already exists")
+    if staging.is_symlink() or not staging.is_dir():
+        raise ExportError("routing artifact staging directory is unsafe")
+    for child in staging.iterdir():
+        if child.is_symlink() or not child.is_file():
+            raise ExportError("routing artifact contains an unsafe entry")
+        child.chmod(0o644)
+    staging.chmod(0o755)
+    staging.rename(destination)
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -458,9 +471,7 @@ def export_routing_artifact(settings: ExportSettings) -> Path:
         (staging / "manifest.json").write_bytes(stable_json_bytes(manifest))
 
         destination = settings.output_root / version
-        if destination.exists():
-            raise ExportError("routing artifact version already exists")
-        staging.rename(destination)
+        publish_artifact_directory(staging, destination)
         return destination
 
 

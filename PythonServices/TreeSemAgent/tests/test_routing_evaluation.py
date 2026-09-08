@@ -2,16 +2,18 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from evaluation.run_routing_evaluation import (
     _hybrid_scope,
     _rule,
+    create_evaluation_provider,
     evaluate_cases,
     load_cases,
     normalized_message,
 )
 from agent.routing import RuleRouter, SafetyGate
-from agent.routing_types import RequestScope
+from agent.routing_types import RequestScope, RoutingDecision, RoutingSource
 from agent.semantic_routing import RoutingThresholds, SemanticScores
 
 
@@ -25,14 +27,18 @@ class RoutingCorpusTest(unittest.TestCase):
             def score(self, message):
                 return SemanticScores(RequestScope.PREDICTION, 0.9, 0.4, 0.5)
 
+            def route(self, message):
+                return RoutingDecision(
+                    RequestScope.PREDICTION, RoutingSource.SEMANTIC)
+
         cases = load_cases(ROUTING_CASES)
         by_id = {case.case_id: case for case in cases}
         thresholds = RoutingThresholds(0.8, 0.1, 0.7)
         self.assertEqual(_hybrid_scope(
-            by_id["known_history_01"], Scorer(), thresholds,
+            by_id["known_history_01"], Scorer(),
             RuleRouter(), SafetyGate()), "history")
         self.assertEqual(_hybrid_scope(
-            by_id["known_prediction_06"], Scorer(), thresholds,
+            by_id["known_prediction_06"], Scorer(),
             RuleRouter(), SafetyGate()), "prediction")
 
     def test_rule_adapter_includes_safety_and_rule_miss(self):
@@ -94,6 +100,25 @@ class RoutingCorpusTest(unittest.TestCase):
         self.assertEqual(report["compositional_fallback_recall"], 1.0)
         self.assertEqual(report["safety_accuracy"], 1.0)
         self.assertIn("p95_route_latency_ms", report)
+
+    def test_evaluation_provider_selects_sentence_transformer_backend(self):
+        marker = object()
+        with mock.patch(
+                "agent.embedding_provider.SentenceTransformerEmbeddingProvider",
+                return_value=marker) as factory:
+            actual = create_evaluation_provider(
+                "sentence_transformers", model="model", revision="revision",
+                artifact_dir=None, tasks_path=Path("tasks"),
+                thresholds_path=Path("thresholds"), registry=object())
+        self.assertIs(actual, marker)
+        factory.assert_called_once_with("model", "revision")
+
+    def test_evaluation_onnx_backend_requires_artifact(self):
+        with self.assertRaisesRegex(ValueError, "artifact"):
+            create_evaluation_provider(
+                "onnx_fp32", model="model", revision="revision",
+                artifact_dir=None, tasks_path=Path("tasks"),
+                thresholds_path=Path("thresholds"), registry=object())
 
 
 if __name__ == "__main__":
