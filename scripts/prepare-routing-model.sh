@@ -4,7 +4,7 @@ set -euo pipefail
 readonly MODEL_ID="intfloat/multilingual-e5-small"
 readonly MODEL_REVISION="614241f622f53c4eeff9890bdc4f31cfecc418b3"
 readonly CACHE_DIR="${TREESEM_HF_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/huggingface}"
-readonly EXPORT_BACKEND="${TREESEM_ROUTING_EXPORT_BACKEND:-onnx_int8}"
+readonly EXPORT_BACKEND="${TREESEM_ROUTING_EXPORT_BACKEND:-onnx_fp32}"
 readonly OUTPUT_ROOT="${TREESEM_ROUTING_OUTPUT_ROOT:-artifacts/agent-routing}"
 readonly EXPORT_IMAGE="${TREESEM_ROUTING_EXPORT_IMAGE:-treesem-routing-export:local}"
 readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

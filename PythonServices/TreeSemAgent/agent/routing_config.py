@@ -59,7 +59,7 @@ class RoutingSettings:
         try:
             embedding_backend = RoutingEmbeddingBackend(values.get(
                 "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND",
-                RoutingEmbeddingBackend.ONNX_INT8.value))
+                RoutingEmbeddingBackend.ONNX_FP32.value))
         except ValueError as exc:
             raise RuntimeError(
                 "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND must be onnx_fp32 or onnx_int8") from exc

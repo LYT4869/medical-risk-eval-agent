@@ -97,7 +97,7 @@ def prepare_routing(existing: dict[str, str]) -> tuple[str, Path]:
     configured.update(os.environ)
     mode = configured.get("TREESEM_AGENT_ROUTING_MODE", "rule")
     backend = configured.get(
-        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND", "onnx_int8")
+        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND", "onnx_fp32")
     if mode not in {"rule", "hybrid_optional", "hybrid_required"}:
         raise SystemExit("invalid TREESEM_AGENT_ROUTING_MODE")
     if backend not in {"onnx_fp32", "onnx_int8"}:
@@ -170,7 +170,7 @@ def main() -> None:
         "TREESEM_HF_CACHE_DIR": str(cache),
         "TREESEM_INSTALL_SEMANTIC_ROUTING": "false",
         "TREESEM_AGENT_ROUTING_MODE": "rule",
-        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "onnx_int8",
+        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "onnx_fp32",
         "TREESEM_AGENT_ROUTING_ARTIFACT_DIR": str(routing_artifact),
         "TREESEM_AGENT_LLM_MODE": "scripted_demo",
         "TREESEM_AGENT_LLM_BASE_URL": "", "TREESEM_AGENT_LLM_MODEL": "",

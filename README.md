@@ -10,7 +10,7 @@ Browser -> C++ Gateway -> ONNX treeSem / MySQL
 
 当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。64 条独立 Agent 场景（79 轮）确定性评测全部通过；真实 `qwen3.7-plus-2026-05-26` 完整单次评测任务成功率、Prediction Grounding、Citation 与医疗安全指标均为 `100%`，编排合规率 `96.875%`。完整历史、口径和失败审计由评测脚本及报告保留。
 
-Agent 意图路由采用“确定性安全策略 + 高精度规则快路径 + 可选语义回退”。E5 held-out 将已知意图准确率从 `56.67%` 提升到 `60.00%`，但镜像增加约 `1078.1 MiB`、运行时 RSS 增加约 `745.6 MiB`，且 8 场景真实模型定向回归为 `6/8`。因此默认仍使用低成本 `rule`，语义路由仅作为可选、可降级能力，不因技术更新而强行进入主链。
+Agent 意图路由采用“确定性安全策略 + 高精度规则快路径 + 可选语义回退”。语义后端已从 PyTorch 迁移到校验完整性的 ONNX Artifact：FP32 在冻结的 150 条用例上与 PyTorch 达到 `150/150` 最终路由一致，逻辑部署体积降低 `51.62%`、warmed p95 从 `21.25 ms` 降至 `11.89 ms`；INT8 因 6 条路由变化被拒绝。由于现有 held-out 的已知意图增益仍只有 `56.67% → 60.00%`，默认保持低成本 `rule`，待独立 Routing Quality Set 验证后再决定是否推广 `hybrid_optional`。
 
 ## 快速演示
 
@@ -60,6 +60,10 @@ make demo-flow
 make verify       # C++ 注册测试 + 64 条确定性 Agent Evaluation
 make verify-full  # 具备私有 Artifact 与 Docker 的本地完整门槛
 make routing-unit routing-evaluate routing-load-smoke
+# 可选语义路由：显式导出后分别运行 parity 与资源基准
+make routing-export-fp32
+make routing-parity ROUTING_ARTIFACT_DIR=artifacts/agent-routing/<version> ROUTING_BACKEND=onnx_fp32
+make routing-benchmark ROUTING_ARTIFACT_DIR=artifacts/agent-routing/<version> ROUTING_BACKEND=onnx_fp32
 ```
 
 2026-08-18 已完成真实 Docker 构建、完整离线 E2E、可选服务故障隔离、MySQL 重启恢复、Prometheus/Grafana 抓取和 SIGTERM 验收。详见 [M10 验证边界](docs/m10-deployment-demo.md)。

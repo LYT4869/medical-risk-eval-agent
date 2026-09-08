@@ -154,6 +154,14 @@ class ServerRoutingTest(unittest.TestCase):
                          RoutingEmbeddingBackend.ONNX_FP32)
         self.assertEqual(settings.artifact_dir, Path("/routing/artifact"))
 
+    def test_default_candidate_backend_is_validated_fp32(self):
+        settings = RoutingSettings.from_environment({
+            "TREESEM_AGENT_ROUTING_MODE": "rule",
+        }, root=ROOT)
+
+        self.assertEqual(settings.embedding_backend,
+                         RoutingEmbeddingBackend.ONNX_FP32)
+
     def test_semantic_environment_requires_artifact_directory(self):
         with self.assertRaisesRegex(RuntimeError, "ARTIFACT_DIR"):
             RoutingSettings.from_environment({

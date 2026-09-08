@@ -65,7 +65,7 @@ class RoutingPackagingTest(unittest.TestCase):
             f"TREESEM_AGENT_ROUTING_MODEL_REVISION={REVISION}", environment)
         self.assertIn("TREESEM_INSTALL_SEMANTIC_ROUTING=false", environment)
         self.assertIn(
-            "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND=onnx_int8", environment)
+            "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND=onnx_fp32", environment)
 
     def test_operator_preparation_and_make_targets_are_reproducible(self):
         script = ROOT / "scripts/prepare-routing-model.sh"
