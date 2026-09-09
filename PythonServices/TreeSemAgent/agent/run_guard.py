@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .routing_types import RequestScope
+from .task_registry import BUSINESS_SCOPES, TaskRegistry, load_default_registry
 
 
 @dataclass(frozen=True)
@@ -21,15 +22,8 @@ _REGISTERED_DOMAIN_TOOLS = _READ_ONLY_NATIVE_TOOLS | {
     "predict_sample", "search_medical_knowledge",
 }
 
-_INITIAL_TOOLS = {
+_SPECIAL_INITIAL_TOOLS = {
     RequestScope.SKILL: {"activate_skill"},
-    RequestScope.PREDICTION: {"predict_sample"},
-    RequestScope.SUMMARY: {"get_prediction"},
-    RequestScope.EXPLANATION: {"get_explanation"},
-    RequestScope.HISTORY: {"get_prediction_history"},
-    RequestScope.COMPARISON: {
-        "get_prediction_history", "compare_predictions"},
-    RequestScope.KNOWLEDGE: {"search_medical_knowledge"},
     RequestScope.SECURITY_ABUSE: set(),
     RequestScope.MEDICAL_REFUSAL: set(),
     RequestScope.UNKNOWN: _READ_ONLY_NATIVE_TOOLS,
@@ -37,7 +31,9 @@ _INITIAL_TOOLS = {
 
 
 class AgentRunGuard:
-    def __init__(self, scope: RequestScope, *, include_summary: bool = False):
+    def __init__(self, scope: RequestScope, *,
+                 registry: TaskRegistry | None = None,
+                 include_summary: bool = False):
         self.scope = scope
         self.security_refusal = (
             "explicit_security_abuse"
@@ -45,7 +41,11 @@ class AgentRunGuard:
         self.medical_refusal = (
             "unsafe_individual_medical_request"
             if scope == RequestScope.MEDICAL_REFUSAL else None)
-        self._initial_tools = set(_INITIAL_TOOLS[scope])
+        self._initial_tools = (
+            set((registry or load_default_registry()).definition(
+                scope).allowed_tools)
+            if scope in BUSINESS_SCOPES
+            else set(_SPECIAL_INITIAL_TOOLS[scope]))
         if scope == RequestScope.EXPLANATION and include_summary:
             self._initial_tools.add("get_prediction")
         self._active_skill_tools: set[str] | None = None
@@ -54,21 +54,24 @@ class AgentRunGuard:
         self._knowledge_satisfied = False
 
     @classmethod
-    def for_request(cls, message: str) -> AgentRunGuard:
+    def for_request(cls, message: str,
+                    registry: TaskRegistry | None = None) -> AgentRunGuard:
         from .routing import RuleRouter, SafetyGate
 
         safety = SafetyGate().evaluate(message)
         if not safety.allowed:
             return cls(safety.refusal_scope or RequestScope.UNKNOWN)
-        decision = RuleRouter().route(message)
+        decision = RuleRouter(registry).route(message)
         if decision is None:
-            return cls(RequestScope.UNKNOWN)
-        return cls(decision.scope, include_summary=decision.include_summary)
+            return cls(RequestScope.UNKNOWN, registry=registry)
+        return cls(decision.scope, registry=registry,
+                   include_summary=decision.include_summary)
 
     @classmethod
     def for_scope(cls, scope: RequestScope, *,
+                  registry: TaskRegistry | None = None,
                   include_summary: bool = False) -> AgentRunGuard:
-        return cls(scope, include_summary=include_summary)
+        return cls(scope, registry=registry, include_summary=include_summary)
 
     def allowed_tools(self) -> set[str]:
         allowed = set(

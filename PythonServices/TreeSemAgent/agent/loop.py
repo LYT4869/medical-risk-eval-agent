@@ -95,13 +95,15 @@ class AgentLoop:
         if safety.allowed:
             routing = await self._router.route(request.message)
             guard = AgentRunGuard.for_scope(
-                routing.scope, include_summary=routing.include_summary)
+                routing.scope, registry=self._task_registry,
+                include_summary=routing.include_summary)
         else:
             routing = RoutingDecision(
                 safety.refusal_scope or RequestScope.UNKNOWN,
                 RoutingSource.RULE,
                 reason=safety.reason)
-            guard = AgentRunGuard.for_scope(routing.scope)
+            guard = AgentRunGuard.for_scope(
+                routing.scope, registry=self._task_registry)
         self._observe_routing(trace, routing_started, routing)
         if guard.security_refusal is not None:
             return AgentRunResponse(

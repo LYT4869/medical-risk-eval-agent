@@ -65,7 +65,6 @@ tasks:
       - 为什么模型得出刚才的标签
       - 解释上一次结果并给出概率
     allowed_tools:
-      - get_prediction
       - get_explanation
     workflow_stages:
       - get_explanation
