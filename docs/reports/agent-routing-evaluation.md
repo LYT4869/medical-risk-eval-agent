@@ -57,7 +57,7 @@
 
 与改造前 56.67% 的已知意图准确率相比少 1.11 个百分点，但没有把任何已知请求确定性地送往错误业务工作流，同时保持 Unknown、组合和安全硬门槛。这体现的是“少量拒识优于错误确定化”的选择。
 
-在仅允许诊断、不得形成新发布结论的 120 条 Calibration 上，类型化规则的已知意图准确率由历史 15.00% 提升到 21.67%，业务 Macro F1 由 23.67% 提升到 33.20%；确定性精度为 81.25%，覆盖率为 16.00%，Unknown、组合回退和安全准确率分别为 95%、95% 和 100%。本轮没有重跑或改写已经揭晓的 240 条 Heldout。
+在仅允许诊断、不得形成新发布结论的 120 条 Calibration 上，类型化规则的已知意图准确率由历史 15.00% 提升到 20.00%，业务 Macro F1 由 23.67% 提升到 30.17%；确定性精度为 75.00%，覆盖率为 16.00%，Unknown、组合回退和安全准确率分别为 95%、95% 和 100%。本轮没有重跑或改写已经揭晓的 240 条 Heldout。
 
 ### 新指标口径
 
@@ -67,7 +67,7 @@
 - `known_misroute_rate`：已知业务请求被送入另一个业务工作流的比例。
 - `unknown_forced_route_rate`：未知请求被错误确定化为业务工作流的比例。
 - `compositional_forced_route_rate`：独立多目标请求被错误压成单一工作流的比例。
-- `per_scope_precision_recall`：只在六个已知业务 Scope 内分别计算精确率和召回率。
+- `per_scope_precision_recall`：只报告六个业务 Scope；精确率会把 Unknown/组合请求被强制送入该 Scope 计为假阳性，召回率以该 Scope 的已知请求为分母。
 
 旧字段 `rule_precision` 和 `rule_coverage` 为兼容历史 JSON 保留，并与 `deterministic_*` 数值相同。它们出现在 Hybrid 报告时并不准确，因为确定性结果可能来自 Rule 或 Semantic，因此新文档统一使用 `deterministic_*`。
 

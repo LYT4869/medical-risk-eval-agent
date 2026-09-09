@@ -25,6 +25,7 @@ class IntentObject(str, Enum):
     EXPLANATION_DETAIL = "explanation_detail"
     HISTORY = "history"
     KNOWLEDGE = "knowledge"
+    KNOWLEDGE_TOPIC = "knowledge_topic"
 
 
 class IntentReference(str, Enum):
@@ -46,10 +47,12 @@ class RuleEvidence:
 
 _ACTION_MARKERS = {
     IntentAction.PREDICT: (
-        "预测样本", "预测演示", "运行样本", "运行第", "做预测", "新预测",
+        "预测样本", "预测一个样本", "预测演示", "运行样本", "运行第",
+        "做预测", "执行预测", "风险预测", "执行模型推理", "新预测",
         "predict sample", "run sample", "run demo", "evaluate sample",
         "evaluate synthetic", "predict a demo case", "new prediction",
-        "execute a new prediction",
+        "execute a new prediction", "create a prediction", "run treesem",
+        "running demo", "run case", "predict case",
     ),
     IntentAction.READ: (
         "读取", "查看", "展示", "给出", "告诉我", "read", "show",
@@ -59,8 +62,7 @@ _ACTION_MARKERS = {
         "解释", "为什么", "为啥", "怎么判", "explain", "why",
     ),
     IntentAction.LIST: (
-        "列出", "历史", "最近记录", "list", "history", "recent records",
-        "recent predictions", "show earlier runs", "show previous runs",
+        "列出", "list", "show earlier runs", "show previous runs",
     ),
     IntentAction.COMPARE: (
         "比较", "对比", "差异", "变化", "compare", "comparison",
@@ -85,7 +87,8 @@ _OBJECT_MARKERS = {
         "预测结果", "当前预测", "当前结果", "刚才结果", "刚才的结果",
         "已保存记录", "这条记录", "结果", "prediction result",
         "current prediction", "current result", "saved record", "this record",
-        "result",
+        "prediction history", "prediction record", "previous prediction",
+        "prior prediction", "result",
     ),
     IntentObject.PREDICTION_FACT: (
         "标签", "概率", "置信度", "模型版本", "label", "probability",
@@ -98,18 +101,26 @@ _OBJECT_MARKERS = {
     ),
     IntentObject.HISTORY: (
         "历史", "历史记录", "最近记录", "旧记录", "保存的记录", "history",
-        "最近预测", "recent record", "recent prediction", "saved runs",
-        "previous runs", "earlier runs",
+        "最近预测", "之前做过", "做过的预测", "recent record",
+        "recent prediction", "saved runs", "previous runs", "earlier runs",
     ),
     IntentObject.KNOWLEDGE: (
         "产后出血", "pph", "postpartum", "指南", "资料", "证据", "引用",
         "模型限制", "医学", "临床", "知识", "evidence", "guideline",
         "guidance", "citation", "material", "source", "model limitation",
         "model limitations", "general limitations", "model material",
-        "medical", "clinical",
         "通用含义", "一般概念", "in general", "general concept",
         "模型特征", "特征含义", "model feature", "documented limit",
-        "已知限制", "documentation", "auc", "positive f1", "calibration",
+        "已知限制", "knowledge", "documentation", "auc", "positive f1",
+        "calibration",
+    ),
+    IntentObject.KNOWLEDGE_TOPIC: (
+        "产后出血", "pph", "postpartum", "指南", "模型限制",
+        "model limitation", "model limitations", "general limitations",
+        "通用含义", "一般概念", "in general", "general concept",
+        "模型特征", "特征含义", "model feature", "documented limit",
+        "已知限制", "病因", "causal", "causation", "auc", "positive f1",
+        "calibration", "guidance",
     ),
 }
 
@@ -124,8 +135,7 @@ _CURRENT_REFERENCE = (
 _PRIOR_REFERENCE = (
     "上一次", "上次", "上一条", "之前一条", "之前的", "旧记录",
     "prior prediction",
-    "previous prediction", "previous result", "earlier run",
-    "earlier",
+    "previous prediction", "previous result", "earlier run", "earlier score",
 )
 _MULTIPLE_REFERENCE = (
     "最近两次", "两条", "两个结果", "前后", "multiple predictions",
@@ -143,6 +153,7 @@ _VAGUE_REFERENCE = (
 )
 _EXPLICIT_SAMPLE_PATTERN = re.compile(
     r"(?:第\s*\d+|\d+\s*号|(?:sample|case)\s*\d+|样本\s*\d+)")
+_RUN_SAMPLE_PATTERN = re.compile(r"运行.{0,8}(?:样本|样例)")
 
 
 def normalize(message: str) -> str:
@@ -160,9 +171,13 @@ class RuleEvidenceExtractor:
 
     def extract(self, message: str) -> RuleEvidence:
         normalized = normalize(message)
-        actions = frozenset(
+        action_values = {
             action for action, markers in _ACTION_MARKERS.items()
-            if _contains(normalized, markers))
+            if _contains(normalized, markers)
+        }
+        if _RUN_SAMPLE_PATTERN.search(normalized):
+            action_values.add(IntentAction.PREDICT)
+        actions = frozenset(action_values)
         objects = frozenset(
             intent_object for intent_object, markers in _OBJECT_MARKERS.items()
             if _contains(normalized, markers))

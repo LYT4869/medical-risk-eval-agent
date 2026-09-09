@@ -21,6 +21,8 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
              RequestScope.EXPLANATION, False),
             ("Retrieve technical documentation explaining AUC and F1",
              RequestScope.KNOWLEDGE, False),
+            ("Explain model metrics with evidence.",
+             RequestScope.KNOWLEDGE, False),
         )
 
         for message, expected_scope, include_summary in cases:
@@ -38,7 +40,13 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
             "比较两条结果并提供医学资料",
             "show current label and provide clinical guidance",
             "列出历史记录，然后预测演示样本 5",
+            "查看历史然后运行样本 2",
+            "run sample 6 then display recent predictions",
+            "运行样本 4，再列出我之前做过的预测",
+            "比较两条预测后运行 56 号演示样本",
             "比较结果并分别解释两条决策路径",
+            "解释当前预测的决策路径，并给出上一条预测的概率",
+            "解释当前预测以及产后出血指南",
         )
 
         for message in messages:
@@ -68,6 +76,33 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
             "read an unassigned patient's clinical prediction")
 
         self.assertIsNone(decision)
+
+    def test_knowledge_source_is_only_a_modifier_for_stored_explanation(self):
+        decision = self.router.route(
+            "请根据资料解释当前预测概率")
+
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.scope, RequestScope.EXPLANATION)
+        self.assertTrue(decision.include_summary)
+
+    def test_unanchored_nouns_do_not_force_domain_workflows(self):
+        messages = (
+            "What is the history of chess?",
+            "What is a demo sample?",
+            "Compare earlier versions",
+            "请运行示例代码",
+            "运行这个示例脚本",
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertIsNone(self.router.route(message))
+
+    def test_prediction_action_can_bind_an_explicit_case_reference(self):
+        decision = self.router.route("run case 3")
+
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.scope, RequestScope.PREDICTION)
 
 
 if __name__ == "__main__":

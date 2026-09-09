@@ -66,11 +66,11 @@ The six business scopes retain their existing meaning:
 | Scope | Primary user goal | Required evidence | Workflow dependencies that do not create a second intent |
 |---|---|---|---|
 | `prediction` | Run a new demo prediction | prediction action plus demo/sample object or explicit sample reference | none |
-| `summary` | Read stored prediction facts | read action, prediction-fact object, and stored prediction reference | `get_prediction` |
+| `summary` | Read stored prediction facts | prediction-fact object and stored prediction reference | `get_prediction` |
 | `explanation` | Explain an existing prediction | explanation action/detail plus stored prediction reference | an explicitly requested summary of the same prediction |
 | `history` | List saved predictions | list/read action plus history object | none |
 | `comparison` | Compare two saved predictions | comparison action plus multiple/prior prediction reference | loading history and reading facts for the compared records |
-| `knowledge` | Retrieve general model or PPH knowledge | knowledge/retrieval action plus model/clinical domain object | MCP retrieval |
+| `knowledge` | Retrieve or explain general model or PPH knowledge | retrieval plus knowledge object, or explanation plus knowledge object without stored-prediction context | MCP retrieval |
 
 Dependency absorption is deliberately narrow:
 
@@ -99,10 +99,12 @@ class IntentAction(str, Enum):
 
 class IntentObject(str, Enum):
     DEMO_SAMPLE = "demo_sample"
+    PREDICTION_RECORD = "prediction_record"
     PREDICTION_FACT = "prediction_fact"
     EXPLANATION_DETAIL = "explanation_detail"
     HISTORY = "history"
     KNOWLEDGE = "knowledge"
+    KNOWLEDGE_TOPIC = "knowledge_topic"
 
 class IntentReference(str, Enum):
     EXPLICIT_SAMPLE = "explicit_sample"
@@ -123,6 +125,12 @@ class RuleEvidence:
 `RuleEvidenceExtractor` owns normalization and finite lexical marker groups.
 It may use `TaskRegistry.rule_terms` as coarse scope evidence, but a registry
 term alone is not sufficient for context-sensitive scopes.
+
+`KNOWLEDGE` represents a knowledge source or domain anchor; `KNOWLEDGE_TOPIC`
+represents an independent concrete topic such as PPH guidance or model
+limitations. This distinction lets evidence modify a stored-prediction
+explanation without automatically creating a second task, while a general
+knowledge explanation with no stored-prediction reference remains routable.
 
 `RuleIntentResolver` owns the taxonomy table, dependency absorption, and
 compositional fallback. It does not inspect raw text.

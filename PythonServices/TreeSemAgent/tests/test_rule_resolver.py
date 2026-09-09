@@ -77,6 +77,25 @@ class RuleIntentResolverTest(unittest.TestCase):
 
         self.assert_scope(raw_evidence, RequestScope.SUMMARY)
 
+    def test_general_knowledge_explanation_without_prediction_context(self):
+        raw_evidence = evidence(
+            actions={IntentAction.EXPLAIN},
+            objects={IntentObject.KNOWLEDGE},
+        )
+
+        self.assert_scope(raw_evidence, RequestScope.KNOWLEDGE)
+
+    def test_knowledge_source_only_modifies_prediction_explanation(self):
+        raw_evidence = evidence(
+            actions={IntentAction.EXPLAIN},
+            objects={IntentObject.KNOWLEDGE,
+                     IntentObject.PREDICTION_FACT},
+            references={IntentReference.CURRENT_PREDICTION},
+        )
+
+        self.assert_scope(raw_evidence, RequestScope.EXPLANATION,
+                          include_summary=True)
+
     def test_comparison_absorbs_history_and_summary_dependencies(self):
         raw_evidence = evidence(
             actions={IntentAction.COMPARE, IntentAction.LIST,

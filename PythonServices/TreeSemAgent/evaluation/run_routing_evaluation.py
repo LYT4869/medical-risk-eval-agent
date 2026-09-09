@@ -77,17 +77,21 @@ def _f1(_expected: Iterable[str], _actual: Iterable[str], label: str) -> float:
 
 
 def _precision_recall(
-        expected: list[str], actual: list[str], indexes: list[int],
+        expected: list[str], actual: list[str], precision_indexes: list[int],
+        recall_indexes: list[int],
         label: str) -> dict[str, float]:
     true_positive = sum(
-        expected[i] == label and actual[i] == label for i in indexes)
+        expected[i] == label and actual[i] == label for i in precision_indexes)
     false_positive = sum(
-        expected[i] != label and actual[i] == label for i in indexes)
+        expected[i] != label and actual[i] == label for i in precision_indexes)
+    recall_true_positive = sum(
+        expected[i] == label and actual[i] == label for i in recall_indexes)
     false_negative = sum(
-        expected[i] == label and actual[i] != label for i in indexes)
+        expected[i] == label and actual[i] != label for i in recall_indexes)
     return {
         "precision": _ratio(true_positive, true_positive + false_positive),
-        "recall": _ratio(true_positive, true_positive + false_negative),
+        "recall": _ratio(
+            recall_true_positive, recall_true_positive + false_negative),
     }
 
 
@@ -158,7 +162,8 @@ def evaluate_cases(
             sum(actual[i] in BUSINESS_SCOPES for i in compositional_indexes),
             len(compositional_indexes)),
         "per_scope_precision_recall": {
-            scope: _precision_recall(expected, actual, known_indexes, scope)
+            scope: _precision_recall(
+                expected, actual, list(range(len(cases))), known_indexes, scope)
             for scope in BUSINESS_SCOPES
         },
         # Retained for report compatibility. "Rule" here means the

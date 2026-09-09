@@ -85,6 +85,7 @@ class RuleEvidenceExtractorTest(unittest.TestCase):
             "Explain model confidence as a general concept")
 
         self.assertIn(IntentObject.KNOWLEDGE, evidence.objects)
+        self.assertIn(IntentObject.KNOWLEDGE_TOPIC, evidence.objects)
 
     def test_extracts_generic_stored_result_reference(self):
         evidence = self.extractor.extract(
@@ -113,6 +114,8 @@ class RuleEvidenceExtractorTest(unittest.TestCase):
             with self.subTest(message=message):
                 evidence = self.extractor.extract(message)
                 self.assertIn(IntentObject.KNOWLEDGE, evidence.objects)
+                self.assertIn(IntentObject.KNOWLEDGE_TOPIC,
+                              evidence.objects)
 
     def test_extracts_retrieval_synonyms(self):
         for message in ("寻找权威资料", "what is postpartum hemorrhage"):
@@ -124,7 +127,10 @@ class RuleEvidenceExtractorTest(unittest.TestCase):
         evidence = self.extractor.extract("查找产后出血指南")
 
         self.assertEqual(evidence.actions, {IntentAction.RETRIEVE})
-        self.assertEqual(evidence.objects, {IntentObject.KNOWLEDGE})
+        self.assertEqual(evidence.objects, {
+            IntentObject.KNOWLEDGE,
+            IntentObject.KNOWLEDGE_TOPIC,
+        })
         self.assertEqual(evidence.references, frozenset())
 
     def test_generic_result_is_not_an_explicit_summary_fact(self):
