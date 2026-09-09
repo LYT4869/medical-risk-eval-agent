@@ -6,7 +6,7 @@
 
 语义路由的生产实现已从 PyTorch/Sentence Transformers 迁移到本地 ONNX Runtime。FP32 ONNX 在冻结的 150 条用例上与 PyTorch 黄金实现达到 **150/150 最终路由一致**，因此作为后续质量评测的语义后端；动态 INT8 虽然更快、更小，但产生 6 条路由变化并让 Unknown 召回率从 100% 降到 95%，所以不进入候选主链。
 
-系统默认仍为 `rule`，`hybrid_optional` 仍需显式开启。原因是此次工作证明了“如何低成本部署语义路由”，没有改变上一轮 held-out 质量结论：语义回退只把已知意图准确率从 56.67% 提升到 60.00%。是否推广为默认路由，要等独立的 300～400 条 Routing Quality Set 验证；该语料尚未生成。
+系统默认仍为 `rule`，`hybrid_optional` 仍需显式开启。原因是此次工作证明了“如何低成本部署语义路由”，没有改变上一轮 held-out 质量结论：语义回退只把已知意图准确率从 56.67% 提升到 60.00%。后续 360 条 Routing Quality Set 已冻结，但 Calibration 暴露了安全和组合意图泛化不足；详见 [Routing Quality Set 生成、审核与 Calibration 报告](routing-quality-set-review.md)。
 
 最终结构保持不变：确定性安全策略优先，高精度规则走快路径，只有规则未命中时才进入有界 ONNX 语义执行器；歧义、组合意图、超时、过载或可选后端故障统一降级为受 Tool 权限约束的 Open Agent。语义路由只选择工作流，不能授予权限或扩大 Tool 集合。
 
@@ -112,6 +112,6 @@ make routing-load-smoke
 - 安全、Unknown 与组合意图硬门槛：FP32 全部通过。
 - 运行时依赖瘦身：完成。
 - 默认模式：仍为 `rule`。
-- 下一门槛：独立生成并审核 300～400 条 Routing Quality Set，再比较 `rule` 与 `hybrid_optional`。
+- 下一门槛：只使用 Routing Quality Set 的 Calibration 修复安全与组合意图边界，冻结后再运行一次 Heldout 比较 `rule` 与 `hybrid_optional`。
 
-本阶段到这里停止，不由项目代码或当前开发会话调用 LLM 生成新语料。供用户交给独立外部模型的固定任务定义、12 批配额、输出 Schema 和审核规则见 [Routing Quality Set 外部生成任务说明书](../routing-quality-set-generation-brief.md)。新语料必须与当前 150 条校准/parity 集隔离，避免把针对已知失败的调试数据当成独立泛化证据。
+固定任务定义、12 批配额、输出 Schema 和审核规则见 [Routing Quality Set 外部生成任务说明书](../routing-quality-set-generation-brief.md)。新语料与原 150 条 parity 集保持隔离；当前只运行了 Calibration，Heldout 尚未参与任何修复或选择。
