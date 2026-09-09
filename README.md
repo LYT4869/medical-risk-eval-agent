@@ -45,6 +45,7 @@ make demo-flow
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 - [真实大模型调优面试案例](docs/agent-llm-optimization-interview-case.md)
 - [Agent 混合路由评测与取舍](docs/reports/agent-routing-evaluation.md)
+- [Agent 路由与安全策略收口](docs/reports/agent-routing-safety-closure.md)
 - [Routing Quality Set 外部生成任务说明书](docs/routing-quality-set-generation-brief.md)
 - [Routing Quality Set 生成、审核与 Calibration 报告](docs/reports/routing-quality-set-review.md)
 

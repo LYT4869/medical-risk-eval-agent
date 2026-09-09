@@ -89,6 +89,14 @@ class RoutingPackagingTest(unittest.TestCase):
                 "routing-export-fp32:", "routing-export-int8:",
                 "routing-parity:", "routing-benchmark:"):
             self.assertIn(target, makefile)
+        self.assertIn(
+            "ROUTING_QUALITY_CASES := $(ROUTING_ROOT)/evaluation/"
+            "routing_quality_set.json", makefile)
+        self.assertIn(
+            "ROUTING_PARITY_CASES := $(ROUTING_ROOT)/evaluation/"
+            "routing_cases.json", makefile)
+        self.assertIn(
+            "--cases $(ROUTING_QUALITY_CASES)", makefile)
 
     def test_model_cache_and_generated_weights_are_excluded(self):
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")

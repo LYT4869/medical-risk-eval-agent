@@ -6,7 +6,7 @@
 
 语义路由的生产实现已从 PyTorch/Sentence Transformers 迁移到本地 ONNX Runtime。FP32 ONNX 在冻结的 150 条用例上与 PyTorch 黄金实现达到 **150/150 最终路由一致**，因此作为后续质量评测的语义后端；动态 INT8 虽然更快、更小，但产生 6 条路由变化并让 Unknown 召回率从 100% 降到 95%，所以不进入候选主链。
 
-系统默认仍为 `rule`，`hybrid_optional` 仍需显式开启。原因是此次工作证明了“如何低成本部署语义路由”，没有改变上一轮 held-out 质量结论：语义回退只把已知意图准确率从 56.67% 提升到 60.00%。后续 360 条 Routing Quality Set 已冻结，但 Calibration 暴露了安全和组合意图泛化不足；详见 [Routing Quality Set 生成、审核与 Calibration 报告](routing-quality-set-review.md)。
+系统默认仍为 `rule`，`hybrid_optional` 仍需显式开启。后续 360 条独立 Routing Quality Set 已完成 Calibration 与一次性 Heldout：Hybrid 虽将 Heldout 已知意图准确率从 18.33% 提升到 22.50%、业务 Macro F1 从 25.64% 提升到 31.15%，但 Unknown 召回率降至 85%，组合回退率和安全准确率分别只有 52.5% 和 20%，未通过晋级硬门槛。完整冻结证据见 [Agent 路由与安全策略收口报告](agent-routing-safety-closure.md)。
 
 最终结构保持不变：确定性安全策略优先，高精度规则走快路径，只有规则未命中时才进入有界 ONNX 语义执行器；歧义、组合意图、超时、过载或可选后端故障统一降级为受 Tool 权限约束的 Open Agent。语义路由只选择工作流，不能授予权限或扩大 Tool 集合。
 
@@ -19,13 +19,13 @@
 - 部署后端：ONNX Runtime 1.20.1、Tokenizers 0.22.2、NumPy 2.0.1。
 - ONNX 契约：opset 17、512 tokens、右侧 padding/truncation、`query: ` / `passage: `、attention-mask mean pooling、L2 normalize。
 - Executor：1 Worker、队列容量 8、admission timeout 5 ms、route timeout 150 ms。
-- 稳定化校准阈值：最低相似度 `0.880862`、最低 margin `0.002539`、次意图相似度上限 `0.918678`。
+- 独立质量集校准阈值：最低相似度 `0.876893`、最低 margin `0.005699`、次意图相似度上限 `0.875226`。
 
-阈值仍只由 calibration split 选择。阈值从观测浮点边界调整到六位小数安全网格后，PyTorch 在原 150 条上的最终路由 **0 条变化**，避免正常的 PyTorch/ONNX 数值漂移跨过边界。Artifact 同时绑定 Task Registry、阈值文件、模型、Tokenizer、意图向量和黄金路由的 SHA-256；任一错配都会在启动阶段失败。
+阈值只由独立质量集的 calibration split 选择，并调整到六位小数安全网格。使用新阈值重新导出的 FP32 Artifact 在原 150 条 parity 集上与 SentenceTransformer 保持 **150/150 最终路由一致**，避免正常数值漂移跨过边界。Artifact 同时绑定 Task Registry、阈值文件、模型、Tokenizer、意图向量和黄金路由的 SHA-256；任一错配都会在启动阶段失败。
 
 ## 路由质量与后端一致性
 
-### 原 held-out 质量结论
+### 原 150 条评测结论
 
 | 指标 | 高精度规则 | 规则 + E5 语义回退 |
 |---|---:|---:|
@@ -36,6 +36,18 @@
 | 安全用例准确率 | 100% | 100% |
 
 这组结果用于回答“语义回退是否提高路由覆盖”；下面的 150 条全量 parity 用于回答“替换部署后端是否改变原行为”，两者不能混为同一个指标。
+
+### 独立 240 条 Heldout 晋级结论
+
+| 指标 | Rule | Hybrid FP32 |
+|---|---:|---:|
+| 已知单意图准确率 | 18.33% | 22.50% |
+| 业务 Macro F1 | 25.64% | 31.15% |
+| Unknown 召回率 | 97.50% | 85.00% |
+| 组合意图回退率 | 52.50% | 52.50% |
+| 安全准确率 | 20.00% | 20.00% |
+
+该结果只执行一次，并且未用于继续补规则或调阈值。它推翻了“旧 150 条表现可以代表新表达泛化”的假设，因此当前只保留 ONNX 部署能力，不推广 Hybrid 策略。
 
 ### PyTorch 与 ONNX parity
 
@@ -109,9 +121,10 @@ make routing-load-smoke
 
 - FP32 后端一致性：通过，作为语义候选后端。
 - INT8 后端一致性：失败，拒绝晋级。
-- 安全、Unknown 与组合意图硬门槛：FP32 全部通过。
+- 原 150 条 parity 集的安全、Unknown 与组合门槛：FP32 全部通过。
+- 独立 240 条 Heldout 晋级门槛：失败，不推广 Hybrid。
 - 运行时依赖瘦身：完成。
 - 默认模式：仍为 `rule`。
-- 下一门槛：只使用 Routing Quality Set 的 Calibration 修复安全与组合意图边界，冻结后再运行一次 Heldout 比较 `rule` 与 `hybrid_optional`。
+- 下一门槛：如需再次挑战晋级，重新建立独立训练/Calibration/Heldout 周期；本次 Heldout 不再用于调优。
 
-固定任务定义、12 批配额、输出 Schema 和审核规则见 [Routing Quality Set 外部生成任务说明书](../routing-quality-set-generation-brief.md)。新语料与原 150 条 parity 集保持隔离；当前只运行了 Calibration，Heldout 尚未参与任何修复或选择。
+固定任务定义、12 批配额、输出 Schema 和审核规则见 [Routing Quality Set 外部生成任务说明书](../routing-quality-set-generation-brief.md)。新语料与原 150 条 parity 集保持隔离；一次性 Heldout 结果已写入收口报告。
