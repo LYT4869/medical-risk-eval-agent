@@ -114,4 +114,4 @@ make routing-load-smoke
 - 默认模式：仍为 `rule`。
 - 下一门槛：独立生成并审核 300～400 条 Routing Quality Set，再比较 `rule` 与 `hybrid_optional`。
 
-本阶段到这里停止，不自行调用 LLM 生成新语料。新语料应与当前 150 条校准/parity 集隔离，避免把针对已知失败的调试数据当成独立泛化证据。
+本阶段到这里停止，不由项目代码或当前开发会话调用 LLM 生成新语料。供用户交给独立外部模型的固定任务定义、12 批配额、输出 Schema 和审核规则见 [Routing Quality Set 外部生成任务说明书](../routing-quality-set-generation-brief.md)。新语料必须与当前 150 条校准/parity 集隔离，避免把针对已知失败的调试数据当成独立泛化证据。

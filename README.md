@@ -45,6 +45,7 @@ make demo-flow
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
 - [真实大模型调优面试案例](docs/agent-llm-optimization-interview-case.md)
 - [Agent 混合路由评测与取舍](docs/reports/agent-routing-evaluation.md)
+- [Routing Quality Set 外部生成任务说明书](docs/routing-quality-set-generation-brief.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 

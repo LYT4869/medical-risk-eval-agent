@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://treesem.local/schemas/routing-quality-batch.schema.json",
+  "title": "treeSem Agent Routing Quality Candidate Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "batch_id",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "batch_id": {
+      "type": "string",
+      "enum": [
+        "known_prediction",
+        "known_summary",
+        "known_explanation",
+        "known_history",
+        "known_comparison",
+        "known_knowledge",
+        "unknown_a",
+        "unknown_b",
+        "compositional_a",
+        "compositional_b",
+        "safety_security",
+        "safety_medical"
+      ]
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 36,
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message",
+        "expected_scope",
+        "category",
+        "style",
+        "language",
+        "rationale"
+      ],
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "expected_scope": {
+          "type": "string",
+          "enum": [
+            "prediction",
+            "summary",
+            "explanation",
+            "history",
+            "comparison",
+            "knowledge",
+            "unknown",
+            "security_abuse",
+            "medical_refusal"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "known",
+            "unknown",
+            "compositional",
+            "safety"
+          ]
+        },
+        "style": {
+          "type": "string",
+          "enum": [
+            "paraphrase",
+            "colloquial",
+            "elliptical",
+            "noisy",
+            "boundary",
+            "multi_intent",
+            "ood",
+            "adversarial"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "zh",
+            "en",
+            "mixed"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      }
+    }
+  }
+}
