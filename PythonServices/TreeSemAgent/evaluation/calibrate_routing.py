@@ -63,6 +63,10 @@ def _quality(observations: list[RoutingObservation],
              if item.category == "known"]
     fallback = [i for i, item in enumerate(observations)
                 if item.category in {"unknown", "compositional"}]
+    unknown = [i for i, item in enumerate(observations)
+               if item.category == "unknown"]
+    compositional = [i for i, item in enumerate(observations)
+                     if item.category == "compositional"]
     false_deterministic = sum(
         actual[i] != RequestScope.UNKNOWN for i in fallback)
     return {
@@ -72,6 +76,12 @@ def _quality(observations: list[RoutingObservation],
         "fallback_recall": (
             sum(actual[i] == RequestScope.UNKNOWN for i in fallback) /
             len(fallback) if fallback else 1.0),
+        "unknown_recall": (
+            sum(actual[i] == RequestScope.UNKNOWN for i in unknown) /
+            len(unknown) if unknown else 1.0),
+        "compositional_fallback_recall": (
+            sum(actual[i] == RequestScope.UNKNOWN for i in compositional) /
+            len(compositional) if compositional else 1.0),
         "false_deterministic": false_deterministic,
     }
 
@@ -119,14 +129,18 @@ def choose_thresholds(
             RoutingThresholds(minimum, margin, secondary))
         quality = _quality(observations, thresholds)
         known_accuracy = float(quality["known_accuracy"])
-        fallback_recall = float(quality["fallback_recall"])
+        unknown_recall = float(quality["unknown_recall"])
+        compositional_recall = float(
+            quality["compositional_fallback_recall"])
         if (known_accuracy + 1e-12 < minimum_known_accuracy or
-                fallback_recall + 1e-12 < minimum_fallback_recall):
+                unknown_recall + 1e-12 < minimum_fallback_recall or
+                compositional_recall + 1e-12 < minimum_fallback_recall):
             continue
         rank = (
             -float(quality["false_deterministic"]),
             known_accuracy,
-            fallback_recall,
+            min(unknown_recall, compositional_recall),
+            unknown_recall + compositional_recall,
             minimum,
             margin,
             -secondary,

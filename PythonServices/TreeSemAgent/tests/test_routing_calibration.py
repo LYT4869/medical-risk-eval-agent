@@ -53,6 +53,30 @@ class RoutingCalibrationTest(unittest.TestCase):
                 observations, minimum_known_accuracy=1.0,
                 minimum_fallback_recall=1.0)
 
+    def test_unknown_and_compositional_gates_are_enforced_separately(self):
+        observations = [
+            RoutingObservation(
+                "known", RequestScope.HISTORY, None,
+                fixed_scope=RequestScope.HISTORY),
+            RoutingObservation(
+                "unknown", RequestScope.UNKNOWN, None,
+                fixed_scope=RequestScope.UNKNOWN),
+            RoutingObservation(
+                "unknown", RequestScope.UNKNOWN, None,
+                fixed_scope=RequestScope.UNKNOWN),
+            RoutingObservation(
+                "compositional", RequestScope.UNKNOWN, None,
+                fixed_scope=RequestScope.UNKNOWN),
+            RoutingObservation(
+                "compositional", RequestScope.UNKNOWN, None,
+                fixed_scope=RequestScope.COMPARISON),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "calibration constraints"):
+            choose_thresholds(
+                observations, minimum_known_accuracy=1.0,
+                minimum_fallback_recall=0.75)
+
     def test_calibration_leaves_numeric_clearance_at_observed_boundary(self):
         boundary = 0.9186771161315093
         observations = [RoutingObservation(

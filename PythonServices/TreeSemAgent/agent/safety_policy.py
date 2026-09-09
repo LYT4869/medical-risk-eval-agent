@@ -15,7 +15,7 @@ def _has(message: str, markers: tuple[str, ...]) -> bool:
 
 
 _EDUCATIONAL_CONTEXT = (
-    "如何防止", "如何检测", "为什么不应该", "为什么不能",
+    "如何防止", "如何检测", "如何识别", "为什么不应该", "为什么不能",
     "一般情况下", "一般性", "通常如何",
     "有哪些风险", "有什么风险", "原则是什么", "科普",
     "how to prevent", "how to detect", "what controls prevent",
@@ -33,7 +33,7 @@ _FABRICATION_ACTION = (
     "invent", "pretend",
 )
 _SECURITY_FACT = (
-    "预测id", "预测 id", "预测", "概率", "真实引用", "虚假引用",
+    "预测id", "预测 id", "预测", "概率", "引用", "真实引用", "虚假引用",
     "决策路径", "工具已经成功", "tool succeeded", "prediction id",
     "prediction", "probability", "citation", "decision path",
 )
@@ -69,6 +69,10 @@ _PRIVILEGE_TARGET = (
     "guardrail", "other session", "all patients", "other patient",
     "admin api", "administrator api", "tool allowlist", "tool whitelist",
 )
+_ACCESS_CONTROL_TARGET = (
+    "访问控制", "受保护的预测", "access control", "protected prediction",
+)
+_BYPASS_ACTION = ("绕过", "规避", "bypass", "circumvent")
 _EXECUTE_INJECTION = (
     "照它执行", "按它执行", "遵照检索内容", "follow it", "execute it",
 )
@@ -81,8 +85,11 @@ _VERIFICATION_ESCALATION = (
 _PERSONAL_CONTEXT = (
     "为我", "给我", "替我", "我的情况", "我应该", "我是否", "我现在",
     "我今天", "我对药物", "根据我的", "for me", "for my situation",
-    "for my case", "should i", "whether i", "my medication", "i am",
-    "i have", "individualized", "personalized",
+    "for my case", "give me", "should i", "whether i", "my medication",
+    "i am", "i have",
+)
+_INDIVIDUALIZED_TARGET = (
+    "个体化", "个人化", "individualized", "personalized",
 )
 _DIRECTIVE_ACTION = (
     "直接选", "直接决定", "替我决定", "告诉我该", "告诉我是否",
@@ -92,7 +99,8 @@ _DIRECTIVE_ACTION = (
 _MEDICATION_ACTION = (
     "药和剂量", "药物剂量", "具体剂量", "精确剂量", "用药方案",
     "停药", "换药", "加药", "减药", "停止用药", "处方",
-    "drug and dose", "exact dose", "exact dosage", "medication regimen",
+    "drug and dose", "exact dose", "exact dosage", "medication",
+    "medication regimen",
     "stop my medication", "change my medication", "prescription",
 )
 _PROCEDURE_ACTION = (
@@ -101,7 +109,8 @@ _PROCEDURE_ACTION = (
     "which procedure", "choose a treatment",
 )
 _DIAGNOSIS_ACTION = (
-    "确定诊断", "直接诊断", "下诊断", "diagnose", "definitive diagnosis",
+    "确定诊断", "直接诊断", "下诊断", "diagnose", "diagnosis",
+    "definitive diagnosis",
 )
 _TREATMENT_PLAN = (
     "治疗计划", "治疗方案", "用药计划", "treatment plan",
@@ -110,6 +119,13 @@ _TREATMENT_PLAN = (
 _OUTCOME_GUARANTEE = (
     "保证有效", "保证治好", "一定有效", "肯定有效", "绝对有效",
     "guarantee", "guaranteed to work", "certain to work",
+)
+_UNSUPPORTED_SOURCE_DEMAND = (
+    "也要", "仍然提供", "照样提供", "provide a source even if",
+    "provide evidence even if",
+)
+_SOURCE_OR_EVIDENCE = (
+    "来源", "资料", "证据", "引用", "source", "evidence", "citation",
 )
 
 _BLEEDING = (
@@ -190,14 +206,17 @@ class SafetyPolicy:
         unavailable = _has(message, _UNAVAILABLE_EVIDENCE)
         if fabricated and _has(message, _MEDICAL_EVIDENCE):
             return "fabricated_medical_evidence"
-        if unavailable and _has(message, (
+        if unavailable and (_has(message, (
                 "quote", "protocol", "治疗依据", "专家建议", "医院内部",
-                "医院方案")):
+                "医院方案")) or (
+                    _has(message, _UNSUPPORTED_SOURCE_DEMAND) and
+                    _has(message, _SOURCE_OR_EVIDENCE))):
             return "fabricated_medical_evidence"
 
         personal = _has(message, _PERSONAL_CONTEXT)
         directive = _has(message, _DIRECTIVE_ACTION)
-        if personal and _has(message, _MEDICATION_ACTION) and directive:
+        if ((personal or _has(message, _INDIVIDUALIZED_TARGET)) and
+                _has(message, _MEDICATION_ACTION) and directive):
             return "personalized_medication_decision"
         if personal and _has(message, _PROCEDURE_ACTION):
             return "personalized_procedure_decision"
@@ -216,6 +235,9 @@ class SafetyPolicy:
             return "credential_exfiltration"
         if _has(message, _VERIFICATION_ESCALATION):
             return "verification_forgery"
+        if (_has(message, _BYPASS_ACTION) and
+                _has(message, _ACCESS_CONTROL_TARGET)):
+            return "privilege_escalation"
         if (_has(message, _PRIVILEGE_ACTION) and
                 _has(message, _PRIVILEGE_TARGET)):
             return "privilege_escalation"
