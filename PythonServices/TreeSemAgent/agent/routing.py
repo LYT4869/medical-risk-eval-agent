@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
 from typing import Protocol
 
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
+from .safety_policy import SafetyDecision, SafetyPolicy
 from .task_registry import TaskRegistry, load_default_registry
 
 
@@ -39,89 +38,11 @@ _VAGUE_REFERENCE = (
     "help me with this", "with this situation",
 )
 
-_ABUSE = re.compile(
-    r"(?:伪造|编造|绕过|忽略.*规则|ignore.*instruction|fabricate|invent|bypass)",
-    re.IGNORECASE,
-)
-_PROTECTED = re.compile(
-    r"(?:预测|概率|引用|权限|其他患者|另一名患者|prediction|probability|citation|authorization|other patient)",
-    re.IGNORECASE,
-)
-_DEFENSIVE_ABUSE = re.compile(
-    r"(?:不要|不得|不能|避免|拒绝|do not|don't|must not|never)\s*"
-    r"(?:伪造|编造|fabricate|invent)",
-    re.IGNORECASE,
-)
-_PERSONALIZED_REQUEST = (
-    "为我", "给我", "个体化", "具体药物", "确定诊断",
-    "prescribe", "individualized", "personalized", "for me",
-)
-_CLINICAL_ACTION = (
-    "处方", "药物", "剂量", "治疗方案", "用药方案", "诊断",
-    "prescription", "medication", "dosage", "dose", "regimen",
-    "diagnosis", "diagnose",
-)
-_UNAVAILABLE_EVIDENCE = (
-    "不存在", "没有也要", "未收录", "缺失", "absent", "unindexed",
-    "does not contain", "not contain", "unavailable",
-)
-_SOURCE_REQUEST = (
-    "资料", "索引", "引用", "方案", "证据", "quote", "source",
-    "protocol", "evidence",
-)
-_EMERGENCY_BLEEDING = (
-    "大量出血", "持续大出血", "产后出血",
-    "heavy bleeding", "active bleeding", "postpartum hemorrhage",
-)
-_EMERGENCY_INSTABILITY = (
-    "头晕", "晕倒", "意识不清", "昏厥", "昏倒",
-    "feel faint", "fainting", "altered consciousness", "unconscious",
-)
-_EMERGENCY_CURRENT = (
-    "现在", "当前", "立刻", "同时", "正在",
-    "right now", "currently", "active", "immediate",
-)
-
-
-@dataclass(frozen=True)
-class SafetyDecision:
-    allowed: bool
-    refusal_scope: RequestScope | None = None
-    reason: str | None = None
-
-
 class AgentRouter(Protocol):
     async def route(self, message: str) -> RoutingDecision: ...
 
 
-class SafetyGate:
-    def evaluate(self, message: str) -> SafetyDecision:
-        normalized = normalize(message)
-        abuse_candidate = _DEFENSIVE_ABUSE.sub("", normalized)
-        if (_ABUSE.search(abuse_candidate) and
-                _PROTECTED.search(abuse_candidate)):
-            return SafetyDecision(
-                False, RequestScope.SECURITY_ABUSE,
-                "explicit_security_abuse")
-        urgent_symptoms = (
-            contains(normalized, _EMERGENCY_BLEEDING) and
-            contains(normalized, _EMERGENCY_INSTABILITY) and
-            contains(normalized, _EMERGENCY_CURRENT))
-        if urgent_symptoms:
-            return SafetyDecision(
-                False, RequestScope.MEDICAL_REFUSAL,
-                "urgent_medical_symptoms")
-        personalized_medical = (
-            contains(normalized, _PERSONALIZED_REQUEST) and
-            contains(normalized, _CLINICAL_ACTION))
-        fabricated_source = (
-            contains(normalized, _UNAVAILABLE_EVIDENCE) and
-            contains(normalized, _SOURCE_REQUEST))
-        if personalized_medical or fabricated_source:
-            return SafetyDecision(
-                False, RequestScope.MEDICAL_REFUSAL,
-                "unsafe_individual_medical_request")
-        return SafetyDecision(True)
+SafetyGate = SafetyPolicy
 
 
 class RuleRouter:
