@@ -183,6 +183,28 @@ class RuleRouterTest(unittest.TestCase):
                 self.assertEqual(decision.scope, RequestScope.UNKNOWN)
                 self.assertEqual(decision.reason, "rule_compositional")
 
+    def test_calibration_cross_workflow_requests_fall_back(self):
+        messages = (
+            "读取当前预测概率，再把最近十条历史列出来",
+            "说明刚才为什么得到这个标签，然后查询患者版PPH科普",
+            "列出最近记录，然后解释其中最新一条的决策树路径",
+            "Explain my latest result and then evaluate synthetic sample 59.",
+            "Compare two saved runs and describe the model's general limitations.",
+            "最新标签报一下，树路径展开，再把旧记录也列出",
+            "run sample 71，show score，再 explain tree path",
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                decision = self.router.route(message)
+                self.assertEqual(decision.scope, RequestScope.UNKNOWN)
+                self.assertEqual(decision.reason, "rule_compositional")
+
+    def test_history_lookup_is_a_dependency_of_comparison_workflow(self):
+        decision = self.router.route("show history，再 compare 最新两条")
+
+        self.assertEqual(decision.scope, RequestScope.COMPARISON)
+
     def test_rule_decision_records_source(self):
         decision = self.router.route("查看预测历史")
         self.assertEqual(decision.source, RoutingSource.RULE)

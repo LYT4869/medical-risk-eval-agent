@@ -19,6 +19,7 @@ _STORED_PREDICTION = (
     "标签", "概率", "置信度", "模型版本", "label", "probability",
     "confidence", "model version", "当前预测", "当前结果", "刚才的结果",
     "上一次", "stored prediction", "current prediction", "current result",
+    "latest result",
 )
 _STRONG_KNOWLEDGE = (
     "资料", "指南", "引用", "evidence", "guideline", "documentation",
@@ -27,11 +28,26 @@ _STRONG_KNOWLEDGE = (
 )
 _KNOWLEDGE_DOMAIN = (
     "产后出血", "pph", "postpartum", "模型", "treesem", "风险",
-    "医学", "临床", "特征", "概率", "指标", "medical", "clinical",
+    "医学", "临床", "特征", "概率", "指标", "medical", "clinical", "model",
+    "auc", "f1", "calibration", "standardized", "standardization",
 )
 _KNOWLEDGE_RETRIEVAL_ACTION = (
-    "查找", "检索", "搜索", "查询资料", "find", "retrieve", "search",
-    "provide general medical evidence",
+    "查找", "检索", "搜索", "查询", "科普", "find", "retrieve", "search",
+    "guidance", "general limitation", "provide general medical evidence",
+)
+_PREDICTION_EVIDENCE = (
+    "号样例", "号样本", "synthetic sample", "evaluate sample",
+    "evaluate synthetic", "run sample", "run demo case",
+)
+_HISTORY_EVIDENCE = (
+    "最近记录", "旧记录", "之前做过", " earlier run", "earlier run",
+    "previous run", "saved run", "recent record",
+)
+_EXPLANATION_ACTION = (
+    "解释", "explain", "为什么", "为啥", "怎么判", "why",
+)
+_EXPLANATION_DETAIL = (
+    "关键因素", "树路径", "decision tree path", "tree path",
 )
 _VAGUE_REFERENCE = (
     "这个情况", "处理一下这个", "看看这个",
@@ -64,29 +80,45 @@ class RuleRouter:
         has_knowledge = (
             strong_knowledge or
             (generic_knowledge and contains(normalized, _KNOWLEDGE_DOMAIN)))
-        explanation_position = first_marker_position(
-            normalized,
-            self._registry.definition(RequestScope.EXPLANATION).rule_terms)
-        retrieval_position = first_marker_position(
+        prediction_task = (
+            has_prediction or contains(normalized, _PREDICTION_EVIDENCE))
+        stored_context = contains(normalized, _STORED_PREDICTION)
+        explanation_task = (
+            ((has_explanation or contains(
+                normalized, _EXPLANATION_ACTION)) and (
+                    stored_context or has_comparison or has_history or
+                    prediction_task)) or
+            (not has_comparison and
+             contains(normalized, _EXPLANATION_DETAIL)))
+        retrieval_requested = contains(
             normalized, _KNOWLEDGE_RETRIEVAL_ACTION)
-        explanation_then_retrieval = (
-            explanation_position is not None and
-            retrieval_position is not None and
-            explanation_position < retrieval_position)
+        knowledge_task = (
+            has_knowledge and (retrieval_requested or not explanation_task)) or (
+            retrieval_requested and
+            contains(normalized, _KNOWLEDGE_DOMAIN))
+        intent_evidence = set()
+        if prediction_task:
+            intent_evidence.add(RequestScope.PREDICTION)
+        if has_comparison:
+            intent_evidence.add(RequestScope.COMPARISON)
+        if has_history or contains(normalized, _HISTORY_EVIDENCE):
+            intent_evidence.add(RequestScope.HISTORY)
+        if explanation_task:
+            intent_evidence.add(RequestScope.EXPLANATION)
+        if has_summary and stored_context:
+            intent_evidence.add(RequestScope.SUMMARY)
+        if knowledge_task:
+            intent_evidence.add(RequestScope.KNOWLEDGE)
 
-        if (has_prediction and
-                (has_comparison or has_history or has_explanation or
-                 has_knowledge)):
-            return self._compositional()
-        if has_comparison and (has_explanation or has_knowledge):
-            return self._compositional()
-        if has_history and has_knowledge and not has_comparison:
-            return self._compositional()
-        if has_explanation and has_knowledge and explanation_then_retrieval:
-            return self._compositional()
-        if (has_summary and has_knowledge and not has_explanation and
-                (has_stored_read or contains(
-                    normalized, ("同时", "并且", "以及", " and ")))):
+        # History and summary are prerequisites or facts already returned by
+        # comparison/explanation. They are not independent workflows unless
+        # the request also asks for another business action.
+        if RequestScope.COMPARISON in intent_evidence:
+            intent_evidence.discard(RequestScope.HISTORY)
+            intent_evidence.discard(RequestScope.SUMMARY)
+        if RequestScope.EXPLANATION in intent_evidence:
+            intent_evidence.discard(RequestScope.SUMMARY)
+        if len(intent_evidence) > 1:
             return self._compositional()
 
         if has_prediction:
@@ -163,9 +195,3 @@ def normalize(message: str) -> str:
 
 def contains(message: str, markers: tuple[str, ...]) -> bool:
     return any(marker in message for marker in markers)
-
-
-def first_marker_position(message: str,
-                          markers: tuple[str, ...]) -> int | None:
-    positions = [message.find(marker) for marker in markers if marker in message]
-    return min(positions) if positions else None
