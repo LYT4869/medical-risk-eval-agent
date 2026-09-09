@@ -1,10 +1,16 @@
 import asyncio
+import contextlib
+import io
+import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.llm_client import (LlmError, LlmToolPolicy, ScriptedDemoClient,
                               ScriptedLlmClient)
 from agent.loop import AgentExecutionError, AgentLoop, AgentTimeout
+from agent.observability import Metrics
+from agent.routing_types import RequestScope, RoutingDecision, RoutingSource
 from agent.schemas import AgentRunRequest, LlmToolCall, LlmTurn, PredictionContext, RecentMessage
 from agent.skills import SkillCatalog
 from agent.tool_registry import ToolRegistry
@@ -102,6 +108,16 @@ class RecordingToolsClient(ScriptedLlmClient):
             messages, tools, timeout, tool_policy)
 
 
+class FakeRouter:
+    def __init__(self, decision):
+        self.decision = decision
+        self.messages = []
+
+    async def route(self, message):
+        self.messages.append(message)
+        return self.decision
+
+
 def request():
     return AgentRunRequest(run_id="run_" + "1" * 32, session_id="ses_" + "2" * 32,
                            message="predict sample zero")
@@ -143,6 +159,23 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(llm.requests, [])
         self.assertEqual(backend.calls, [])
         self.assertEqual(result.tools_used, [])
+
+    def test_current_emergency_returns_immediate_help_without_routing_or_llm(self):
+        llm = ScriptedLlmClient([])
+        backend = FakeBackend()
+        router = FakeRouter(RoutingDecision(
+            RequestScope.KNOWLEDGE, RoutingSource.SEMANTIC))
+        emergency = request().model_copy(update={
+            "message": "我现在大量出血并且头晕，应该怎么办？"})
+
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(backend), router=router).run(emergency))
+
+        self.assertIn("立即", result.answer)
+        self.assertIn("急救", result.answer)
+        self.assertEqual(router.messages, [])
+        self.assertEqual(llm.requests, [])
+        self.assertEqual(backend.calls, [])
 
     def test_ordinary_knowledge_request_only_exposes_knowledge_tool(self):
         client = RecordingToolsClient([
@@ -278,7 +311,7 @@ class AgentLoopTest(unittest.TestCase):
             "get_explanation" not in names
             for names in client.tool_name_sets))
 
-    def test_tool_call_during_none_finalization_never_executes(self):
+    def test_tool_call_during_none_finalization_is_rejected_then_repaired(self):
         backend = FakeBackend()
         client = ScriptedLlmClient([
             LlmTurn(tool_calls=[LlmToolCall(
@@ -287,15 +320,38 @@ class AgentLoopTest(unittest.TestCase):
             LlmTurn(tool_calls=[LlmToolCall(
                 id="p2", name="get_prediction", arguments={
                     "prediction_id": "pred_" + "a" * 32})]),
+            LlmTurn(
+                content="Prediction pred_" + "a" * 32,
+                grounding_prediction_ids=["pred_" + "a" * 32]),
         ])
 
-        with self.assertRaises(AgentExecutionError) as caught:
-            asyncio.run(AgentLoop(
-                client, ToolRegistry(backend)).run(request()))
+        result = asyncio.run(AgentLoop(
+            client, ToolRegistry(backend)).run(request()))
 
-        self.assertEqual(caught.exception.code, "tool_not_allowed")
+        self.assertEqual(result.grounding_prediction_ids,
+                         ["pred_" + "a" * 32])
         self.assertEqual([item[0] for item in backend.calls],
                          ["predict_sample"])
+        self.assertEqual(
+            [policy.mode for policy in client.tool_policies],
+            ["required", "none", "none"])
+
+    def test_open_agent_does_not_receive_unavailable_skill_catalog(self):
+        client = RecordingToolsClient([
+            LlmTurn(content="Please clarify which stored result you mean.")])
+        ambiguous = request().model_copy(update={
+            "message": "解释当前结果并和上次概率做对比"})
+
+        asyncio.run(AgentLoop(
+            client,
+            ToolRegistry(FakeBackend(), skills=self.skill_catalog())).run(
+                ambiguous))
+
+        first_messages = client.requests[0]
+        self.assertFalse(any(
+            "Trusted skill catalog" in str(item.get("content", ""))
+            for item in first_messages))
+        self.assertNotIn("activate_skill", client.tool_name_sets[0])
 
     def test_ambiguous_request_retains_open_agent_policy(self):
         prediction_id = "pred_" + "a" * 32
@@ -316,6 +372,64 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual([policy.mode for policy in client.tool_policies],
                          ["auto", "auto"])
         self.assertEqual(result.grounding_prediction_ids, [prediction_id])
+
+    def test_injected_semantic_router_drives_deterministic_history_workflow(self):
+        prediction_id = "pred_" + "a" * 32
+        router = FakeRouter(RoutingDecision(
+            RequestScope.HISTORY, RoutingSource.SEMANTIC,
+            similarity_score=0.82, margin=0.17,
+            secondary_score=0.65))
+        client = RecordingToolsClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="h1", name="get_prediction_history",
+                arguments={"limit": 5})]),
+            LlmTurn(content=f"Stored result {prediction_id}.",
+                    grounding_prediction_ids=[prediction_id]),
+        ])
+        routed = request().model_copy(update={
+            "message": "能不能翻一下之前做过的结果"})
+
+        result = asyncio.run(AgentLoop(
+            client, ToolRegistry(FakeBackend()), router=router).run(routed))
+
+        self.assertEqual(router.messages, [routed.message])
+        self.assertEqual(client.tool_name_sets,
+                         [{"get_prediction_history"}, set()])
+        self.assertEqual([item.name for item in result.tools_used],
+                         ["get_prediction_history"])
+
+    def test_routing_metrics_and_trace_are_bounded_and_exclude_message(self):
+        router = FakeRouter(RoutingDecision(
+            RequestScope.UNKNOWN, RoutingSource.UNKNOWN,
+            reason="semantic_timeout"))
+        routed = request().model_copy(update={
+            "message": "private patient routing text"})
+        isolated_metrics = Metrics()
+        output = io.StringIO()
+
+        with patch("agent.loop.metrics", isolated_metrics), \
+                patch.dict("os.environ", {"TREESEM_TRACE_STDOUT": "true"}), \
+                contextlib.redirect_stdout(output):
+            asyncio.run(AgentLoop(
+                ScriptedLlmClient([LlmTurn(content="General guidance.")]),
+                ToolRegistry(FakeBackend()), router=router).run(routed))
+
+        rendered = isolated_metrics.render()
+        self.assertIn(
+            'treesem_agent_routing_total{scope="unknown",source="unknown"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_routing_fallback_total{reason="semantic_timeout"} 1',
+            rendered)
+        self.assertIn(
+            'treesem_agent_routing_duration_seconds_count{source="unknown"} 1',
+            rendered)
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        routing = next(
+            event for event in events
+            if event["operation"] == "agent.routing")
+        self.assertEqual(routing["reason"], "semantic_timeout")
+        self.assertNotIn(routed.message, output.getvalue())
 
     def test_empty_knowledge_result_finalizes_without_semantic_retry(self):
         client = ScriptedLlmClient([

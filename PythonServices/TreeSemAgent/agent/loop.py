@@ -5,16 +5,20 @@ import json
 import time
 
 from .llm_client import LlmClient, LlmError, LlmToolPolicy
-from .policy import (SAFE_MEDICAL_REFUSAL, SAFE_POLICY_FALLBACK,
+from .policy import (SAFE_EMERGENCY_RESPONSE, SAFE_MEDICAL_REFUSAL,
+                     SAFE_POLICY_FALLBACK,
                      SAFE_SECURITY_REFUSAL,
                      PolicyViolation, ResponsePolicy)
 from .prompt import SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
+from .routing import AgentRouter, RuleOnlyRouter, SafetyGate
+from .routing_types import RequestScope, RoutingDecision, RoutingSource
 from .run_guard import AgentRunGuard
 from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
 from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
+from .task_registry import TaskRegistry
 from .workflow import WorkflowMode, WorkflowPlanner
 
 
@@ -47,13 +51,19 @@ class AgentTimeout(AgentExecutionError):
 class AgentLoop:
     def __init__(self, llm: LlmClient, tools: ToolRegistry, max_steps: int = 5,
                  max_tool_calls: int = 8, total_timeout_seconds: float = 25.0,
-                 policy: ResponsePolicy | None = None):
+                 policy: ResponsePolicy | None = None,
+                 router: AgentRouter | None = None,
+                 safety_gate: SafetyGate | None = None,
+                 task_registry: TaskRegistry | None = None):
         self._llm = llm
         self._tools = tools
         self._max_steps = max_steps
         self._max_tool_calls = max_tool_calls
         self._total_timeout = total_timeout_seconds
         self._policy = policy or ResponsePolicy()
+        self._router = router or RuleOnlyRouter()
+        self._safety_gate = safety_gate or SafetyGate()
+        self._task_registry = task_registry
 
     async def run(self, request: AgentRunRequest) -> AgentRunResponse:
         trace = TraceState.from_headers(request.request_id, request.traceparent)
@@ -78,9 +88,23 @@ class AgentLoop:
             raise
 
     async def _run_steps(self, request: AgentRunRequest,
-                         trace: TraceState) -> AgentRunResponse:
+        trace: TraceState) -> AgentRunResponse:
         deadline = time.monotonic() + self._total_timeout
-        guard = AgentRunGuard.for_request(request.message)
+        routing_started = time.monotonic()
+        safety = self._safety_gate.evaluate(request.message)
+        if safety.allowed:
+            routing = await self._router.route(request.message)
+            guard = AgentRunGuard.for_scope(
+                routing.scope, registry=self._task_registry,
+                include_summary=routing.include_summary)
+        else:
+            routing = RoutingDecision(
+                safety.refusal_scope or RequestScope.UNKNOWN,
+                RoutingSource.RULE,
+                reason=safety.reason)
+            guard = AgentRunGuard.for_scope(
+                routing.scope, registry=self._task_registry)
+        self._observe_routing(trace, routing_started, routing)
         if guard.security_refusal is not None:
             return AgentRunResponse(
                 answer=SAFE_SECURITY_REFUSAL,
@@ -92,14 +116,18 @@ class AgentLoop:
             )
         if guard.medical_refusal is not None:
             return AgentRunResponse(
-                answer=SAFE_MEDICAL_REFUSAL,
+                answer=(
+                    SAFE_EMERGENCY_RESPONSE
+                    if safety.reason == "urgent_medical_symptoms"
+                    else SAFE_MEDICAL_REFUSAL),
                 step_count=1,
                 tools_used=[],
                 grounding_prediction_ids=[],
                 grounding_source_ids=[],
                 citations=[],
             )
-        plan = WorkflowPlanner.for_request(request.message, guard)
+        plan = WorkflowPlanner.for_request(
+            request.message, guard, self._task_registry)
         stage_index = 0
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in request.recent_messages)
@@ -109,7 +137,9 @@ class AgentLoop:
         context = ToolContext(request.session_id, request.capability_token,
                               request.knowledge_capability_token,
                               request.actor_role, trace)
-        catalog_prompt = self._tools.skill_catalog_prompt(context.actor_role)
+        catalog_prompt = (
+            self._tools.skill_catalog_prompt(context.actor_role)
+            if "activate_skill" in guard.allowed_tools() else None)
         if catalog_prompt:
             messages.insert(1, {"role": "system", "content": catalog_prompt})
         usages = []
@@ -123,6 +153,7 @@ class AgentLoop:
         repeated = 0
         citation_repair_attempted = False
         citation_repair_pending = False
+        finalization_repair_attempted = False
         for step in range(1, self._max_steps + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -265,6 +296,43 @@ class AgentLoop:
                                         citations=citations,
                                         knowledge_index_version=knowledge_index_version,
                                         skill_used=skill)
+            if (plan.mode == WorkflowMode.DETERMINISTIC and
+                    expected_tool is None and not repairing_citation and
+                    not finalization_repair_attempted and
+                    step < self._max_steps):
+                finalization_repair_attempted = True
+                messages.append({
+                    "role": "assistant",
+                    "content": turn.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments),
+                            },
+                        }
+                        for call in turn.tool_calls
+                    ],
+                })
+                for call in turn.tool_calls:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": json.dumps({
+                            "error": "workflow_already_completed",
+                        }),
+                    })
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "The required workflow is already complete. Do not call "
+                        "any Tool. Return only the final JSON answer grounded in "
+                        "the Tool results already present in this conversation."
+                    ),
+                })
+                continue
             if (repairing_citation or
                     (plan.mode == WorkflowMode.DETERMINISTIC and
                      expected_tool is None)):
@@ -382,3 +450,29 @@ class AgentLoop:
                     else:
                         stage_index = len(plan.stages)
         raise AgentExecutionError("step limit reached", "step_limit")
+
+    @staticmethod
+    def _observe_routing(trace: TraceState, started: float,
+                         decision: RoutingDecision) -> None:
+        source = decision.source.value
+        scope = decision.scope.value
+        metrics.increment(
+            "treesem_agent_routing_total", source=source, scope=scope)
+        metrics.observe(
+            "treesem_agent_routing_duration_seconds",
+            time.monotonic() - started, source=source)
+        if decision.source == RoutingSource.SEMANTIC:
+            metrics.increment("treesem_agent_routing_admitted")
+        if decision.scope == RequestScope.UNKNOWN and decision.reason:
+            metrics.increment(
+                "treesem_agent_routing_fallback_total",
+                reason=decision.reason)
+            if decision.reason == "semantic_overloaded":
+                metrics.increment(
+                    "treesem_agent_routing_overloaded_total")
+        trace_event(
+            trace.child(), "agent.routing", started, "success",
+            source=source, scope=scope, reason=decision.reason,
+            similarity_score=decision.similarity_score,
+            margin=decision.margin,
+            secondary_score=decision.secondary_score)

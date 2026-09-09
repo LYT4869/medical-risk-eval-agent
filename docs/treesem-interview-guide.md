@@ -712,9 +712,10 @@ MVCC 让普通一致性读通过版本链减少读写阻塞；锁定当前 Sessi
 
 **参考回答：**
 
-每次 Run 先做保守意图分类。预测、解释、历史、比较、知识和显式 Skill 等高置信请求生成有序
-工作流，每个阶段只暴露一个必需 Tool，完成后关闭 Tool 并让 LLM 组织回答；模糊或组合请求才
-进入开放 Agent Loop。两条路径都经过 Registry、Schema、Capability、grounding 和总预算。
+每次 Run 先经过确定性安全策略，再走高精度规则快路径；可选语义路由只处理规则未命中的单一
+业务意图。预测、解释、历史、比较、知识和显式 Skill 等高置信请求生成有序工作流，每个阶段只
+暴露一个必需 Tool，完成后关闭 Tool 并让 LLM 组织回答；低置信、模糊或组合请求进入受限开放
+Agent Loop。所有路径都经过 Registry、Schema、Capability、grounding 和总预算。
 因此系统既保留自然语言参数抽取与表达能力，又不把清晰业务流程完全交给模型自由规划。
 
 ## F3. Agent 怎么判断任务完成，怎么防止死循环【P0】
@@ -842,6 +843,50 @@ System Prompt 定义角色、回答边界、事实来源、Tool 使用规则和�
 让模型反复规划只会增加 Token、延迟和错误面。项目采用混合方案：清晰意图走确定性阶段，LLM
 仍提取参数并生成自然语言；歧义和组合问题保留开放 Loop。qwen3.7 对照中出现的过度规划、重复
 检索和追加 Tool 正是这个取舍的实验证据，而不是仅凭经验做架构选择。
+
+## F18. 为什么没有用语义路由完全替代关键词规则【P0】
+
+**参考回答：**
+
+规则只保留在确定性安全、显式 Skill 和少量高精度业务表达上，优势是延迟低、行为稳定且不需要
+加载模型；它不是完整的自然语言分类器。规则未命中时，系统可以用多语言 Embedding 做语义回退，
+但相似度还要经过最低分、Top-1/Top-2 margin 和次意图门槛，无法确定就退回受限开放 Agent。
+早期小型 held-out 只多覆盖一条英文历史问法；后续独立 240 条 Heldout 中，Hybrid 虽提高已知
+意图和 Macro F1，却让 Unknown 召回降到 85%，安全与组合门槛也失败，所以默认仍用规则、语义
+能力按需开启。我还把 PyTorch 运行时替换为 ONNX，使语义候选的逻辑部署体积下降 51.62%、p95
+下降 44.05%，但这只解决部署成本，没有自动提高路由泛化质量。技术选型应分别看质量、延迟、
+资源和失败代价，不按“传统或新潮”二选一。
+
+## F19. Embedding 是阻塞计算，怎样避免拖住 Agent EventLoop【P0】
+
+**参考回答：**
+
+没有为路由再造复杂调度系统，而是用固定大小线程池隔离阻塞编码，在提交前用有界 admission
+控制正在执行和等待的总量，再用 `asyncio` deadline 限制调用时间。队列满、超时或可选依赖故障
+时快速降级到受限开放 Agent。超时只停止等待，资源许可要等后台任务真正结束后再释放，避免任务
+仍在运行却继续超卖线程和内存。这满足不阻塞 EventLoop、资源有界和可降级三个目标。
+
+## F20. 语义路由是否进入默认主链，你怎么决策【P0】
+
+**参考回答：**
+
+我先用独立 calibration 选择阈值，再在 held-out 上比较已知意图准确率、错误确定性路由、Unknown/
+组合回退和 p95；随后做确定性 Agent 与真实模型回归，最后同时看镜像、Artifact、RSS 和冷启动。
+早期小型集上 E5 把已知意图从 56.67% 提升到 60.00%；独立质量集 Calibration 上也从 15% 提升
+到 30%，看似可以推广。但冻结后的一次性 240 条 Heldout 只有 18.33% 到 22.50%，同时 Unknown
+召回从 97.5% 降到 85%，组合回退和安全准确率只有 52.5% 和 20%，因此未通过预先定义的硬门槛。
+工程上 FP32 ONNX 仍做到 150/150 后端一致，并显著降低部署体积和 p95；但部署优化不能替代泛化
+验证。所以我保留 ONNX 候选能力，默认继续使用 `rule`，也不拿 Heldout 逐句补丁后重新宣称通过。
+
+## F21. 为什么最后选择 FP32 ONNX，没有选择更小的 INT8【P0】
+
+**参考回答：**
+
+量化不能只看文件大小和延迟。我为 FP32 和 INT8 使用同一个模型、Tokenizer、意图样例、阈值和
+150 条冻结集，比较 embedding、相似度、margin 和最终路由。FP32 与 PyTorch 150/150 一致；动态
+INT8 虽然 warmed p95 降到 8.16 ms、逻辑部署体积降到约 807 MB，但产生 6 条最终路由变化，
+Unknown 召回率也从 100% 降到 95%。其中一条未知请求被错误送入知识流程，已经触碰安全门槛。
+因此按预先约定的回滚规则保留 FP32，而不是事后放宽阈值保住量化方案。
 
 ---
 
@@ -1402,6 +1447,11 @@ Knowledge、Adapter 与 MySQL，只向宿主暴露 Web 入口；Bundle 和知识
 | qwen-plus 失败集回归 | 原始 9 个失败场景修正后统一 `9/9`，14 轮、77,287 Token | 评测口径、知识证据和串行 Skill 修正确实覆盖原失败 | 不能替代修正后的完整 64 场景重跑 |
 | qwen3.7 模型升级对照 | 64 场景原始 `36/64`（56.25%），222 次调用、489,683 Token，平均/p95 9.46/16.49 秒 | 新模型与当前 Agent 协议存在规划和终止差异，升级必须做项目内 A/B | 不能据此评价模型的通用能力，也不是治理后的复测结果 |
 | 混合编排确定性回归 | `64/64`、79 轮；任务结果、编排合规、安全有效性均 100%，冗余/阻断均 0 | 分阶段 Tool Choice、开放 Loop、Skill 和确定性拒绝在协议层闭环 | 仍不能证明任一真实 LLM 的表达和路由稳定性 |
+| 可选 E5 语义路由 | 独立 Heldout 已知意图 `18.33% → 22.50%`、Macro F1 `25.64% → 31.15%`；Unknown 降至 `85%`，组合/安全仅 `52.5%/20%` | 语义回退能增加部分覆盖，但独立评测会暴露小型集看不到的分布外风险 | 未通过硬门槛，默认继续使用规则；不能针对 Heldout 补丁后重测同一版本 |
+| 路由 ONNX FP32 parity | 冻结集 `150/150` 路由一致，最大 embedding 误差 `1.70e-7` | 从 PyTorch 切到 ONNX 没有改变现有路由行为 | 不能证明路由器对新表达的泛化质量 |
+| 路由 ONNX 资源 | 逻辑部署体积 `1.80 GB → 870 MB`，p95 `21.25 → 11.89 ms`，冷启动 `6.35 → 3.05 s`；最大 RSS `772 → 1195 MiB` | 依赖迁移降低存储、分发和延迟，同时暴露 RSS 退化 | 不能宣称所有资源维度都下降 |
+| 路由 INT8 候选 | `144/150` 路由一致，6 条变化，Unknown 召回 `95%` | 量化收益必须经过最终业务决策门槛 | 即使体积和延迟更优也没有达到晋级条件 |
+| 语义路由真实定向回归 | 8 场景两轮均 `6/8`；第二轮修复知识重复 Tool，但模糊指代和组合规划仍失败 | 真实模型暴露的协议偏差能够被定位，安全硬门槛保持通过 | 该实验早于后续混合编排完整回归，不能代表最终 Agent 总体结果 |
 | qwen3.7 混合编排定向对照 | 同一 12 场景由严格 `5/12` 提升为 `12/12`；13 轮、32 次请求、45,204 Token，三组指标 100% | 分阶段 Tool Choice 修复了代表性过度规划路径，并达到完整矩阵晋级门槛 | 只运行一次且只有 12 场景，不能替代完整 64 场景和重复稳定性评测 |
 | qwen3.7 首次混合编排全量 | 64 场景、79 轮 `61/64`，Citation 96.875%，245,222 Token | 混合编排已覆盖主体路径，并暴露漏引用和冗余步骤问题 | 仍是修复前的独立原始报告，不能用最终结果覆盖 |
 | qwen3.7 最终完整单次评测 | `64/64`，Grounding、Citation、医疗安全 100%，编排合规 96.875%，244,929 Token，平均/p95 6.82/12.86 秒 | 混合编排、动态 Tool 收窄和受控 Citation 修复在完整固定集上闭环 | 只运行一次，使用合成 Tool fixture，不测真实 Gateway RBAC 或真实患者质量 |
@@ -1774,6 +1824,8 @@ MQ 不会减少实际计算时间，只会增加任务状态和重复消费问�
 | `WebApps/TreeSemServer/src/application/PredictionService.cpp` | 推理与短事务的边界、预测快照 | E |
 | `WebApps/TreeSemServer/src/infrastructure/persistence` | 连接池 Lease、事务、PreparedStatement、坏连接 | E |
 | `PythonServices/TreeSemAgent/agent/loop.py` | Agent 状态机、终止、重试、deadline、重复 Tool | F |
+| `agent/routing.py`、`semantic_routing.py`、`routing_executor.py` | 安全前置、规则快路径、语义阈值、有界 admission 与降级 | F、H |
+| `agent/routing_artifact.py`、`onnx_embedding_provider.py`、`tools/export_routing_artifact.py` | ONNX 路由导出、Tokenizer/Pooling 契约、checksum、FP32/INT8 parity 与回滚 | F |
 | `PythonServices/TreeSemAgent/agent/tool_registry.py` 与 `tools/` | Schema、上下文绑定、Tool 错误和 MCP provider | F、J |
 | `WebApps/TreeSemServer/src/security` 与认证应用层 | JWT、Refresh、RBAC、Capability 与审计 | G |
 | `PythonServices/TreeSemKnowledge/knowledge/retrieval` | BM25、Dense、RRF、rerank、过滤和降级 | J |

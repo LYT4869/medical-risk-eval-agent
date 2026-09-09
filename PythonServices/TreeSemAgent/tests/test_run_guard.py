@@ -1,9 +1,33 @@
+import inspect
 import unittest
+from dataclasses import replace
 
 from agent.run_guard import AgentRunGuard, RequestScope
+from agent.task_registry import TaskRegistry, load_default_registry
 
 
 class AgentRunGuardTest(unittest.TestCase):
+    def test_business_tools_come_from_injected_task_registry(self):
+        default = load_default_registry()
+        definitions = {
+            item.scope: item for item in default.business_definitions
+        }
+        definitions[RequestScope.SUMMARY] = replace(
+            definitions[RequestScope.SUMMARY],
+            allowed_tools=frozenset({
+                "get_prediction", "get_explanation",
+            }),
+        )
+        registry = TaskRegistry(definitions)
+
+        self.assertIn(
+            "registry", inspect.signature(AgentRunGuard.for_scope).parameters)
+        guard = AgentRunGuard.for_scope(
+            RequestScope.SUMMARY, registry=registry)
+
+        self.assertEqual(
+            guard.allowed_tools(), {"get_prediction", "get_explanation"})
+
     def test_high_confidence_request_scopes_limit_initial_tools(self):
         cases = [
             ("请对演示样本0执行预测", RequestScope.PREDICTION,

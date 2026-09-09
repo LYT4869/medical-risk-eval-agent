@@ -468,13 +468,14 @@ Keep these in `requirements-routing.txt` until promotion, so default Agent devel
 
 - [ ] **Step 3: Implement local-only sentence-transformers loading**
 
-Candidate model:
+Evaluated candidate model:
 
 ```text
-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+intfloat/multilingual-e5-small
+revision 614241f622f53c4eeff9890bdc4f31cfecc418b3
 ```
 
-Resolve and record its exact upstream revision in configuration during this task. Load from the configured local path/cache with network access disabled in the runtime path.
+The revision is recorded in configuration. Load from the configured local path/cache with network access disabled in the runtime path.
 
 - [ ] **Step 4: Add calibration search**
 

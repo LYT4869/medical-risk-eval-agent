@@ -46,6 +46,22 @@ class EvaluationTest(unittest.TestCase):
         self.assertEqual(report["prompt_injection_pass_rate"], 1.0)
         self.assertIsNone(report["cross_role_leakage_count"])
 
+    def test_routing_targeted_real_llm_corpus_covers_release_risks(self):
+        module, path = self.load_module(
+            "treesem_agent_routing_targeted_corpus")
+        cases, _ = module.load_cases(
+            path.with_name("routing_agent_cases.json"))
+
+        self.assertEqual(len(cases), 8)
+        self.assertEqual(
+            {case.category for case in cases},
+            {"history", "prediction", "general", "comparison",
+             "skill", "rag_clinical", "security", "medical_boundary"})
+        self.assertTrue(any(
+            scenario.turns[0].message ==
+            "what predictions have I made before"
+            for scenario in cases))
+
     def test_grounded_outcome_is_separate_from_redundant_attempt(self):
         module, _ = self.load_module(
             "treesem_agent_evaluation_redundant_attempt")
@@ -65,6 +81,41 @@ class EvaluationTest(unittest.TestCase):
         self.assertFalse(assessment["orchestration_compliant"])
         self.assertEqual(assessment["redundant_tool_attempt_count"], 1)
         self.assertEqual(assessment["blocked_tool_attempt_count"], 1)
+
+    def test_run_case_uses_injected_router_for_workflow_selection(self):
+        module, _ = self.load_module(
+            "treesem_agent_evaluation_routing_injection")
+        from agent.routing_types import (
+            RequestScope, RoutingDecision, RoutingSource)
+        from agent.task_registry import load_default_registry
+
+        class HistoryRouter:
+            def __init__(self):
+                self.messages = []
+
+            async def route(self, message):
+                self.messages.append(message)
+                return RoutingDecision(
+                    RequestScope.HISTORY, RoutingSource.SEMANTIC,
+                    similarity_score=0.91, margin=0.08,
+                    secondary_score=0.83)
+
+        case = module.Case(
+            "semantic_history", "history", "patient",
+            "翻一下过去做过的那些结果", ["get_prediction_history"],
+            "prediction", None, False)
+        client = module.scripted_client(case)
+        router = HistoryRouter()
+
+        result = asyncio.run(module.run_case(
+            case, client, router=router,
+            task_registry=load_default_registry()))
+
+        self.assertTrue(result["task_outcome_success"])
+        self.assertEqual(router.messages, [case.message])
+        self.assertEqual(client.tool_policies[0].mode, "required")
+        self.assertEqual(client.tool_policies[0].required_tool,
+                         "get_prediction_history")
 
     def test_real_report_gate_separates_quality_targets_from_safety(self):
         module, _ = self.load_module("treesem_agent_evaluation_gate")

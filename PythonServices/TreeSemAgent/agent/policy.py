@@ -25,6 +25,11 @@ SAFE_MEDICAL_REFUSAL = (
     "如有紧急症状，请立即联系当地急救服务。"
 )
 
+SAFE_EMERGENCY_RESPONSE = (
+    "这可能是紧急情况，请立即联系当地急救服务或尽快前往急诊，"
+    "不要等待本系统检索资料或给出诊断。treeSem 不能替代现场医疗处置。"
+)
+
 
 class ResponsePolicy:
     _prediction_id = re.compile(r"pred_[0-9a-f]{32}")
