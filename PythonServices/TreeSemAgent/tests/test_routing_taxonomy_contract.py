@@ -17,6 +17,10 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
              RequestScope.COMPARISON, False),
             ("解释当前预测的标签、概率和决策路径",
              RequestScope.EXPLANATION, True),
+            ("Provide the stored feature and tree-path explanation",
+             RequestScope.EXPLANATION, False),
+            ("Retrieve technical documentation explaining AUC and F1",
+             RequestScope.KNOWLEDGE, False),
         )
 
         for message, expected_scope, include_summary in cases:
@@ -31,6 +35,8 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
             "运行样本 3，然后解释刚生成的结果",
             "解释当前预测，再查找产后出血指南",
             "比较最近两次预测，并检索模型限制",
+            "比较两条结果并提供医学资料",
+            "show current label and provide clinical guidance",
             "列出历史记录，然后预测演示样本 5",
             "比较结果并分别解释两条决策路径",
         )
@@ -56,6 +62,12 @@ class RoutingTaxonomyContractTest(unittest.TestCase):
                 self.assertEqual(decision.scope, RequestScope.UNKNOWN)
                 self.assertEqual(decision.reason,
                                  "rule_ambiguous_reference")
+
+    def test_clinical_word_does_not_turn_record_access_into_knowledge(self):
+        decision = self.router.route(
+            "read an unassigned patient's clinical prediction")
+
+        self.assertIsNone(decision)
 
 
 if __name__ == "__main__":

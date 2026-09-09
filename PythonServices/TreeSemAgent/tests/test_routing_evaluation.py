@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from evaluation.run_routing_evaluation import (
+    RoutingCase,
     _hybrid_scope,
     _rule,
     create_evaluation_provider,
@@ -100,6 +101,47 @@ class RoutingCorpusTest(unittest.TestCase):
         self.assertEqual(report["compositional_fallback_recall"], 1.0)
         self.assertEqual(report["safety_accuracy"], 1.0)
         self.assertIn("p95_route_latency_ms", report)
+
+    def test_report_exposes_selective_routing_failure_modes(self):
+        cases = [
+            RoutingCase("known_correct", "held_out", "known", "a", "prediction"),
+            RoutingCase("known_abstain", "held_out", "known", "b", "history"),
+            RoutingCase("known_misroute", "held_out", "known", "c", "summary"),
+            RoutingCase("unknown_forced", "held_out", "unknown", "d", "unknown"),
+            RoutingCase("unknown_rejected", "held_out", "unknown", "e", "unknown"),
+            RoutingCase(
+                "compositional_forced", "held_out", "compositional", "f", "unknown"),
+            RoutingCase(
+                "compositional_rejected", "held_out", "compositional", "g", "unknown"),
+        ]
+        actual = {
+            "known_correct": "prediction",
+            "known_abstain": "unknown",
+            "known_misroute": "comparison",
+            "unknown_forced": "knowledge",
+            "unknown_rejected": "unknown",
+            "compositional_forced": "comparison",
+            "compositional_rejected": "unknown",
+        }
+
+        report = evaluate_cases(cases, lambda case: actual[case.case_id])
+
+        self.assertAlmostEqual(report["deterministic_precision"], 0.25)
+        self.assertAlmostEqual(report["deterministic_coverage"], 4 / 7)
+        self.assertAlmostEqual(report["known_abstention_rate"], 1 / 3)
+        self.assertAlmostEqual(report["known_misroute_rate"], 1 / 3)
+        self.assertAlmostEqual(report["unknown_forced_route_rate"], 0.5)
+        self.assertAlmostEqual(report["compositional_forced_route_rate"], 0.5)
+        self.assertEqual(
+            report["per_scope_precision_recall"]["prediction"],
+            {"precision": 1.0, "recall": 1.0},
+        )
+        self.assertEqual(
+            report["per_scope_precision_recall"]["summary"],
+            {"precision": 0.0, "recall": 0.0},
+        )
+        self.assertEqual(report["rule_precision"], report["deterministic_precision"])
+        self.assertEqual(report["rule_coverage"], report["deterministic_coverage"])
 
     def test_evaluation_provider_selects_sentence_transformer_backend(self):
         marker = object()

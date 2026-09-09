@@ -69,6 +69,14 @@ class RuleIntentResolverTest(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assert_scope(raw_evidence, expected)
 
+    def test_summary_question_does_not_require_an_explicit_read_verb(self):
+        raw_evidence = evidence(
+            objects={IntentObject.PREDICTION_FACT},
+            references={IntentReference.CURRENT_PREDICTION},
+        )
+
+        self.assert_scope(raw_evidence, RequestScope.SUMMARY)
+
     def test_comparison_absorbs_history_and_summary_dependencies(self):
         raw_evidence = evidence(
             actions={IntentAction.COMPARE, IntentAction.LIST,
@@ -80,6 +88,24 @@ class RuleIntentResolverTest(unittest.TestCase):
         )
 
         self.assert_scope(raw_evidence, RequestScope.COMPARISON)
+
+    def test_comparison_absorbs_detail_without_an_explain_action(self):
+        raw_evidence = evidence(
+            actions={IntentAction.COMPARE},
+            objects={IntentObject.EXPLANATION_DETAIL},
+            references={IntentReference.MULTIPLE_PREDICTIONS},
+        )
+
+        self.assert_scope(raw_evidence, RequestScope.COMPARISON)
+
+    def test_listing_history_is_a_complete_history_intent(self):
+        raw_evidence = evidence(
+            actions={IntentAction.LIST},
+            objects={IntentObject.HISTORY},
+            references={IntentReference.PRIOR_PREDICTION},
+        )
+
+        self.assert_scope(raw_evidence, RequestScope.HISTORY)
 
     def test_explanation_absorbs_summary_for_the_same_prediction(self):
         raw_evidence = evidence(

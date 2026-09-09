@@ -89,3 +89,11 @@ Calibration 共 120 条，包含已知单意图、未知意图、跨工作流组
 - 确定性 Agent：64/64，通过安全、prediction grounding 与 citation 硬门槛。
 
 本轮未重复调用付费 LLM：改动集中在 LLM 调用前的确定性路由与安全前置层，且候选没有通过 Heldout 晋级门槛；重复真实模型评测既不会改变晋级结论，也会产生没有决策价值的费用。已有真实 LLM 结果继续作为 Agent 编排能力证据。
+
+## 后续类型化规则收口（不重写 Heldout）
+
+Heldout 结论冻结后，业务规则实现又完成了一次纯工程重构：词面匹配只负责提取有限的动作、对象和引用证据，独立 Resolver 再按照工作流 Taxonomy 判断依赖吸收、独立多目标和拒识。比较可以吸收“读取两条记录、计算摘要”等必要步骤；“比较并检索指南”等独立目标必须返回 `UNKNOWN`，由受限 Open Agent 编排。
+
+这次改造没有修改 Task Registry、E5 阈值或 ONNX Artifact，也没有再次运行 240 条 Heldout。150 条兼容集上的已知准确率为 55.56%，确定性精度为 100%，Unknown、组合与安全三项均为 100%；120 条 Calibration 诊断的已知准确率为 21.67%，高于冻结候选的 15.00%，且 Unknown、组合与安全仍保持 95%、95% 和 100%。这些数据只证明新实现的行为和失败边界更清晰，不构成 Hybrid 重新晋级。
+
+收口后的验证结果：路由专项 97/97、路由执行器 20/20 轮、Python Agent 294 项通过（3 项可选依赖条件跳过）、Knowledge 11 项通过（1 项官方 MCP SDK 条件跳过）、Python Adapter 3/3、C++/跨服务 CTest 27/27；确定性 Agent 评测恢复为 64/64，任务、编排、Prediction Grounding、Citation 和安全指标均为 100%。

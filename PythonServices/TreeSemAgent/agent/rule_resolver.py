@@ -28,6 +28,8 @@ class RuleIntentResolver:
         if RequestScope.COMPARISON in candidates:
             candidates.discard(RequestScope.HISTORY)
             candidates.discard(RequestScope.SUMMARY)
+            if IntentAction.EXPLAIN not in evidence.actions:
+                candidates.discard(RequestScope.EXPLANATION)
         if RequestScope.EXPLANATION in candidates:
             candidates.discard(RequestScope.SUMMARY)
 
@@ -62,9 +64,7 @@ class RuleIntentResolver:
                 (RequestScope.PREDICTION in evidence.registry_scopes and
                  IntentObject.DEMO_SAMPLE in objects)):
             candidates.add(RequestScope.PREDICTION)
-        if (IntentAction.READ in actions and
-                IntentObject.PREDICTION_FACT in objects and
-                stored_reference):
+        if (IntentObject.PREDICTION_FACT in objects and stored_reference):
             candidates.add(RequestScope.SUMMARY)
         if (((IntentAction.EXPLAIN in actions and
               (IntentObject.PREDICTION_RECORD in objects or
@@ -74,8 +74,7 @@ class RuleIntentResolver:
                  IntentReference.EXPLICIT_SAMPLE in references or
                  IntentReference.MULTIPLE_PREDICTIONS in references)):
             candidates.add(RequestScope.EXPLANATION)
-        if (IntentAction.LIST in actions and
-                IntentObject.HISTORY in objects):
+        if (IntentAction.LIST in actions and IntentObject.HISTORY in objects):
             candidates.add(RequestScope.HISTORY)
         if (IntentAction.COMPARE in actions and
                 (IntentReference.MULTIPLE_PREDICTIONS in references or
@@ -84,8 +83,7 @@ class RuleIntentResolver:
             candidates.add(RequestScope.COMPARISON)
         knowledge_action = (
             IntentAction.RETRIEVE in actions or
-            (IntentAction.EXPLAIN in actions and not stored_reference) or
-            (IntentAction.READ in actions and not stored_reference))
+            (IntentAction.EXPLAIN in actions and not stored_reference))
         if knowledge_action and IntentObject.KNOWLEDGE in objects:
             candidates.add(RequestScope.KNOWLEDGE)
         return candidates

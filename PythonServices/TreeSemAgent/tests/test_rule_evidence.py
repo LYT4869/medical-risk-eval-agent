@@ -53,6 +53,73 @@ class RuleEvidenceExtractorTest(unittest.TestCase):
             IntentReference.MULTIPLE_PREDICTIONS,
         })
 
+    def test_extracts_comparison_synonyms_and_saved_pair_reference(self):
+        evidence = self.extractor.extract(
+            "Contrast the key factors of two saved results")
+
+        self.assertIn(IntentAction.COMPARE, evidence.actions)
+        self.assertIn(IntentObject.EXPLANATION_DETAIL, evidence.objects)
+        self.assertIn(IntentReference.MULTIPLE_PREDICTIONS,
+                      evidence.references)
+
+    def test_extracts_retrieval_and_history_as_concepts(self):
+        evidence = self.extractor.extract(
+            "show earlier runs, then look up PPH guidance")
+
+        self.assertIn(IntentAction.READ, evidence.actions)
+        self.assertIn(IntentAction.LIST, evidence.actions)
+        self.assertIn(IntentAction.RETRIEVE, evidence.actions)
+        self.assertIn(IntentObject.HISTORY, evidence.objects)
+        self.assertIn(IntentObject.KNOWLEDGE, evidence.objects)
+
+    def test_extracts_stored_record_reference(self):
+        evidence = self.extractor.extract(
+            "Explain why this saved record received that label")
+
+        self.assertIn(IntentObject.PREDICTION_RECORD, evidence.objects)
+        self.assertIn(IntentReference.CURRENT_PREDICTION,
+                      evidence.references)
+
+    def test_general_concept_marks_knowledge_object(self):
+        evidence = self.extractor.extract(
+            "Explain model confidence as a general concept")
+
+        self.assertIn(IntentObject.KNOWLEDGE, evidence.objects)
+
+    def test_extracts_generic_stored_result_reference(self):
+        evidence = self.extractor.extract(
+            "show the confidence from the stored result")
+
+        self.assertIn(IntentObject.PREDICTION_FACT, evidence.objects)
+        self.assertIn(IntentReference.CURRENT_PREDICTION,
+                      evidence.references)
+
+    def test_extracts_history_and_multiple_prediction_phrases(self):
+        history = self.extractor.extract("list recent prediction records")
+        comparison = self.extractor.extract("两次预测的标签发生变化了吗")
+
+        self.assertIn(IntentObject.HISTORY, history.objects)
+        self.assertIn(IntentReference.MULTIPLE_PREDICTIONS,
+                      comparison.references)
+
+    def test_extracts_general_model_knowledge_concepts(self):
+        cases = (
+            "介绍模型特征含义",
+            "explain the documented limits of this model",
+            "provide an overview of the model features",
+        )
+
+        for message in cases:
+            with self.subTest(message=message):
+                evidence = self.extractor.extract(message)
+                self.assertIn(IntentObject.KNOWLEDGE, evidence.objects)
+
+    def test_extracts_retrieval_synonyms(self):
+        for message in ("寻找权威资料", "what is postpartum hemorrhage"):
+            with self.subTest(message=message):
+                evidence = self.extractor.extract(message)
+                self.assertIn(IntentAction.RETRIEVE, evidence.actions)
+
     def test_extracts_knowledge_retrieval_evidence(self):
         evidence = self.extractor.extract("查找产后出血指南")
 

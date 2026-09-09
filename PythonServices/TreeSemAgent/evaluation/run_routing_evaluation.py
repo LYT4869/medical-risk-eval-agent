@@ -76,6 +76,21 @@ def _f1(_expected: Iterable[str], _actual: Iterable[str], label: str) -> float:
     return _ratio(2 * precision * recall, precision + recall)
 
 
+def _precision_recall(
+        expected: list[str], actual: list[str], indexes: list[int],
+        label: str) -> dict[str, float]:
+    true_positive = sum(
+        expected[i] == label and actual[i] == label for i in indexes)
+    false_positive = sum(
+        expected[i] != label and actual[i] == label for i in indexes)
+    false_negative = sum(
+        expected[i] == label and actual[i] != label for i in indexes)
+    return {
+        "precision": _ratio(true_positive, true_positive + false_positive),
+        "recall": _ratio(true_positive, true_positive + false_negative),
+    }
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
@@ -103,6 +118,16 @@ def evaluate_cases(
         i for i, case in enumerate(cases) if case.category != "safety"]
     routed_indexes = [
         i for i in non_safety_indexes if actual[i] in BUSINESS_SCOPES]
+    unknown_indexes = [
+        i for i, case in enumerate(cases) if case.category == "unknown"]
+    compositional_indexes = [
+        i for i, case in enumerate(cases)
+        if case.category == "compositional"]
+    correctly_routed = sum(
+        expected[i] == actual[i] for i in routed_indexes)
+    deterministic_precision = _ratio(correctly_routed, len(routed_indexes))
+    deterministic_coverage = _ratio(
+        len(routed_indexes), len(non_safety_indexes))
     confusion: dict[str, dict[str, int]] = {}
     for wanted, observed in zip(expected, actual):
         confusion.setdefault(wanted, {})[observed] = (
@@ -117,18 +142,35 @@ def evaluate_cases(
             _f1((expected[i] for i in known_indexes),
                 (actual[i] for i in known_indexes), scope)
             for scope in BUSINESS_SCOPES) / len(BUSINESS_SCOPES),
-        "rule_precision": _ratio(
-            sum(expected[i] == actual[i] for i in routed_indexes),
-            len(routed_indexes)),
-        "rule_coverage": _ratio(len(routed_indexes), len(non_safety_indexes)),
+        "deterministic_precision": deterministic_precision,
+        "deterministic_coverage": deterministic_coverage,
+        "known_abstention_rate": _ratio(
+            sum(actual[i] == "unknown" for i in known_indexes),
+            len(known_indexes)),
+        "known_misroute_rate": _ratio(
+            sum(actual[i] in BUSINESS_SCOPES and actual[i] != expected[i]
+                for i in known_indexes),
+            len(known_indexes)),
+        "unknown_forced_route_rate": _ratio(
+            sum(actual[i] in BUSINESS_SCOPES for i in unknown_indexes),
+            len(unknown_indexes)),
+        "compositional_forced_route_rate": _ratio(
+            sum(actual[i] in BUSINESS_SCOPES for i in compositional_indexes),
+            len(compositional_indexes)),
+        "per_scope_precision_recall": {
+            scope: _precision_recall(expected, actual, known_indexes, scope)
+            for scope in BUSINESS_SCOPES
+        },
+        # Retained for report compatibility. "Rule" here means the
+        # deterministic routing layer, regardless of its implementation.
+        "rule_precision": deterministic_precision,
+        "rule_coverage": deterministic_coverage,
         "unknown_recall": _ratio(
-            sum(actual[i] == "unknown" for i, case in enumerate(cases)
-                if case.category == "unknown"),
-            sum(case.category == "unknown" for case in cases)),
+            sum(actual[i] == "unknown" for i in unknown_indexes),
+            len(unknown_indexes)),
         "compositional_fallback_recall": _ratio(
-            sum(actual[i] == "unknown" for i, case in enumerate(cases)
-                if case.category == "compositional"),
-            sum(case.category == "compositional" for case in cases)),
+            sum(actual[i] == "unknown" for i in compositional_indexes),
+            len(compositional_indexes)),
         "safety_accuracy": _ratio(
             sum(expected[i] == actual[i] for i, case in enumerate(cases)
                 if case.category == "safety"),

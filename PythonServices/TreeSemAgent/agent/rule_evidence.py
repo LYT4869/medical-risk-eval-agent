@@ -60,16 +60,19 @@ _ACTION_MARKERS = {
     ),
     IntentAction.LIST: (
         "列出", "历史", "最近记录", "list", "history", "recent records",
-        "recent predictions",
+        "recent predictions", "show earlier runs", "show previous runs",
     ),
     IntentAction.COMPARE: (
         "比较", "对比", "差异", "变化", "compare", "comparison",
-        "comparing", "difference", "changed",
+        "comparing", "difference", "changed", "contrast",
+        "一样不一样", "是否一样", "相同吗", "same or different",
     ),
     IntentAction.RETRIEVE: (
-        "查找", "检索", "搜索", "查询", "科普", "介绍", "什么是",
-        "引用", "find", "retrieve", "search", "look up", "overview",
-        "describe", "cite", "指南来源", "guideline source",
+        "查找", "查一下", "寻找", "检索", "搜索", "查询", "科普", "介绍",
+        "什么是", "引用", "find", "retrieve", "search", "look up", "what is",
+        "overview", "describe", "提供资料", "提供医学资料", "给出医学资料",
+        "provide general", "provide medical evidence", "provide clinical guidance",
+        "cite", "指南来源", "guideline source", "guidance",
     ),
 }
 
@@ -80,7 +83,8 @@ _OBJECT_MARKERS = {
     ),
     IntentObject.PREDICTION_RECORD: (
         "预测结果", "当前预测", "当前结果", "刚才结果", "刚才的结果",
-        "结果", "prediction result", "current prediction", "current result",
+        "已保存记录", "这条记录", "结果", "prediction result",
+        "current prediction", "current result", "saved record", "this record",
         "result",
     ),
     IntentObject.PREDICTION_FACT: (
@@ -89,11 +93,13 @@ _OBJECT_MARKERS = {
     ),
     IntentObject.EXPLANATION_DETAIL: (
         "重要特征", "主要特征", "关键因素", "决策路径", "树路径",
-        "important feature", "decision path", "tree path",
+        "important feature", "key factor", "feature contribution",
+        "stored feature", "decision path", "tree path", "tree-path",
     ),
     IntentObject.HISTORY: (
         "历史", "历史记录", "最近记录", "旧记录", "保存的记录", "history",
-        "recent records", "recent predictions", "saved runs", "previous runs",
+        "最近预测", "recent record", "recent prediction", "saved runs",
+        "previous runs", "earlier runs",
     ),
     IntentObject.KNOWLEDGE: (
         "产后出血", "pph", "postpartum", "指南", "资料", "证据", "引用",
@@ -101,13 +107,19 @@ _OBJECT_MARKERS = {
         "guidance", "citation", "material", "source", "model limitation",
         "model limitations", "general limitations", "model material",
         "medical", "clinical",
+        "通用含义", "一般概念", "in general", "general concept",
+        "模型特征", "特征含义", "model feature", "documented limit",
+        "已知限制", "documentation", "auc", "positive f1", "calibration",
     ),
 }
 
 _CURRENT_REFERENCE = (
     "当前预测", "当前结果", "当前概率", "当前标签", "当前置信度",
     "刚才", "这次", "最新", "预测概率", "current prediction",
-    "current result", "latest result", "this result",
+    "current result", "current probability", "current label",
+    "current confidence", "latest result", "this result", "已保存记录",
+    "这条记录", "存储结果", "记录里的", "saved record", "stored result",
+    "stored feature", "this record",
 )
 _PRIOR_REFERENCE = (
     "上一次", "上次", "上一条", "之前一条", "之前的", "旧记录",
@@ -117,7 +129,8 @@ _PRIOR_REFERENCE = (
 )
 _MULTIPLE_REFERENCE = (
     "最近两次", "两条", "两个结果", "前后", "multiple predictions",
-    "two predictions", "two results", "two saved runs", "latest two",
+    "two predictions", "two results", "two saved results", "two saved runs",
+    "latest two", "newest pair", "两次预测", "发生变化",
 )
 _SKILL_MARKERS = (
     "技能", "流程", "workflow", "skill", "stable process",
