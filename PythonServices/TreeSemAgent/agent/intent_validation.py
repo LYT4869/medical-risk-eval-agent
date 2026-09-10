@@ -75,7 +75,9 @@ _TARGETS = {
     IntentKind.EXPLANATION: {
         TargetKind.CURRENT_PREDICTION,
         TargetKind.PREVIOUS_PREDICTION,
+        TargetKind.LATEST_TWO_PREDICTIONS,
         TargetKind.EXPLICIT_PREDICTION,
+        TargetKind.EXPLICIT_PREDICTION_PAIR,
     },
     IntentKind.HISTORY: {TargetKind.SESSION_HISTORY},
     IntentKind.COMPARISON: {

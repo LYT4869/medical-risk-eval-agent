@@ -49,7 +49,7 @@ _EXPLICIT_EDUCATION = (
 )
 
 
-class WorkflowPlanner:
+class LegacyWorkflowPlanner:
     @classmethod
     def for_request(cls, message: str,
                     guard: AgentRunGuard,
@@ -92,3 +92,7 @@ class WorkflowPlanner:
     @staticmethod
     def _contains(message: str, markers: tuple[str, ...]) -> bool:
         return any(marker in message for marker in markers)
+
+
+# Explicit compatibility alias for the legacy Rule/E5 rollback path.
+WorkflowPlanner = LegacyWorkflowPlanner

@@ -177,6 +177,16 @@ class IntentValidationTest(unittest.TestCase):
         self.assertEqual(previous.validated.goals[0].target.prediction_ids, ())
         self.assertEqual(latest.validated.goals[0].target.prediction_ids, ())
 
+    def test_explanation_can_target_latest_two_for_registered_composite(self):
+        result = self.validate(
+            frame(target="latest_two_predictions",
+                  aspects=["decision_path"], evidence=["分别解释"]),
+            request("比较最近两次并分别解释决策路径"))
+
+        self.assertEqual(
+            result.validated.goals[0].target.kind,
+            TargetKind.LATEST_TWO_PREDICTIONS)
+
     def test_unresolved_reference_uses_deterministic_clarification(self):
         result = self.validate(
             frame(target="none", evidence=["那个"],
