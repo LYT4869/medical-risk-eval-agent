@@ -33,7 +33,8 @@ _SPECIAL_INITIAL_TOOLS = {
 class AgentRunGuard:
     def __init__(self, scope: RequestScope, *,
                  registry: TaskRegistry | None = None,
-                 include_summary: bool = False):
+                 include_summary: bool = False,
+                 initial_tools: set[str] | None = None):
         self.scope = scope
         self.security_refusal = (
             "explicit_security_abuse"
@@ -41,7 +42,7 @@ class AgentRunGuard:
         self.medical_refusal = (
             "unsafe_individual_medical_request"
             if scope == RequestScope.MEDICAL_REFUSAL else None)
-        self._initial_tools = (
+        self._initial_tools = (set(initial_tools) if initial_tools is not None else
             set((registry or load_default_registry()).definition(
                 scope).allowed_tools)
             if scope in BUSINESS_SCOPES
@@ -72,6 +73,14 @@ class AgentRunGuard:
                   registry: TaskRegistry | None = None,
                   include_summary: bool = False) -> AgentRunGuard:
         return cls(scope, registry=registry, include_summary=include_summary)
+
+    @classmethod
+    def for_allowed_tools(cls, allowed_tools: set[str]) -> AgentRunGuard:
+        permitted = _REGISTERED_DOMAIN_TOOLS | {"activate_skill"}
+        if not allowed_tools <= permitted:
+            raise ValueError("structured routing contains an unknown Tool")
+        return cls(
+            RequestScope.UNKNOWN, initial_tools=set(allowed_tools))
 
     def allowed_tools(self) -> set[str]:
         allowed = set(

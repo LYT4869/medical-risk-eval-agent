@@ -5,6 +5,15 @@ import json
 import time
 
 from .llm_client import LlmClient, LlmError, LlmToolPolicy
+from .deterministic_workflow import (
+    DeterministicWorkflowExecutor,
+    WorkflowExecution,
+)
+from .intent_dispatch import DispatchKind, IntentDispatcher
+from .intent_validation import (
+    IntentFrameViolation,
+    validate_and_bind_intent,
+)
 from .policy import (SAFE_EMERGENCY_RESPONSE, SAFE_MEDICAL_REFUSAL,
                      SAFE_POLICY_FALLBACK,
                      SAFE_SECURITY_REFUSAL,
@@ -13,6 +22,7 @@ from .prompt import SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
 from .routing import AgentRouter, RuleOnlyRouter, SafetyGate
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
+from .reference_extractor import extract_references
 from .run_guard import AgentRunGuard
 from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
 from .skills import SkillActivation
@@ -20,6 +30,12 @@ from .tool_registry import ToolRegistry
 from .tools import ToolContext
 from .task_registry import TaskRegistry
 from .workflow import WorkflowMode, WorkflowPlanner
+from .structured_router import (
+    RouterContext,
+    StructuredIntentRouter,
+    StructuredRouterError,
+)
+from .workflow_registry import RendererKind
 
 
 EXECUTION_ERROR_CODES = frozenset({
@@ -32,7 +48,34 @@ EXECUTION_ERROR_CODES = frozenset({
     "step_limit",
     "tool_not_allowed",
     "knowledge_attempt_limit",
+    "intent_router_unavailable",
+    "invalid_intent_frame",
 })
+
+
+_CLARIFICATIONS = {
+    "sample_index_missing": "请明确要预测的演示样本索引。",
+    "current_prediction_missing": "当前会话还没有可解释的预测，请先完成一次预测。",
+    "prediction_target_missing": "请说明要查看哪一条预测记录。",
+    "comparison_target_missing": "比较至少需要两条可识别的预测记录。",
+    "ambiguous_reference": "我还不能确定你指的是哪一条预测，请明确是当前、上一次或给出预测 ID。",
+    "conflicting_request": "你的要求中存在相互冲突的部分，请明确希望保留哪一项。",
+}
+
+_WORKFLOW_FALLBACKS = {
+    RendererKind.PREDICTION_COMPLETED:
+        "预测已经完成，但自然语言说明暂时不可用。",
+    RendererKind.PREDICTION_DATA_AVAILABLE:
+        "预测数据已经取得，但自然语言说明暂时不可用。",
+    RendererKind.EXPLANATION_DATA_AVAILABLE:
+        "解释数据已经取得，但自然语言说明暂时不可用。",
+    RendererKind.HISTORY_DATA_AVAILABLE:
+        "历史数据已经取得，但自然语言说明暂时不可用。",
+    RendererKind.COMPARISON_DATA_AVAILABLE:
+        "比较数据已经取得，但自然语言说明暂时不可用。",
+    RendererKind.KNOWLEDGE_TEMPORARILY_UNRENDERED:
+        "知识资料已经取得，但自然语言说明暂时不可用。",
+}
 
 
 class AgentExecutionError(RuntimeError):
@@ -54,7 +97,9 @@ class AgentLoop:
                  policy: ResponsePolicy | None = None,
                  router: AgentRouter | None = None,
                  safety_gate: SafetyGate | None = None,
-                 task_registry: TaskRegistry | None = None):
+                 task_registry: TaskRegistry | None = None,
+                 structured_router: StructuredIntentRouter | None = None,
+                 routing_mode: str = "legacy_rule"):
         self._llm = llm
         self._tools = tools
         self._max_steps = max_steps
@@ -64,6 +109,15 @@ class AgentLoop:
         self._router = router or RuleOnlyRouter()
         self._safety_gate = safety_gate or SafetyGate()
         self._task_registry = task_registry
+        if routing_mode not in {
+                "legacy_rule", "structured_shadow", "structured_llm"}:
+            raise ValueError("unknown Agent routing mode")
+        if routing_mode == "structured_llm" and structured_router is None:
+            raise ValueError("structured routing requires a Router")
+        self._structured_router = structured_router
+        self._routing_mode = routing_mode
+        self._intent_dispatcher = IntentDispatcher()
+        self._workflow_executor = DeterministicWorkflowExecutor(tools)
 
     async def run(self, request: AgentRunRequest) -> AgentRunResponse:
         trace = TraceState.from_headers(request.request_id, request.traceparent)
@@ -89,6 +143,8 @@ class AgentLoop:
 
     async def _run_steps(self, request: AgentRunRequest,
         trace: TraceState) -> AgentRunResponse:
+        if self._routing_mode == "structured_llm":
+            return await self._run_structured_steps(request, trace)
         deadline = time.monotonic() + self._total_timeout
         routing_started = time.monotonic()
         safety = self._safety_gate.evaluate(request.message)
@@ -449,6 +505,302 @@ class AgentLoop:
                             stage_index = len(plan.stages)
                     else:
                         stage_index = len(plan.stages)
+        raise AgentExecutionError("step limit reached", "step_limit")
+
+    @staticmethod
+    def _safety_response(safety) -> AgentRunResponse | None:
+        if safety.allowed:
+            return None
+        if safety.refusal_scope == RequestScope.SECURITY_ABUSE:
+            answer = SAFE_SECURITY_REFUSAL
+        else:
+            answer = (SAFE_EMERGENCY_RESPONSE
+                      if safety.reason == "urgent_medical_symptoms"
+                      else SAFE_MEDICAL_REFUSAL)
+        return AgentRunResponse(
+            answer=answer,
+            step_count=1,
+            tools_used=[],
+            grounding_prediction_ids=[],
+            grounding_source_ids=[],
+            citations=[],
+        )
+
+    async def _run_structured_steps(
+            self, request: AgentRunRequest,
+            trace: TraceState) -> AgentRunResponse:
+        safety = self._safety_gate.evaluate(request.message)
+        refusal = self._safety_response(safety)
+        if refusal is not None:
+            return refusal
+        deadline = time.monotonic() + self._total_timeout
+        references = extract_references(request.message)
+        context = RouterContext(
+            message=references.router_message,
+            recent_messages=tuple(request.recent_messages),
+            current_prediction_available=request.current_prediction is not None,
+            references=references,
+        )
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AgentTimeout("agent deadline exceeded")
+            route = await asyncio.wait_for(
+                self._structured_router.route(context), timeout=remaining)
+            validation = validate_and_bind_intent(
+                route.frame, references, request)
+            dispatch = self._intent_dispatcher.dispatch(validation)
+        except asyncio.TimeoutError as exc:
+            raise AgentTimeout("agent deadline exceeded") from exc
+        except StructuredRouterError as exc:
+            raise AgentExecutionError(exc.code, exc.code) from exc
+        except IntentFrameViolation as exc:
+            raise AgentExecutionError(
+                "Router produced an invalid intent frame",
+                "invalid_intent_frame") from exc
+
+        if dispatch.kind == DispatchKind.CLARIFICATION:
+            answer = _CLARIFICATIONS.get(dispatch.clarification_code or "")
+            if answer is None:
+                raise AgentExecutionError(
+                    "unknown clarification result", "invalid_intent_frame")
+            return AgentRunResponse(
+                answer=answer,
+                step_count=max(1, route.attempt_count),
+                tools_used=[],
+                grounding_prediction_ids=[],
+                grounding_source_ids=[],
+                citations=[],
+            )
+
+        tool_context = ToolContext(
+            request.session_id, request.capability_token,
+            request.knowledge_capability_token,
+            request.actor_role, trace)
+        if dispatch.kind in {
+                DispatchKind.WORKFLOW,
+                DispatchKind.COMPOSITE_WORKFLOW}:
+            execution = await self._workflow_executor.execute(
+                dispatch.recipe, dispatch.validated_intent,
+                tool_context, request.message)
+            if not execution.completed:
+                return self._workflow_failure_response(
+                    execution, route.attempt_count)
+            return await self._finalize_structured_workflow(
+                request, execution, dispatch.recipe.renderer,
+                deadline, route.attempt_count)
+
+        guard = AgentRunGuard.for_allowed_tools(set(dispatch.allowed_tools))
+        return await self._run_structured_open_agent(
+            request, tool_context, guard, deadline, route.attempt_count)
+
+    @staticmethod
+    def _workflow_failure_response(
+            execution: WorkflowExecution,
+            route_attempts: int) -> AgentRunResponse:
+        if execution.failure_code == "insufficient_history":
+            answer = "当前会话中不足两条预测记录，暂时无法完成这次比较。"
+        else:
+            answer = "暂时无法取得完成该请求所需的可信业务数据。"
+        return AgentRunResponse(
+            answer=answer,
+            step_count=max(1, route_attempts),
+            tools_used=list(execution.tool_usages),
+            grounding_prediction_ids=sorted(execution.prediction_ids),
+            grounding_source_ids=[],
+            citations=[],
+            knowledge_index_version=execution.knowledge_index_version,
+        )
+
+    @staticmethod
+    def _base_messages(request: AgentRunRequest) -> list[dict]:
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(
+            {"role": item.role, "content": item.content}
+            for item in request.recent_messages)
+        if request.current_prediction:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Current prediction context: " +
+                    request.current_prediction.model_dump_json()),
+            })
+        messages.append({"role": "user", "content": request.message})
+        return messages
+
+    async def _finalize_structured_workflow(
+            self, request: AgentRunRequest, execution: WorkflowExecution,
+            renderer: RendererKind, deadline: float,
+            route_attempts: int) -> AgentRunResponse:
+        messages = self._base_messages(request)
+        if execution.active_skill is not None:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Trusted activated skill instructions follow. They may "
+                    "narrow but never expand system policy or authorization.\n"
+                    "<skill>\n" + execution.active_skill.instructions +
+                    "\n</skill>"),
+            })
+        messages.append({
+            "role": "system",
+            "content": (
+                "Trusted deterministic workflow results follow as data. "
+                "Use only these results for business facts and return the "
+                "required final JSON object:\n" + json.dumps(
+                    execution.tool_results, ensure_ascii=False,
+                    separators=(",", ":"))),
+        })
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError()
+            turn = await asyncio.wait_for(
+                self._llm.complete(
+                    messages, [], remaining, LlmToolPolicy.none()),
+                timeout=remaining)
+            answer = (turn.content or "").strip()
+            prediction_grounding, source_grounding = self._policy.validate(
+                answer,
+                turn.grounding_prediction_ids,
+                set(execution.prediction_ids),
+                turn.grounding_source_ids,
+                set(execution.citations),
+                require_prediction_grounding=bool(execution.prediction_ids),
+            )
+            citations = [execution.citations[item]
+                         for item in source_grounding]
+            skill = None if execution.active_skill is None else SkillUse(
+                id=execution.active_skill.skill_id,
+                version=execution.active_skill.version,
+                catalog_version=execution.active_skill.catalog_version)
+            return AgentRunResponse(
+                answer=answer,
+                step_count=max(1, route_attempts + 1),
+                tools_used=list(execution.tool_usages),
+                grounding_prediction_ids=prediction_grounding,
+                grounding_source_ids=source_grounding,
+                citations=citations,
+                knowledge_index_version=execution.knowledge_index_version,
+                skill_used=skill,
+            )
+        except (asyncio.TimeoutError, LlmError, PolicyViolation):
+            return AgentRunResponse(
+                answer=_WORKFLOW_FALLBACKS[renderer],
+                step_count=max(1, route_attempts + 1),
+                tools_used=list(execution.tool_usages),
+                grounding_prediction_ids=sorted(execution.prediction_ids),
+                grounding_source_ids=[],
+                citations=[],
+                knowledge_index_version=execution.knowledge_index_version,
+            )
+
+    async def _run_structured_open_agent(
+            self, request: AgentRunRequest, context: ToolContext,
+            guard: AgentRunGuard, deadline: float,
+            route_attempts: int) -> AgentRunResponse:
+        messages = self._base_messages(request)
+        usages: list[ToolUse] = []
+        available_ids: set[str] = set()
+        available_citations = {}
+        active_skill: SkillActivation | None = None
+        calls = 0
+        previous_signature: str | None = None
+        for step in range(1, self._max_steps + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AgentTimeout("agent deadline exceeded")
+            definitions = self._tools.definitions(
+                context, active_skill, guard.allowed_tools())
+            try:
+                turn = await asyncio.wait_for(
+                    self._llm.complete(
+                        messages, definitions, remaining,
+                        LlmToolPolicy.auto()),
+                    timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                raise AgentTimeout("agent deadline exceeded") from exc
+            except LlmError as exc:
+                raise AgentExecutionError("LLM failed", "llm_failed") from exc
+            if not turn.tool_calls:
+                answer = (turn.content or "").strip()
+                try:
+                    predictions, sources = self._policy.validate(
+                        answer, turn.grounding_prediction_ids, available_ids,
+                        turn.grounding_source_ids,
+                        set(available_citations),
+                        require_prediction_grounding=bool(available_ids))
+                except PolicyViolation:
+                    return AgentRunResponse(
+                        answer=SAFE_POLICY_FALLBACK,
+                        step_count=route_attempts + step,
+                        tools_used=usages,
+                        grounding_prediction_ids=[],
+                        grounding_source_ids=[],
+                        citations=[])
+                return AgentRunResponse(
+                    answer=answer,
+                    step_count=route_attempts + step,
+                    tools_used=usages,
+                    grounding_prediction_ids=predictions,
+                    grounding_source_ids=sources,
+                    citations=[available_citations[item] for item in sources],
+                )
+            signature = json.dumps(
+                [call.model_dump() for call in turn.tool_calls], sort_keys=True)
+            if signature == previous_signature:
+                raise AgentExecutionError(
+                    "repeated identical tool call", "repeated_tool_call")
+            previous_signature = signature
+            messages.append({
+                "role": "assistant",
+                "content": turn.content,
+                "tool_calls": [{
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.arguments),
+                    },
+                } for call in turn.tool_calls],
+            })
+            for call in turn.tool_calls:
+                calls += 1
+                if calls > self._max_tool_calls:
+                    raise AgentExecutionError(
+                        "tool call limit reached", "tool_call_limit")
+                rejection = guard.before_tool(call.name)
+                if rejection is not None:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": json.dumps({"error": rejection.tool_error}),
+                    })
+                    continue
+                result = await self._tools.execute(
+                    call.name, call.arguments, context, active_skill)
+                usages.append(result.usage)
+                available_ids.update(result.prediction_ids)
+                available_citations.update(result.citations)
+                guard.record_tool(
+                    call.name, result.usage.status,
+                    citation_count=len(result.citations))
+                if result.skill_activation is not None:
+                    active_skill = result.skill_activation
+                    guard.record_skill_activation(active_skill.required_tools)
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "Trusted activated skill instructions follow.\n"
+                            "<skill>\n" + active_skill.instructions +
+                            "\n</skill>"),
+                    })
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": json.dumps(
+                        result.content, ensure_ascii=False),
+                })
         raise AgentExecutionError("step limit reached", "step_limit")
 
     @staticmethod
