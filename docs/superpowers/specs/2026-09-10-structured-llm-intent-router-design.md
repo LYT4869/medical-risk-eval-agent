@@ -103,7 +103,8 @@ validation finish.
 
 The router receives only:
 
-- the current user message;
+- the current user message after deterministically extracted business references
+  have been replaced by ordinal placeholders;
 - at most the four most recent persisted final user/assistant messages, clipped
   to a fixed total character budget;
 - `current_prediction_available: bool`;
@@ -132,8 +133,9 @@ prediction ID: pred_<32 lowercase hexadecimal characters>
 sample index:  non-negative integer in a supported sample expression
 ```
 
-The actual values are stored outside the LLM frame. The router can select only
-an ordinal candidate:
+The actual values are stored outside the LLM frame. Their occurrences in the
+Router-visible message are replaced by `<prediction_ref_N>` and
+`<sample_ref_N>` placeholders. The router can select only an ordinal candidate:
 
 ```json
 {
@@ -236,10 +238,10 @@ cannot enter a stable workflow.
 
 ### 8.5 Evidence
 
-Each goal includes one or more short, exact substrings from the current user
-message. Evidence is checked against normalized source text. Evidence helps
-detect fabricated goals but is not treated as proof of correctness. Evidence
-text is not persisted or emitted in logs.
+Each goal includes one or more short, exact substrings from the placeholder-
+substituted Router-visible message. Evidence is checked against that normalized
+text. Evidence helps detect fabricated goals but is not treated as proof of
+correctness. Evidence text is not persisted or emitted in logs.
 
 The schema deliberately excludes model-reported confidence because an
 uncalibrated confidence value must not control execution.
