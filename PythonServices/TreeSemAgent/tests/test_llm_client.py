@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.llm_client import (LlmToolPolicy, OpenAiCompatibleClient,
+from agent.llm_client import (LlmError, LlmToolPolicy, OpenAiCompatibleClient,
                               OpenAiCompatibleConfig,
                               optional_boolean_environment)
 
@@ -34,6 +34,16 @@ class _FakeAsyncClient:
 
     async def aclose(self) -> None:
         return None
+
+
+class _SequenceAsyncClient(_FakeAsyncClient):
+    def __init__(self, responses):
+        super().__init__(responses[-1])
+        self.responses = list(responses)
+
+    async def post(self, path: str, **kwargs):
+        self.requests.append({"path": path, **kwargs})
+        return self.responses.pop(0)
 
 
 class OpenAiCompatibleClientTest(unittest.TestCase):
@@ -184,6 +194,64 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
             "completion_tokens": 20,
             "total_tokens": 120,
         })
+
+    def test_single_attempt_client_does_not_retry_retryable_status(self):
+        first = _FakeResponse({})
+        first.status_code = 500
+        second = _FakeResponse({
+            "choices": [{"message": {"content": "unused"}}],
+        })
+        fake = _SequenceAsyncClient([first, second])
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                base_url="https://example.invalid/v1", model="model",
+                maximum_attempts=1))
+
+        with self.assertRaises(LlmError) as caught:
+            asyncio.run(client.complete([], [], 5.0))
+
+        self.assertTrue(caught.exception.retryable)
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_default_client_retries_one_retryable_status(self):
+        first = _FakeResponse({})
+        first.status_code = 500
+        second = _FakeResponse({
+            "choices": [{"message": {"content": "ok"}}],
+        })
+        fake = _SequenceAsyncClient([first, second])
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                base_url="https://example.invalid/v1", model="model"))
+
+        result = asyncio.run(client.complete([], [], 5.0))
+
+        self.assertEqual(result.content, "ok")
+        self.assertEqual(len(fake.requests), 2)
+
+    def test_non_retryable_4xx_is_not_retried(self):
+        first = _FakeResponse({})
+        first.status_code = 401
+        second = _FakeResponse({
+            "choices": [{"message": {"content": "unused"}}],
+        })
+        fake = _SequenceAsyncClient([first, second])
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                base_url="https://example.invalid/v1", model="model"))
+
+        with self.assertRaises(LlmError) as caught:
+            asyncio.run(client.complete([], [], 5.0))
+
+        self.assertFalse(caught.exception.retryable)
+        self.assertEqual(caught.exception.code, "upstream_rejected")
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_rejects_invalid_maximum_attempts(self):
+        with self.assertRaisesRegex(ValueError, "maximum_attempts"):
+            OpenAiCompatibleConfig(
+                base_url="https://example.invalid/v1", model="model",
+                maximum_attempts=3)
 
 
 if __name__ == "__main__":

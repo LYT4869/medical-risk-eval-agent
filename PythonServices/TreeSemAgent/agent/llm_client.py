@@ -17,7 +17,11 @@ from .schemas import LlmToolCall, LlmTurn, LlmUsage
 
 
 class LlmError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "llm_failed",
+                 retryable: bool = True):
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,11 @@ class OpenAiCompatibleConfig:
     temperature: float = 0.0
     max_output_tokens: int = 1024
     enable_thinking: bool | None = None
+    maximum_attempts: int = 2
+
+    def __post_init__(self) -> None:
+        if self.maximum_attempts not in {1, 2}:
+            raise ValueError("maximum_attempts must be 1 or 2")
 
 
 class OpenAiCompatibleClient:
@@ -84,6 +93,7 @@ class OpenAiCompatibleClient:
             timeout=httpx.Timeout(config.request_timeout_seconds, connect=config.connect_timeout_seconds),
             limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
         )
+        self._http_error_type = httpx.HTTPError
         self._usage_lock = threading.Lock()
         self._usage = {
             "request_count": 0,
@@ -135,14 +145,20 @@ class OpenAiCompatibleClient:
         elif tool_policy.mode == "none":
             payload["tool_choice"] = "none"
         last_error: Exception | None = None
-        for attempt in range(2):
+        for attempt in range(self._config.maximum_attempts):
             try:
                 response = await self._client.post(
                     "/chat/completions", json=payload, headers=headers,
                     timeout=min(timeout, self._config.request_timeout_seconds),
                 )
                 if response.status_code == 429 or response.status_code >= 500:
-                    raise LlmError(f"retryable upstream status {response.status_code}")
+                    raise LlmError(
+                        f"retryable upstream status {response.status_code}",
+                        code="upstream_unavailable", retryable=True)
+                if response.status_code >= 400:
+                    raise LlmError(
+                        f"non-retryable upstream status {response.status_code}",
+                        code="upstream_rejected", retryable=False)
                 response.raise_for_status()
                 body = response.json()
                 message = body["choices"][0]["message"]
@@ -183,10 +199,25 @@ class OpenAiCompatibleClient:
                     grounding_prediction_ids=grounding,
                     grounding_source_ids=source_grounding,
                     usage=parsed_usage)
-            except (httpx.HTTPError, ValueError, KeyError, TypeError, LlmError) as exc:
+            except LlmError as exc:
                 last_error = exc
-                if attempt == 0:
+                if (exc.retryable and
+                        attempt + 1 < self._config.maximum_attempts):
                     await asyncio.sleep(0.05)
+                    continue
+                raise
+            except self._http_error_type as exc:
+                last_error = LlmError(
+                    "LLM transport failed", code="transport_error",
+                    retryable=True)
+                if attempt + 1 < self._config.maximum_attempts:
+                    await asyncio.sleep(0.05)
+                    continue
+                raise last_error from exc
+            except (ValueError, KeyError, TypeError) as exc:
+                raise LlmError(
+                    "LLM response was invalid", code="invalid_response",
+                    retryable=False) from exc
         raise LlmError("LLM request failed") from last_error
 
 
