@@ -55,6 +55,15 @@ class ReferenceExtractorTest(unittest.TestCase):
         self.assertEqual(result.sample_indexes, (3,))
         self.assertEqual(result.router_message.count("<sample_ref_0>"), 2)
 
+    def test_extracts_natural_chinese_and_english_demo_sample_forms(self):
+        chinese = extract_references("帮我运行第0号演示样本")
+        english = extract_references("Run demonstration sample zero")
+
+        self.assertEqual(chinese.sample_indexes, (0,))
+        self.assertIn("<sample_ref_0>", chinese.router_message)
+        self.assertEqual(english.sample_indexes, (0,))
+        self.assertIn("<sample_ref_0>", english.router_message)
+
     def test_keeps_at_most_eight_candidates(self):
         message = " ".join(f"样本 {index}" for index in range(10))
 

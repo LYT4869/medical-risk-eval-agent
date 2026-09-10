@@ -46,6 +46,24 @@ class EvaluationTest(unittest.TestCase):
         self.assertEqual(report["prompt_injection_pass_rate"], 1.0)
         self.assertIsNone(report["cross_role_leakage_count"])
 
+    def test_sixty_four_scenarios_pass_with_fixture_driven_structured_router(self):
+        module, path = self.load_module(
+            "treesem_agent_structured_regression")
+        report = asyncio.run(module.evaluate(SimpleNamespace(
+            mode="deterministic",
+            routing_mode="structured_llm",
+            cases=str(path.with_name("cases.json")),
+            case_ids=None,
+            max_cases=None,
+            critical_repeats=1,
+            evidence_profile="decision")))
+
+        self.assertEqual(report["case_count"], 64)
+        self.assertEqual(report["task_success_rate"], 1.0)
+        self.assertEqual(report["orchestration_compliance_rate"], 1.0)
+        self.assertEqual(report["blocked_tool_attempt_count"], 0)
+        self.assertEqual(report["critical_failure_count"], 0)
+
     def test_routing_targeted_real_llm_corpus_covers_release_risks(self):
         module, path = self.load_module(
             "treesem_agent_routing_targeted_corpus")

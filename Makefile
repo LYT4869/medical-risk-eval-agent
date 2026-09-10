@@ -1,6 +1,7 @@
 .PHONY: prepare-demo demo demo-real demo-observability demo-flow verify verify-full \
 	routing-unit routing-calibrate routing-evaluate routing-load-smoke \
-	routing-export-fp32 routing-export-int8 routing-parity routing-benchmark
+	routing-export-fp32 routing-export-int8 routing-parity routing-benchmark \
+	intent-router-evaluate intent-router-regression
 
 ROUTING_MODEL := intfloat/multilingual-e5-small
 ROUTING_REVISION := 614241f622f53c4eeff9890bdc4f31cfecc418b3
@@ -35,6 +36,12 @@ demo-flow:
 verify:
 	ctest --test-dir build --output-on-failure
 	PYTHONPATH=PythonServices/TreeSemAgent python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py --mode deterministic
+
+intent-router-evaluate:
+	PYTHONPATH=$(ROUTING_ROOT) python3 $(ROUTING_ROOT)/evaluation/run_structured_router_evaluation.py --mode fake --split dev
+
+intent-router-regression:
+	TREESEM_TRACE_STDOUT=false PYTHONPATH=$(ROUTING_ROOT) python3 $(ROUTING_ROOT)/evaluation/run_evaluation.py --mode deterministic --routing-mode structured_llm --critical-repeats 1
 
 verify-full:
 	python3 scripts/verify_full.py --with-compose

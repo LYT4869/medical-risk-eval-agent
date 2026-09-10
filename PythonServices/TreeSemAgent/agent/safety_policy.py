@@ -64,7 +64,7 @@ _PRIVILEGE_ACTION = (
 )
 _PRIVILEGE_TARGET = (
     "其他会话", "别的会话", "所有患者", "其他患者", "另一名患者",
-    "管理员接口",
+    "未分配患者", "管理员接口",
     "工具白名单", "能力令牌", "capability token", "safety gate",
     "guardrail", "other session", "all patients", "other patient",
     "admin api", "administrator api", "tool allowlist", "tool whitelist",

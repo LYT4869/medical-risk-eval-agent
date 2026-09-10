@@ -20,6 +20,8 @@ if str(ROOT) not in sys.path:
 from agent.llm_client import (OpenAiCompatibleClient, OpenAiCompatibleConfig,
                               ScriptedLlmClient,
                               optional_boolean_environment)
+from agent.intent_frame import IntentFrame
+from agent.structured_router import StructuredRoute
 from agent.loop import AgentExecutionError, AgentLoop, EXECUTION_ERROR_CODES
 from agent.policy import (SAFE_POLICY_FALLBACK, SAFE_SECURITY_REFUSAL,
                           PolicyViolation)
@@ -385,6 +387,78 @@ def scripted_client(case: Case) -> ScriptedLlmClient:
     return ScriptedLlmClient(turns)
 
 
+def structured_final_client(case: Case) -> ScriptedLlmClient:
+    prediction_ids = (
+        [PRED_A, PRED_B]
+        if case.grounding in {"prediction", "both"} and
+        "compare_predictions" in case.tools else
+        [PRED_A] if case.grounding in {"prediction", "both"} else [])
+    source_ids = (
+        [CITATION] if case.grounding in {"citation", "both"} else [])
+    answer = "Grounded treeSem structured-routing evaluation answer."
+    if source_ids:
+        answer += f" Evidence: {CITATION}."
+    return ScriptedLlmClient([LlmTurn(
+        content=answer,
+        grounding_prediction_ids=prediction_ids,
+        grounding_source_ids=source_ids)])
+
+
+class FixtureStructuredRouter:
+    """Evaluation oracle derived from declared Tool expectations, not text."""
+
+    def __init__(self, case: Case):
+        self._case = case
+
+    def _semantic_goal(self) -> tuple[str, str, list[str], str | None]:
+        tools = self._case.tools
+        if self._case.skill == "explain_prediction":
+            return "skill", "current_prediction", [], None
+        if self._case.skill == "compare_prediction_history":
+            return "skill", "latest_two_predictions", [], None
+        if self._case.skill == "pph_evidence_education":
+            return "skill", "general_knowledge", [], None
+        if "predict_sample" in tools:
+            return "prediction", "demo_sample", [], None
+        if tools == ["get_prediction"]:
+            return "summary", "current_prediction", ["prediction_summary"], None
+        if tools == ["get_explanation"]:
+            return "explanation", "current_prediction", ["decision_path"], None
+        if tools == ["get_prediction_history"]:
+            return "history", "session_history", ["history_items"], None
+        if "compare_predictions" in tools:
+            return ("comparison", "latest_two_predictions",
+                    ["comparison_changes"], None)
+        if "search_medical_knowledge" in tools:
+            return "knowledge", "general_knowledge", ["citations"], "all"
+        return "other", "none", [], None
+
+    async def route(self, context) -> StructuredRoute:
+        intent, target, aspects, scope = self._semantic_goal()
+        sample_index = 0 if target == "demo_sample" else None
+        frame = IntentFrame.model_validate({
+            "schema_version": 1,
+            "goals": [{
+                "intent": intent,
+                "target": {
+                    "type": target,
+                    "explicit_reference_index": None,
+                    "second_explicit_reference_index": None,
+                    "sample_reference_index": sample_index,
+                },
+                "requested_aspects": aspects,
+                "knowledge_scope": scope,
+                "evidence": [context.message[:160]],
+            }],
+            "constraints": {
+                "excluded_intents": [], "excluded_aspects": []},
+            "unresolved_references": [],
+            "needs_clarification": False,
+        })
+        return StructuredRoute(
+            frame, usage=None, attempt_count=1, repaired=False)
+
+
 def registry(case: Case | None = None) -> tuple[ToolRegistry, FakeBackend, FakeKnowledge]:
     skills = SkillCatalog(ROOT / "skills", ToolRegistry.native_tool_names() |
                           {"search_medical_knowledge"})
@@ -398,11 +472,14 @@ def registry(case: Case | None = None) -> tuple[ToolRegistry, FakeBackend, FakeK
 
 async def run_case(case: Case, llm,
                    recent_messages: list[dict[str, str]] | None = None,
-                   *, router=None, task_registry=None) -> dict[str, Any]:
+                   *, router=None, task_registry=None,
+                   structured_router=None,
+                   routing_mode: str = "legacy_rule") -> dict[str, Any]:
     from agent.schemas import AgentRunRequest
     tools, backend, knowledge = registry(case)
     loop = AgentLoop(
-        llm, tools, router=router, task_registry=task_registry)
+        llm, tools, router=router, task_registry=task_registry,
+        structured_router=structured_router, routing_mode=routing_mode)
     request = AgentRunRequest(
         run_id="run_" + "1" * 32, session_id="ses_" + "2" * 32,
         message=case.message, actor_role=case.actor_role,
@@ -547,14 +624,25 @@ async def run_case(case: Case, llm,
 
 
 async def run_scenario(scenario: Scenario, real_client=None, *,
-                       router=None, task_registry=None) -> dict[str, Any]:
+                       router=None, task_registry=None,
+                       structured_router=None,
+                       routing_mode: str = "legacy_rule") -> dict[str, Any]:
     recent_messages: list[dict[str, str]] = []
     turn_results: list[dict[str, Any]] = []
     for turn in scenario.turns:
-        client = real_client if real_client is not None else scripted_client(turn)
+        client = (real_client if real_client is not None else
+                  structured_final_client(turn)
+                  if routing_mode == "structured_llm" else
+                  scripted_client(turn))
+        turn_router = (
+            structured_router if structured_router is not None else
+            FixtureStructuredRouter(turn)
+            if routing_mode == "structured_llm" else None)
         result = await run_case(
             turn, client, recent_messages,
-            router=router, task_registry=task_registry)
+            router=router, task_registry=task_registry,
+            structured_router=turn_router,
+            routing_mode=routing_mode)
         turn_results.append(result)
         if "answer" in result:
             recent_messages.extend([
@@ -638,7 +726,9 @@ async def evaluate(args) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     real_client = None
     routing_runtime = None
-    routing_mode = getattr(args, "routing_mode", "rule")
+    routing_mode = getattr(args, "routing_mode", "legacy_rule")
+    if routing_mode == "rule":
+        routing_mode = "legacy_rule"
     if args.mode == "real":
         base_url = os.getenv("TREESEM_AGENT_LLM_BASE_URL", "")
         model = os.getenv("TREESEM_AGENT_LLM_MODEL", "")
@@ -654,7 +744,7 @@ async def evaluate(args) -> dict[str, Any]:
                 "TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS", "1024")),
             enable_thinking=optional_boolean_environment(
                 "TREESEM_AGENT_LLM_ENABLE_THINKING")))
-    if routing_mode != "rule":
+    if routing_mode in {"hybrid_optional", "hybrid_required"}:
         from agent.routing_config import (
             RoutingSettings, build_routing_runtime)
 
@@ -671,7 +761,8 @@ async def evaluate(args) -> dict[str, Any]:
                     router=(None if routing_runtime is None
                             else routing_runtime.router),
                     task_registry=(None if routing_runtime is None
-                                   else routing_runtime.registry)))
+                                   else routing_runtime.registry),
+                    routing_mode=routing_mode))
     finally:
         if real_client is not None: await real_client.close()
         if routing_runtime is not None: await routing_runtime.close()
@@ -811,8 +902,9 @@ def main() -> int:
                         default="deterministic")
     parser.add_argument(
         "--routing-mode",
-        choices=("rule", "hybrid_optional", "hybrid_required"),
-        default="rule")
+        choices=("legacy_rule", "structured_llm", "rule",
+                 "hybrid_optional", "hybrid_required"),
+        default="legacy_rule")
     parser.add_argument("--cases", default=str(Path(__file__).with_name("cases.json")))
     parser.add_argument("--case-id", dest="case_ids", action="append")
     parser.add_argument("--max-cases", type=int)

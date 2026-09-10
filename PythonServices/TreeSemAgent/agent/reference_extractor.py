@@ -12,6 +12,16 @@ _SAMPLE_INDEX = re.compile(
     r"(?P<label>样本(?:索引)?|sample(?:\s+index)?)"
     r"(?P<separator>\s*(?:#\s*)?)(?P<value>[0-9]+)",
     re.IGNORECASE)
+_CHINESE_NUMBERED_SAMPLE = re.compile(
+    r"第\s*(?P<value>[0-9]+)\s*号?(?:演示)?样本")
+_ENGLISH_WORD_SAMPLE = re.compile(
+    r"(?P<label>(?:demonstration\s+)?sample(?:\s+index)?)\s+"
+    r"(?P<word>zero|one|two|three|four|five|six|seven|eight|nine)",
+    re.IGNORECASE)
+_ENGLISH_DIGITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+}
 _BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}")
 _JWT = re.compile(
     r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\."
@@ -49,18 +59,35 @@ def _replace_prediction_ids(message: str) -> tuple[str, tuple[str, ...]]:
 def _replace_sample_indexes(message: str) -> tuple[str, tuple[int, ...]]:
     candidates: list[int] = []
 
-    def replace(match: re.Match[str]) -> str:
-        value = int(match.group("value"))
+    def placeholder(value: int) -> str | None:
         if value in candidates:
             index = candidates.index(value)
         elif len(candidates) < _MAX_CANDIDATES:
             candidates.append(value)
             index = len(candidates) - 1
         else:
-            return match.group(0)
-        return f"{match.group('label')} <sample_ref_{index}>"
+            return None
+        return f"<sample_ref_{index}>"
 
-    return _SAMPLE_INDEX.sub(replace, message), tuple(candidates)
+    def replace_chinese(match: re.Match[str]) -> str:
+        replacement = placeholder(int(match.group("value")))
+        return (f"演示样本 {replacement}" if replacement is not None
+                else match.group(0))
+
+    def replace_digits(match: re.Match[str]) -> str:
+        replacement = placeholder(int(match.group("value")))
+        return (f"{match.group('label')} {replacement}"
+                if replacement is not None else match.group(0))
+
+    def replace_word(match: re.Match[str]) -> str:
+        replacement = placeholder(_ENGLISH_DIGITS[match.group("word").lower()])
+        return (f"{match.group('label')} {replacement}"
+                if replacement is not None else match.group(0))
+
+    result = _CHINESE_NUMBERED_SAMPLE.sub(replace_chinese, message)
+    result = _SAMPLE_INDEX.sub(replace_digits, result)
+    result = _ENGLISH_WORD_SAMPLE.sub(replace_word, result)
+    return result, tuple(candidates)
 
 
 def sanitize_router_context_text(text: str) -> str:
