@@ -58,6 +58,15 @@ class ToolRegistry:
             result.add("search_medical_knowledge")
         return result
 
+    def definition_names(
+            self, context: ToolContext | None = None,
+            active_skill: SkillActivation | None = None,
+            allowed_tools: set[str] | None = None) -> frozenset[str]:
+        return frozenset(
+            item["function"]["name"]
+            for item in self.definitions(
+                context, active_skill, allowed_tools))
+
     def definitions(self, context: ToolContext | None = None,
                     active_skill: SkillActivation | None = None,
                     allowed_tools: set[str] | None = None) -> list[dict[str, Any]]:
