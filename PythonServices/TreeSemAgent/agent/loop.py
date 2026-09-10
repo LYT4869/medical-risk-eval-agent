@@ -148,6 +148,9 @@ class AgentLoop:
         deadline = time.monotonic() + self._total_timeout
         routing_started = time.monotonic()
         safety = self._safety_gate.evaluate(request.message)
+        if (safety.allowed and self._routing_mode == "structured_shadow" and
+                self._structured_router is not None):
+            await self._observe_structured_shadow(request)
         if safety.allowed:
             routing = await self._router.route(request.message)
             guard = AgentRunGuard.for_scope(
@@ -506,6 +509,23 @@ class AgentLoop:
                     else:
                         stage_index = len(plan.stages)
         raise AgentExecutionError("step limit reached", "step_limit")
+
+    async def _observe_structured_shadow(
+            self, request: AgentRunRequest) -> None:
+        references = extract_references(request.message)
+        context = RouterContext(
+            message=references.router_message,
+            recent_messages=tuple(request.recent_messages),
+            current_prediction_available=request.current_prediction is not None,
+            references=references,
+        )
+        try:
+            route = await self._structured_router.route(context)
+            validation = validate_and_bind_intent(
+                route.frame, references, request)
+            self._intent_dispatcher.dispatch(validation)
+        except (StructuredRouterError, IntentFrameViolation, ValueError):
+            return
 
     @staticmethod
     def _safety_response(safety) -> AgentRunResponse | None:

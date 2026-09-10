@@ -15,6 +15,7 @@ from agent.routing_config import (
 from agent.routing_artifact import RoutingArtifactError
 from agent.routing import RuleOnlyRouter
 from agent.task_registry import load_default_registry
+from agent.intent_routing_runtime import IntentRoutingMode
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,26 +26,28 @@ SERVER_ENVIRONMENT = {
     "TREESEM_DEPLOYMENT_ENV": "local",
     "TREESEM_KNOWLEDGE_ENABLED": "false",
     "TREESEM_AGENT_SKILLS_ENABLED": "false",
-    "TREESEM_AGENT_ROUTING_MODE": "rule",
+    "TREESEM_AGENT_ROUTING_MODE": "legacy_rule",
 }
 
 
 class FakeRoutingRuntime:
     def __init__(self):
-        self.mode = RoutingMode.HYBRID_OPTIONAL
-        self.router = RuleOnlyRouter()
-        self.registry = load_default_registry()
-        self.semantic_router = object()
-        self.degradation_reason = None
+        self.mode = IntentRoutingMode.STRUCTURED_SHADOW
+        self.structured_router = object()
         self.close_calls = 0
 
     @property
-    def semantic_available(self):
-        return self.semantic_router is not None
+    def metadata(self):
+        return {
+            "routing_mode": "structured_shadow",
+            "router_model": "qwen-test",
+            "router_prompt_sha256": "a" * 64,
+            "intent_frame_schema_version": 1,
+            "workflow_registry_version": "b" * 64,
+        }
 
     async def close(self):
         self.close_calls += 1
-        self.semantic_router = None
 
 
 class StubLoop:
@@ -192,16 +195,17 @@ class ServerRoutingTest(unittest.TestCase):
         server = self._load_server()
         runtime = FakeRoutingRuntime()
         with patch.dict(os.environ, SERVER_ENVIRONMENT, clear=False), \
-                patch.object(server, "build_routing_runtime",
+                patch.object(server, "build_intent_routing_runtime",
                              return_value=runtime):
             app = server.create_app()
             with TestClient(app) as client:
                 health = client.get("/health")
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(health.json()["routing_mode"],
-                                 "hybrid_optional")
-                self.assertTrue(
-                    health.json()["semantic_routing_available"])
+                                 "structured_shadow")
+                self.assertEqual(health.json()["router_model"], "qwen-test")
+                self.assertEqual(
+                    health.json()["intent_frame_schema_version"], 1)
             self.assertEqual(runtime.close_calls, 1)
 
     @unittest.skipUnless(HAS_FASTAPI, "FastAPI service dependency is absent")
@@ -210,14 +214,14 @@ class ServerRoutingTest(unittest.TestCase):
 
         server = self._load_server()
         with patch.object(
-                server, "build_routing_runtime",
+                server, "build_intent_routing_runtime",
                 side_effect=AssertionError("routing runtime must not be built")):
             app = server.create_app(loop=StubLoop())
         with TestClient(app) as client:
             response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["routing_mode"], "injected")
-        self.assertFalse(response.json()["semantic_routing_available"])
+        self.assertNotIn("router_model", response.json())
 
     @unittest.skipUnless(HAS_FASTAPI, "FastAPI service dependency is absent")
     def test_ready_reports_routing_state_without_embedding_request(self):
@@ -226,7 +230,7 @@ class ServerRoutingTest(unittest.TestCase):
         server = self._load_server()
         runtime = FakeRoutingRuntime()
         with patch.dict(os.environ, SERVER_ENVIRONMENT, clear=False), \
-                patch.object(server, "build_routing_runtime",
+                patch.object(server, "build_intent_routing_runtime",
                              return_value=runtime):
             app = server.create_app()
         with patch.object(server.httpx, "AsyncClient",
@@ -236,8 +240,9 @@ class ServerRoutingTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["routing_mode"],
-                         "hybrid_optional")
-        self.assertTrue(response.json()["semantic_routing_available"])
+                         "structured_shadow")
+        self.assertEqual(response.json()["workflow_registry_version"],
+                         "b" * 64)
 
 
 if __name__ == "__main__":
