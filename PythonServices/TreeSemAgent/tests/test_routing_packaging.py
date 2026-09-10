@@ -97,6 +97,15 @@ class RoutingPackagingTest(unittest.TestCase):
             "routing_cases.json", makefile)
         self.assertIn(
             "--cases $(ROUTING_QUALITY_CASES)", makefile)
+        benchmark = makefile.split("\nrouting-benchmark:\n", 1)[1]
+        self.assertIn("deploy/docker/routing-runtime.Dockerfile", benchmark)
+        self.assertNotIn("deploy/docker/agent.Dockerfile", benchmark)
+        self.assertNotIn("TREESEM_INSTALL_SEMANTIC_ROUTING", benchmark)
+        runtime_dockerfile = (
+            ROOT / "deploy/docker/routing-runtime.Dockerfile"
+        ).read_text(encoding="utf-8")
+        self.assertIn("requirements-routing.txt", runtime_dockerfile)
+        self.assertNotIn("requirements-routing-export.txt", runtime_dockerfile)
 
     def test_model_cache_and_generated_weights_are_excluded(self):
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")

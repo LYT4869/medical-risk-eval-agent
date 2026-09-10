@@ -17,8 +17,18 @@ from .schemas import LlmToolCall, LlmTurn, LlmUsage
 
 
 class LlmError(RuntimeError):
+    _CODES = frozenset({
+        "llm_failed",
+        "upstream_unavailable",
+        "upstream_rejected",
+        "transport_error",
+        "invalid_response",
+    })
+
     def __init__(self, message: str, *, code: str = "llm_failed",
                  retryable: bool = True):
+        if code not in self._CODES:
+            raise ValueError("unknown LLM error code")
         super().__init__(message)
         self.code = code
         self.retryable = retryable

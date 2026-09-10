@@ -56,6 +56,10 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
             HTTPError=RuntimeError,
         )
 
+    def test_llm_error_rejects_unknown_error_code(self):
+        with self.assertRaisesRegex(ValueError, "unknown LLM error code"):
+            LlmError("unsafe upstream detail", code="provider_account_123")
+
     def test_real_request_has_deterministic_output_limits(self):
         fake = _FakeAsyncClient(_FakeResponse({
             "choices": [{"message": {"content": "ok"}}],

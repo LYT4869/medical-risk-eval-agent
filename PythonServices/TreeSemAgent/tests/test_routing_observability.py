@@ -79,6 +79,30 @@ def explanation_frame() -> IntentFrame:
     })
 
 
+def other_frame() -> IntentFrame:
+    return IntentFrame.model_validate({
+        "schema_version": 1,
+        "goals": [{
+            "intent": "other",
+            "target": {
+                "type": "none",
+                "explicit_reference_index": None,
+                "second_explicit_reference_index": None,
+                "sample_reference_index": None,
+            },
+            "requested_aspects": [],
+            "knowledge_scope": None,
+            "evidence": ["你好"],
+        }],
+        "constraints": {
+            "excluded_intents": [],
+            "excluded_aspects": [],
+        },
+        "unresolved_references": [],
+        "needs_clarification": False,
+    })
+
+
 def request(message="private explanation words") -> AgentRunRequest:
     return AgentRunRequest(
         run_id="run_" + "d" * 32,
@@ -208,6 +232,59 @@ class StructuredRoutingObservabilityTest(unittest.TestCase):
         self.assertEqual(event[1], "error")
         self.assertEqual(event[2]["error_code"],
                          "intent_router_unavailable")
+
+    def test_shadow_records_safe_match_without_changing_legacy_response(self):
+        registry = Metrics()
+        events = []
+        router = MeasuredRouter()
+        router.result = StructuredRoute(
+            other_frame(), usage=None, attempt_count=1, repaired=False)
+        loop = AgentLoop(
+            ScriptedLlmClient([LlmTurn(content="legacy response")]),
+            ToolRegistry(ExplanationBackend()),
+            structured_router=router,
+            routing_mode="structured_shadow")
+        with patch("agent.loop.metrics", registry), patch(
+                "agent.loop.trace_event",
+                side_effect=lambda trace, operation, started, outcome,
+                **fields: events.append({
+                    "operation": operation, "outcome": outcome, **fields})):
+            response = asyncio.run(loop.run(request("你好")))
+
+        rendered = registry.render()
+        self.assertEqual(response.answer, "legacy response")
+        self.assertIn(
+            'treesem_agent_intent_shadow_total{result="match"} 1',
+            rendered)
+        shadow = next(item for item in events
+                      if item["operation"] == "agent.intent_shadow")
+        self.assertEqual(shadow["result"], "match")
+        self.assertNotIn("你好", rendered + repr(events))
+
+    def test_shadow_router_failure_is_observed_and_legacy_still_runs(self):
+        registry = Metrics()
+        events = []
+        router = MeasuredRouter(failure=StructuredRouterError(
+            "intent_router_unavailable", attempt_count=2))
+        loop = AgentLoop(
+            ScriptedLlmClient([LlmTurn(content="legacy response")]),
+            ToolRegistry(ExplanationBackend()),
+            structured_router=router,
+            routing_mode="structured_shadow")
+        with patch("agent.loop.metrics", registry), patch(
+                "agent.loop.trace_event",
+                side_effect=lambda trace, operation, started, outcome,
+                **fields: events.append({
+                    "operation": operation, "outcome": outcome, **fields})):
+            response = asyncio.run(loop.run(request("你好")))
+
+        self.assertEqual(response.answer, "legacy response")
+        self.assertIn(
+            'treesem_agent_intent_shadow_total{result="router_failure"} 1',
+            registry.render())
+        shadow = next(item for item in events
+                      if item["operation"] == "agent.intent_shadow")
+        self.assertEqual(shadow["outcome"], "error")
 
 
 if __name__ == "__main__":

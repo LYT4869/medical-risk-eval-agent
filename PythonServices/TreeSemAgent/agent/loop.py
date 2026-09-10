@@ -189,11 +189,12 @@ class AgentLoop:
         deadline = time.monotonic() + self._total_timeout
         routing_started = time.monotonic()
         safety = self._safety_gate.evaluate(request.message)
-        if (safety.allowed and self._routing_mode == "structured_shadow" and
-                self._structured_router is not None):
-            await self._observe_structured_shadow(request)
         if safety.allowed:
             routing = await self._router.route(request.message)
+            if (self._routing_mode == "structured_shadow" and
+                    self._structured_router is not None):
+                await self._observe_structured_shadow(
+                    request, routing, trace)
             guard = AgentRunGuard.for_scope(
                 routing.scope, registry=self._task_registry,
                 include_summary=routing.include_summary)
@@ -552,7 +553,9 @@ class AgentLoop:
         raise AgentExecutionError("step limit reached", "step_limit")
 
     async def _observe_structured_shadow(
-            self, request: AgentRunRequest) -> None:
+            self, request: AgentRunRequest, legacy_routing: RoutingDecision,
+            trace: TraceState) -> None:
+        started = time.monotonic()
         references = extract_references(request.message)
         context = RouterContext(
             message=references.router_message,
@@ -564,9 +567,28 @@ class AgentLoop:
             route = await self._structured_router.route(context)
             validation = validate_and_bind_intent(
                 route.frame, references, request)
-            self._intent_dispatcher.dispatch(validation)
-        except (StructuredRouterError, IntentFrameViolation, ValueError):
-            return
+            dispatch = self._intent_dispatcher.dispatch(validation)
+            if legacy_routing.scope == RequestScope.UNKNOWN:
+                matches = dispatch.kind == DispatchKind.OPEN_AGENT
+            else:
+                matches = (
+                    dispatch.validated_intent is not None and
+                    len(dispatch.validated_intent.goals) == 1 and
+                    dispatch.validated_intent.goals[0].intent.value ==
+                    legacy_routing.scope.value)
+            result = "match" if matches else "mismatch"
+        except StructuredRouterError:
+            result = "router_failure"
+        except (IntentFrameViolation, ValueError):
+            result = "invalid_frame"
+        except Exception:
+            result = "router_failure"
+        metrics.increment(
+            "treesem_agent_intent_shadow_total", result=result)
+        trace_event(
+            trace.child(), "agent.intent_shadow", started,
+            ("success" if result in {"match", "mismatch"} else "error"),
+            result=result)
 
     @staticmethod
     def _safety_response(safety) -> AgentRunResponse | None:

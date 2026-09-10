@@ -170,6 +170,18 @@ class StructuredRouterScoringTest(unittest.TestCase):
         self.assertEqual(report["end_to_end"]["workflow_rate"], 0.0)
         self.assertEqual(report["end_to_end"]["open_agent_rate"], 0.0)
 
+    def test_fake_command_gate_rejects_any_deterministic_regression(self):
+        cases = [case for case in self.module.load_cases(CASES)[0]
+                 if case.split == "dev"]
+        passing = self.module.score_outcomes(
+            cases, [self.module.LayerOutcome.from_expected(case)
+                    for case in cases])
+        passing.update({"status": "completed", "mode": "fake"})
+        failing = {**passing, "failures": [{"case_id": cases[0].case_id}]}
+
+        self.assertTrue(self.module.report_passes_command_gate(passing))
+        self.assertFalse(self.module.report_passes_command_gate(failing))
+
 
 if __name__ == "__main__":
     unittest.main()

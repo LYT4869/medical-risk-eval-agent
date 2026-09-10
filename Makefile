@@ -95,8 +95,8 @@ routing-parity:
 routing-benchmark:
 	mkdir -p $(ROUTING_REPORT_DIR)
 	docker build --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
-		--build-arg NO_PROXY --build-arg TREESEM_INSTALL_SEMANTIC_ROUTING=true \
-		-f deploy/docker/agent.Dockerfile -t $(ROUTING_RUNTIME_IMAGE) .
+		--build-arg NO_PROXY -f deploy/docker/routing-runtime.Dockerfile \
+		-t $(ROUTING_RUNTIME_IMAGE) .
 	docker run --rm --user "$$(id -u):$$(id -g)" --entrypoint python \
 		-v $(abspath $(ROUTING_ARTIFACT_DIR)):/routing/artifact:ro \
 		-v $(abspath $(ROUTING_REPORT_DIR)):/reports \

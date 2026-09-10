@@ -83,6 +83,10 @@ class Metrics:
                 "workflow", "composite_workflow", "clarification",
                 "open_agent", "invalid"}),
         },
+        "treesem_agent_intent_shadow_total": {
+            "result": frozenset({
+                "match", "mismatch", "router_failure", "invalid_frame"}),
+        },
         "treesem_agent_workflow_executions_total": {
             "result": frozenset({"success", "failure"}),
             "recipe_class": frozenset({"single", "composite"}),
