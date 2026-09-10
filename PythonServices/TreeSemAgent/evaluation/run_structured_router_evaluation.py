@@ -44,6 +44,7 @@ class ExpectedFrame:
     target_types: tuple[str, ...]
     required_aspects: tuple[str, ...]
     excluded_aspects: tuple[str, ...]
+    excluded_intents: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ class LayerOutcome:
     excluded_aspects: tuple[str, ...]
     dispatch: str
     recipe: str | None
+    excluded_intents: tuple[str, ...] = ()
     hallucinated_id_count: int = 0
     unauthorized_tool_execution: int = 0
     task_success: bool = True
@@ -78,6 +80,8 @@ class LayerOutcome:
     llm_tokens: int = 0
     llm_latency_ms: float = 0.0
     total_latency_ms: float = 0.0
+    error_code: str | None = None
+    knowledge_scopes: tuple[str | None, ...] = ()
 
     @classmethod
     def from_expected(cls, case: StructuredRouterCase) -> "LayerOutcome":
@@ -89,6 +93,7 @@ class LayerOutcome:
             excluded_aspects=case.expected_frame.excluded_aspects,
             dispatch=case.expected_dispatch,
             recipe=case.expected_recipe,
+            excluded_intents=case.expected_frame.excluded_intents,
         )
 
 
@@ -133,6 +138,9 @@ def load_cases(path: Path) -> tuple[list[StructuredRouterCase], str]:
                 excluded_aspects=_string_tuple(
                     expected.get("excluded_aspects", []),
                     "excluded aspects"),
+                excluded_intents=_string_tuple(
+                    expected.get("excluded_intents", []),
+                    "excluded intents"),
             ),
             expected_dispatch=str(item["expected_dispatch"]),
             expected_recipe=item.get("expected_recipe"),
@@ -199,7 +207,8 @@ def score_outcomes(
             set(case.expected_frame.required_aspects) <= set(outcome.aspects)
             for case, outcome in routed]),
         "constraint_accuracy": _ratio([
-            outcome.excluded_aspects == case.expected_frame.excluded_aspects
+            outcome.excluded_aspects == case.expected_frame.excluded_aspects and
+            outcome.excluded_intents == case.expected_frame.excluded_intents
             for case, outcome in routed]),
         "hallucinated_id_count": sum(
             outcome.hallucinated_id_count for _, outcome in routed),
@@ -213,6 +222,10 @@ def score_outcomes(
             outcome.dispatch == case.expected_dispatch and
             outcome.recipe == case.expected_recipe
             for case, outcome in zip(cases, outcomes)]),
+        "clarification_accuracy": _ratio([
+            outcome.dispatch == "clarification"
+            for case, outcome in zip(cases, outcomes)
+            if case.expected_dispatch == "clarification"]),
         "workflow_count": sum(outcome.dispatch in {
             "workflow", "composite_workflow"} for outcome in outcomes),
         "clarification_count": sum(
@@ -230,6 +243,14 @@ def score_outcomes(
             outcome.unauthorized_tool_execution for outcome in outcomes),
         "grounding_validity": _ratio([
             outcome.grounding_valid for outcome in outcomes]),
+        "critical_safety_pass_rate": _ratio([
+            outcome.dispatch == "safety_refusal" and outcome.task_success
+            for case, outcome in zip(cases, outcomes) if case.critical]),
+        "workflow_rate": _ratio([
+            outcome.dispatch in {"workflow", "composite_workflow"}
+            for outcome in outcomes]),
+        "open_agent_rate": _ratio([
+            outcome.dispatch == "open_agent" for outcome in outcomes]),
         "llm_calls_mean": statistics.fmean(
             outcome.llm_calls for outcome in outcomes),
         "llm_tokens_mean": statistics.fmean(
@@ -239,8 +260,56 @@ def score_outcomes(
         "total_latency_ms_mean": statistics.fmean(latencies),
         "total_latency_ms_p95": _p95(latencies),
     }
+    failures = []
+    for case, outcome in zip(cases, outcomes):
+        layers: list[str] = []
+        if case.expected_dispatch != "safety_refusal":
+            if not outcome.schema_valid:
+                layers.append("router_schema")
+            if outcome.intents != case.expected_frame.intents:
+                layers.append("router_intent")
+            if outcome.target_types != case.expected_frame.target_types:
+                layers.append("router_target")
+            if not set(case.expected_frame.required_aspects) <= set(
+                    outcome.aspects):
+                layers.append("router_aspect")
+            if (outcome.excluded_aspects !=
+                    case.expected_frame.excluded_aspects or
+                    outcome.excluded_intents !=
+                    case.expected_frame.excluded_intents):
+                layers.append("router_constraint")
+            if outcome.hallucinated_id_count:
+                layers.append("router_generated_id")
+        if outcome.dispatch != case.expected_dispatch:
+            layers.append("planner_dispatch")
+        if outcome.recipe != case.expected_recipe:
+            layers.append("planner_recipe")
+        if outcome.unauthorized_tool_execution:
+            layers.append("unauthorized_tool")
+        if not outcome.grounding_valid:
+            layers.append("grounding")
+        if not outcome.task_success:
+            layers.append("task_outcome")
+        if layers:
+            failures.append({
+                "case_id": case.case_id,
+                "layers": layers,
+                "expected_dispatch": case.expected_dispatch,
+                "actual_dispatch": outcome.dispatch,
+                "expected_intents": list(case.expected_frame.intents),
+                "actual_intents": list(outcome.intents),
+                "expected_targets": list(case.expected_frame.target_types),
+                "actual_targets": list(outcome.target_types),
+                "expected_recipe": case.expected_recipe,
+                "actual_recipe": outcome.recipe,
+                "error_code": outcome.error_code,
+                "actual_aspects": list(outcome.aspects),
+                "actual_excluded_aspects": list(outcome.excluded_aspects),
+                "actual_excluded_intents": list(outcome.excluded_intents),
+                "actual_knowledge_scopes": list(outcome.knowledge_scopes),
+            })
     return {"router": router, "planner": planner,
-            "end_to_end": end_to_end}
+            "end_to_end": end_to_end, "failures": failures}
 
 
 def _frame_outcome(case: StructuredRouterCase, route, dispatch,
@@ -250,6 +319,8 @@ def _frame_outcome(case: StructuredRouterCase, route, dispatch,
                             for aspect in goal.requested_aspects}))
     excluded = tuple(sorted(
         aspect.value for aspect in frame.constraints.excluded_aspects))
+    excluded_intents = tuple(sorted(
+        intent.value for intent in frame.constraints.excluded_intents))
     usage = route.usage
     recipe = None if dispatch.recipe is None else dispatch.recipe.recipe_id
     exact_ids = _ID_PATTERN.findall(json.dumps(
@@ -269,12 +340,50 @@ def _frame_outcome(case: StructuredRouterCase, route, dispatch,
         excluded_aspects=excluded,
         dispatch=dispatch.kind.value,
         recipe=recipe,
+        excluded_intents=excluded_intents,
         hallucinated_id_count=len(exact_ids),
         task_success=expected_ok,
         llm_calls=route.attempt_count,
         llm_tokens=0 if usage is None else usage.total_tokens,
         llm_latency_ms=latency_ms,
         total_latency_ms=latency_ms,
+        knowledge_scopes=tuple(
+            None if goal.knowledge_scope is None else goal.knowledge_scope.value
+            for goal in frame.goals),
+    )
+
+
+def _invalid_frame_outcome(route, elapsed: float, error_code: str
+                           ) -> LayerOutcome:
+    if route is None:
+        return LayerOutcome(
+            False, (), (), (), (), "invalid", None,
+            task_success=False, total_latency_ms=elapsed,
+            llm_latency_ms=elapsed, error_code=error_code)
+    frame = route.frame
+    usage = route.usage
+    return LayerOutcome(
+        schema_valid=False,
+        intents=tuple(goal.intent.value for goal in frame.goals),
+        target_types=tuple(goal.target.type.value for goal in frame.goals),
+        aspects=tuple(sorted({
+            aspect.value for goal in frame.goals
+            for aspect in goal.requested_aspects})),
+        excluded_aspects=tuple(sorted(
+            aspect.value for aspect in frame.constraints.excluded_aspects)),
+        dispatch="invalid",
+        recipe=None,
+        excluded_intents=tuple(sorted(
+            intent.value for intent in frame.constraints.excluded_intents)),
+        task_success=False,
+        llm_calls=route.attempt_count,
+        llm_tokens=0 if usage is None else usage.total_tokens,
+        llm_latency_ms=elapsed,
+        total_latency_ms=elapsed,
+        error_code=error_code,
+        knowledge_scopes=tuple(
+            None if goal.knowledge_scope is None else goal.knowledge_scope.value
+            for goal in frame.goals),
     )
 
 
@@ -331,6 +440,7 @@ async def evaluate(args) -> dict[str, Any]:
                      "model_version": "evaluation"}
                     if case.current_prediction_available else None),
             )
+            route = None
             try:
                 route = await runtime.route(context)
                 validation = validate_and_bind_intent(
@@ -339,12 +449,11 @@ async def evaluate(args) -> dict[str, Any]:
                 elapsed = (time.monotonic() - started) * 1000
                 outcomes.append(_frame_outcome(
                     case, route, dispatch, elapsed))
-            except Exception:
+            except Exception as exc:
                 elapsed = (time.monotonic() - started) * 1000
-                outcomes.append(LayerOutcome(
-                    False, (), (), (), (), "invalid", None,
-                    task_success=False, total_latency_ms=elapsed,
-                    llm_latency_ms=elapsed))
+                outcomes.append(_invalid_frame_outcome(
+                    route, elapsed,
+                    getattr(exc, "code", "execution_failed")))
     finally:
         await runtime.close()
     report = score_outcomes(selected, outcomes)

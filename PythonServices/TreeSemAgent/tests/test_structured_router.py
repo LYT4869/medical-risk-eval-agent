@@ -13,6 +13,7 @@ from agent.structured_router import (
     StructuredRouterConfig,
     StructuredRouterError,
 )
+from agent.intent_router_prompt import ROUTER_SYSTEM_PROMPT
 
 
 def frame_arguments(**updates) -> dict:
@@ -233,6 +234,26 @@ class StructuredRouterTest(unittest.TestCase):
                 context_messages=4,
                 context_max_chars=6000,
             )
+
+    def test_short_prompt_defines_cross_field_semantic_contract(self):
+        prompt = ROUTER_SYSTEM_PROMPT
+        for required in (
+                "knowledge_scope", "general_knowledge",
+                "summary", "model_version", "skill",
+                "other", "needs_clarification", "missing_sample_index",
+                "prediction_summary", "decision_path", "history_items"):
+            self.assertIn(required, prompt)
+
+    def test_short_prompt_defines_ambiguous_cross_field_examples(self):
+        prompt = ROUTER_SYSTEM_PROMPT
+        for required in (
+                "skill + current_prediction",
+                "skill + latest_two_predictions",
+                "skill + general_knowledge",
+                "system usage -> other + none",
+                "history + session_history; knowledge + general_knowledge",
+                "model metrics are knowledge"):
+            self.assertIn(required, prompt)
 
 
 if __name__ == "__main__":

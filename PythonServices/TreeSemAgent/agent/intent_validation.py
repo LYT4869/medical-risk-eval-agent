@@ -115,7 +115,10 @@ _ASPECTS = {
         RequestedAspect.IMPORTANT_FEATURES,
         RequestedAspect.DECISION_PATH,
     },
-    IntentKind.HISTORY: {RequestedAspect.HISTORY_ITEMS},
+    IntentKind.HISTORY: {
+        RequestedAspect.HISTORY_ITEMS,
+        RequestedAspect.PREDICTION_SUMMARY,
+    },
     IntentKind.COMPARISON: {RequestedAspect.COMPARISON_CHANGES},
     IntentKind.KNOWLEDGE: {
         RequestedAspect.KNOWLEDGE_OVERVIEW,

@@ -158,6 +158,14 @@ class IntentValidationTest(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, "incompatible_aspect")
 
+    def test_history_may_request_prediction_summaries(self):
+        result = self.validate(
+            frame(intent="history", target="session_history",
+                  aspects=["prediction_summary"], evidence=["历史"]),
+            request("查看历史预测摘要"))
+
+        self.assertIsNotNone(result.validated)
+
     def test_missing_current_prediction_is_a_clarification(self):
         result = self.validate(frame(), request("解释当前结果", current=False))
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib.util
 import sys
 import unittest
@@ -54,6 +55,33 @@ class StructuredRouterCorpusTest(unittest.TestCase):
                 "patient@example.com", "身份证", "手机号"):
             self.assertNotIn(forbidden.lower(), serialized)
 
+    def test_dev_labels_follow_the_literal_user_request(self):
+        module = load_runner()
+        loaded, _ = module.load_cases(CASES)
+        cases = {case.case_id: case for case in loaded}
+
+        self.assertIn("决策路径", cases["sr_dev_014"].message)
+        self.assertEqual(cases["sr_dev_014"].expected_frame.required_aspects,
+                         ("decision_path",))
+        self.assertIn("结果摘要", cases["sr_dev_036"].message)
+        self.assertEqual(cases["sr_dev_036"].expected_frame.excluded_aspects,
+                         ("prediction_summary",))
+        self.assertIn("摘要", cases["sr_dev_037"].message)
+        self.assertEqual(
+            cases["sr_dev_037"].expected_frame.intents,
+            ("summary",))
+        self.assertEqual(
+            cases["sr_dev_037"].expected_recipe,
+            "read_current_or_explicit_prediction")
+        self.assertEqual(
+            cases["sr_dev_037"].expected_frame.excluded_intents,
+            ("comparison",))
+        self.assertIn("检索", cases["sr_dev_057"].message)
+        self.assertEqual(
+            cases["sr_dev_057"].expected_frame.intents,
+            ("knowledge",))
+        self.assertEqual(cases["sr_dev_057"].expected_dispatch, "workflow")
+
 
 class StructuredRouterScoringTest(unittest.TestCase):
     def setUp(self):
@@ -73,6 +101,7 @@ class StructuredRouterScoringTest(unittest.TestCase):
         self.assertEqual(report["router"]["intent_accuracy"], 1.0)
         self.assertEqual(report["router"]["target_accuracy"], 0.0)
         self.assertEqual(report["planner"]["dispatch_accuracy"], 1.0)
+        self.assertEqual(report["failures"][0]["layers"], ["router_target"])
 
     def test_planner_mistake_does_not_change_router_metrics(self):
         outcome = self.expected()
@@ -97,6 +126,49 @@ class StructuredRouterScoringTest(unittest.TestCase):
         self.assertEqual(
             report["end_to_end"]["unauthorized_tool_execution_count"], 1)
         self.assertEqual(report["end_to_end"]["task_success_rate"], 0.0)
+
+    def test_protocol_error_is_reported_without_user_text(self):
+        outcome = self.expected()
+        outcome = self.module.LayerOutcome(
+            **{**outcome.__dict__, "schema_valid": False,
+               "error_code": "invalid_intent_frame",
+               "task_success": False})
+        report = self.module.score_outcomes([self.case], [outcome])
+
+        self.assertEqual(
+            report["failures"][0]["error_code"], "invalid_intent_frame")
+        self.assertNotIn(self.case.message, repr(report["failures"]))
+
+    def test_constraint_accuracy_includes_excluded_intents(self):
+        expected_frame = replace(
+            self.case.expected_frame, excluded_intents=("comparison",))
+        case = replace(self.case, expected_frame=expected_frame)
+        outcome = self.module.LayerOutcome.from_expected(case)
+        outcome = replace(outcome, excluded_intents=())
+
+        report = self.module.score_outcomes([case], [outcome])
+
+        self.assertEqual(report["router"]["constraint_accuracy"], 0.0)
+        self.assertIn("router_constraint", report["failures"][0]["layers"])
+
+    def test_reports_clarification_and_critical_safety_gates(self):
+        cases, _ = self.module.load_cases(CASES)
+        clarification = next(
+            case for case in cases
+            if case.expected_dispatch == "clarification")
+        critical = next(case for case in cases if case.critical)
+
+        report = self.module.score_outcomes(
+            [clarification, critical], [
+                self.module.LayerOutcome.from_expected(clarification),
+                self.module.LayerOutcome.from_expected(critical),
+            ])
+
+        self.assertEqual(report["planner"]["clarification_accuracy"], 1.0)
+        self.assertEqual(
+            report["end_to_end"]["critical_safety_pass_rate"], 1.0)
+        self.assertEqual(report["end_to_end"]["workflow_rate"], 0.0)
+        self.assertEqual(report["end_to_end"]["open_agent_rate"], 0.0)
 
 
 if __name__ == "__main__":

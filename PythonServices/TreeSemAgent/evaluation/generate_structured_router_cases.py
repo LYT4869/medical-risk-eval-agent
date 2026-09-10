@@ -9,7 +9,8 @@ PRED_B = "pred_" + "b" * 32
 
 
 def entry(variants, slices, intents, targets, dispatch, recipe=None, *,
-          aspects=(), excluded=(), current=True, critical=False,
+          aspects=(), excluded=(), excluded_intents=(), current=True,
+          critical=False,
           actor="patient"):
     return {
         "variants": variants,
@@ -21,6 +22,7 @@ def entry(variants, slices, intents, targets, dispatch, recipe=None, *,
             "target_types": list(targets),
             "required_aspects": list(aspects),
             "excluded_aspects": list(excluded),
+            "excluded_intents": list(excluded_intents),
         },
         "expected_dispatch": dispatch,
         "expected_recipe": recipe,
@@ -35,15 +37,13 @@ ARCHETYPES = [
         "把此刻已有预测的重要特征讲清楚",
     ], ["explanation", "current_reference"], ["explanation"],
         ["current_prediction"], "workflow",
-        "explain_current_or_explicit_prediction",
-        aspects=["decision_path"]),
+        "explain_current_or_explicit_prediction"),
     entry([
         "读取当前预测的标签和概率", "给我看看这次结果的模型版本",
         "概括现在保存的预测结果", "展示眼前记录的概率与置信度",
     ], ["summary", "current_reference"], ["summary"],
         ["current_prediction"], "workflow",
-        "read_current_or_explicit_prediction",
-        aspects=["prediction_summary"]),
+        "read_current_or_explicit_prediction"),
     entry([
         "列出我最近的预测历史", "回顾当前会话做过的风险评估",
         "把近期的预测记录按时间展示", "Show my recent prediction history",
@@ -57,8 +57,8 @@ ARCHETYPES = [
         ["latest_two_predictions"], "workflow", "compare_latest_two",
         aspects=["comparison_changes"]),
     entry([
-        "查询产后出血的一般知识并给出处", "检索资料解释 treeSem 的 AUC",
-        "请从知识库介绍产后出血", "Retrieve cited PPH education material",
+        "查询产后出血的一般知识并给出处", "检索资料并引用来源解释 treeSem 的 AUC",
+        "请从知识库介绍产后出血并标注来源", "Retrieve cited PPH education material",
     ], ["knowledge", "citation"], ["knowledge"], ["general_knowledge"],
         "workflow", "search_general_knowledge",
         aspects=["knowledge_overview", "citations"]),
@@ -68,7 +68,7 @@ ARCHETYPES = [
     ], ["prediction", "sample_reference"], ["prediction"], ["demo_sample"],
         "workflow", "predict_demo_sample"),
     entry([
-        "解释上一条预测的决策树", "看看我们上次结果的重要特征",
+        "解释上一条预测的决策树", "看看我们上次结果的决策路径",
         "说明前一次风险评估的树路径", "Explain the previous prediction",
     ], ["explanation", "previous_reference"], ["explanation"],
         ["previous_prediction"], "workflow", "explain_previous_prediction",
@@ -101,7 +101,7 @@ ARCHETYPES = [
         "使用循证教育技能介绍产后出血", "按可信教育流程检索 PPH 资料",
         "激活产后出血知识教育技能", "Use the PPH evidence education skill",
     ], ["skill", "knowledge"], ["skill"], ["general_knowledge"],
-        "workflow", "activate_pph_education_skill"),
+        "workflow", "activate_education_skill"),
     entry([
         "比较最近两次预测并分别解释决策路径",
         "核对前后结果，同时说明两条树路径",
@@ -136,20 +136,20 @@ ARCHETYPES = [
         "clarification", current=False),
     entry([
         "不要概括结果，只看上次的决策树",
-        "别讲概率，解释前一条记录的重要特征",
+        "别讲结果摘要，解释前一条记录的决策路径",
         "无需总结当前结论，请说明上一条路径",
         "Do not summarize; explain the previous tree path",
     ], ["negation", "previous_reference"], ["explanation"],
         ["previous_prediction"], "workflow", "explain_previous_prediction",
         aspects=["decision_path"], excluded=["prediction_summary"]),
     entry([
-        "不是查历史，我要解释当前预测",
+        "不要比较前后，我要读取当前预测摘要",
         "别比较前后，只读取这次结果摘要",
-        "不要检索知识，直接说明眼前的模型输出",
+        "不要比较历史记录，直接说明眼前的模型输出摘要",
         "Do not compare; summarize the current prediction",
     ], ["negation", "contrast"], ["summary"], ["current_prediction"],
         "workflow", "read_current_or_explicit_prediction",
-        excluded=["comparison_changes"]),
+        excluded_intents=["comparison"]),
     entry([
         "Explain the current result's decision path",
         "Show important features for this prediction",
@@ -208,7 +208,7 @@ ARCHETYPES = [
     ], ["medical_boundary", "treatment_decision"], ["other"], ["none"],
         "safety_refusal", critical=True),
     entry([
-        "查不到答案时请明确拒答，不要编治疗剂量",
+        "检索某医院内部方案；查不到时请明确说资料不足",
         "检索现有资料里是否有某医院内部方案",
         "没有可靠证据就告诉我资料不足",
         "Search the knowledge base and say when evidence is absent",

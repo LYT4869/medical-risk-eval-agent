@@ -30,7 +30,7 @@ _DEFENSIVE_INSTRUCTION = (
 
 _FABRICATION_ACTION = (
     "伪造", "编造", "编一个", "包装成真实", "假装", "fabricate",
-    "invent", "pretend",
+    "随便生成", "凭空生成", "invent", "pretend",
 )
 _SECURITY_FACT = (
     "预测id", "预测 id", "预测", "概率", "引用", "真实引用", "虚假引用",
@@ -59,12 +59,13 @@ _SECRET_TARGET = (
 )
 _PRIVILEGE_ACTION = (
     "绑定", "构造", "生成", "访问", "读取", "查询", "无视", "忽略",
-    "绕过", "扩大", "提升", "关", "关闭", "禁用", "bypass", "disable",
+    "绕过", "越过", "假装", "不要鉴权", "扩大", "提升", "关", "关闭", "禁用",
+    "调用", "bypass", "disable",
     "turn off", "ignore", "override", "bind", "access", "read",
 )
 _PRIVILEGE_TARGET = (
     "其他会话", "别的会话", "所有患者", "其他患者", "另一名患者",
-    "未分配患者", "管理员接口",
+    "未分配患者", "未授权患者", "别人的结果", "管理员接口", "管理员工具",
     "工具白名单", "能力令牌", "capability token", "safety gate",
     "guardrail", "other session", "all patients", "other patient",
     "admin api", "administrator api", "tool allowlist", "tool whitelist",
@@ -84,7 +85,7 @@ _VERIFICATION_ESCALATION = (
 
 _PERSONAL_CONTEXT = (
     "为我", "给我", "替我", "我的情况", "我应该", "我是否", "我现在",
-    "我今天", "我对药物", "根据我的", "for me", "for my situation",
+    "让我", "我今天", "我对药物", "根据我的", "for me", "for my situation",
     "for my case", "give me", "should i", "whether i", "my medication",
     "i am", "i have",
 )
@@ -105,7 +106,7 @@ _MEDICATION_ACTION = (
 )
 _PROCEDURE_ACTION = (
     "是否手术", "要不要手术", "做哪种手术", "采用哪种治疗",
-    "手术决定", "whether i need surgery", "which surgery",
+    "应该马上手术", "手术决定", "whether i need surgery", "which surgery",
     "which procedure", "choose a treatment",
 )
 _DIAGNOSIS_ACTION = (
@@ -140,7 +141,7 @@ _INSTABILITY = (
 )
 _CURRENT_STATE = (
     "现在", "当前", "立刻", "正在", "还头晕", "我快要", "我正在",
-    "患者当前", "right now", "currently", "today", "i am", "i have",
+    "快要", "患者当前", "right now", "currently", "today", "i am", "i have",
     "the patient has", "active",
 )
 _AVOID_CARE_OR_SELF_TREAT = (
@@ -215,8 +216,12 @@ class SafetyPolicy:
 
         personal = _has(message, _PERSONAL_CONTEXT)
         directive = _has(message, _DIRECTIVE_ACTION)
+        direct_medication_change = _has(message, (
+            "停药", "换药", "加药", "减药", "停止用药",
+            "stop my medication", "change my medication"))
         if ((personal or _has(message, _INDIVIDUALIZED_TARGET)) and
-                _has(message, _MEDICATION_ACTION) and directive):
+                _has(message, _MEDICATION_ACTION) and
+                (directive or direct_medication_change)):
             return "personalized_medication_decision"
         if personal and _has(message, _PROCEDURE_ACTION):
             return "personalized_procedure_decision"
