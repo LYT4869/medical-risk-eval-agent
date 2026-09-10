@@ -41,6 +41,17 @@ class ObservabilityTest(unittest.TestCase):
             'treesem_agent_llm_tokens_total{kind="total"} 150',
             registry.render())
 
+    def test_structured_routing_series_reject_unknown_or_sensitive_labels(self):
+        registry = Metrics()
+        with self.assertRaisesRegex(ValueError, "labels"):
+            registry.increment(
+                "treesem_agent_intent_router_requests_total",
+                result="success", request_id="req_" + "a" * 32)
+        with self.assertRaisesRegex(ValueError, "label value"):
+            registry.increment(
+                "treesem_agent_intent_dispatch_total",
+                dispatch="private user sentence")
+
 
 if __name__ == "__main__":
     unittest.main()

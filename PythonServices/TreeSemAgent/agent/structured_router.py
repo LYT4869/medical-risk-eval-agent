@@ -25,11 +25,14 @@ from .schemas import LlmUsage, RecentMessage
 class StructuredRouterError(RuntimeError):
     _CODES = {"intent_router_unavailable", "invalid_intent_frame"}
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, attempt_count: int = 1,
+                 repaired: bool = False):
         if code not in self._CODES:
             raise ValueError("unknown structured Router error code")
         super().__init__(code)
         self.code = code
+        self.attempt_count = attempt_count
+        self.repaired = repaired
 
 
 @dataclass(frozen=True)
@@ -164,7 +167,9 @@ class StructuredIntentRouter:
         for attempt in range(1, self._config.maximum_attempts + 1):
             remaining = deadline - self._monotonic()
             if remaining <= 0:
-                raise StructuredRouterError("intent_router_unavailable")
+                raise StructuredRouterError(
+                    "intent_router_unavailable", attempt_count=attempt - 1,
+                    repaired=repair)
             timeout = min(self._config.request_timeout_seconds, remaining)
             try:
                 turn = await asyncio.wait_for(
@@ -185,7 +190,8 @@ class StructuredIntentRouter:
                 protocol_failure = exc.code == "invalid_response"
                 if not retryable and not protocol_failure:
                     raise StructuredRouterError(
-                        "intent_router_unavailable") from exc
+                        "intent_router_unavailable", attempt_count=attempt,
+                        repaired=repair) from exc
             except (ValidationError, ValueError, TypeError, KeyError):
                 retryable = False
                 protocol_failure = True
@@ -194,12 +200,18 @@ class StructuredIntentRouter:
                 code = (
                     "invalid_intent_frame" if protocol_failure
                     else "intent_router_unavailable")
-                raise StructuredRouterError(code)
+                raise StructuredRouterError(
+                    code, attempt_count=attempt, repaired=repair)
             if protocol_failure:
                 repair = True
                 continue
             if not retryable:
-                raise StructuredRouterError("intent_router_unavailable")
+                raise StructuredRouterError(
+                    "intent_router_unavailable", attempt_count=attempt,
+                    repaired=repair)
             if self._config.retry_backoff_seconds:
                 await self._sleep(self._config.retry_backoff_seconds)
-        raise StructuredRouterError("intent_router_unavailable")
+        raise StructuredRouterError(
+            "intent_router_unavailable",
+            attempt_count=self._config.maximum_attempts,
+            repaired=repair)

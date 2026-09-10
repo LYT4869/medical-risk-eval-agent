@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 
 from .llm_client import LlmClient, LlmError, LlmToolPolicy
 from .deterministic_workflow import (
@@ -24,7 +25,13 @@ from .routing import AgentRouter, RuleOnlyRouter, SafetyGate
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
 from .reference_extractor import extract_references
 from .run_guard import AgentRunGuard
-from .schemas import AgentRunRequest, AgentRunResponse, SkillUse, ToolUse
+from .schemas import (
+    AgentRunRequest,
+    AgentRunResponse,
+    LlmUsage,
+    SkillUse,
+    ToolUse,
+)
 from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
@@ -76,6 +83,40 @@ _WORKFLOW_FALLBACKS = {
     RendererKind.KNOWLEDGE_TEMPORARILY_UNRENDERED:
         "知识资料已经取得，但自然语言说明暂时不可用。",
 }
+
+
+@dataclass
+class _StructuredRunAccounting:
+    llm_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    llm_duration_seconds: float = 0.0
+
+    def add_calls(self, count: int, duration: float,
+                  usage: LlmUsage | None = None) -> None:
+        self.llm_calls += count
+        self.llm_duration_seconds += duration
+        if usage is not None:
+            self.prompt_tokens += usage.prompt_tokens
+            self.completion_tokens += usage.completion_tokens
+            self.total_tokens += usage.total_tokens
+
+    def observe(self) -> None:
+        metrics.observe(
+            "treesem_agent_llm_calls_per_run", float(self.llm_calls))
+        metrics.observe(
+            "treesem_agent_llm_tokens_per_run", float(self.prompt_tokens),
+            kind="prompt")
+        metrics.observe(
+            "treesem_agent_llm_tokens_per_run",
+            float(self.completion_tokens), kind="completion")
+        metrics.observe(
+            "treesem_agent_llm_tokens_per_run", float(self.total_tokens),
+            kind="total")
+        metrics.observe(
+            "treesem_agent_llm_duration_per_run_seconds",
+            self.llm_duration_seconds)
 
 
 class AgentExecutionError(RuntimeError):
@@ -549,6 +590,16 @@ class AgentLoop:
     async def _run_structured_steps(
             self, request: AgentRunRequest,
             trace: TraceState) -> AgentRunResponse:
+        accounting = _StructuredRunAccounting()
+        try:
+            return await self._run_structured_steps_impl(
+                request, trace, accounting)
+        finally:
+            accounting.observe()
+
+    async def _run_structured_steps_impl(
+            self, request: AgentRunRequest, trace: TraceState,
+            accounting: _StructuredRunAccounting) -> AgentRunResponse:
         safety = self._safety_gate.evaluate(request.message)
         refusal = self._safety_response(safety)
         if refusal is not None:
@@ -561,23 +612,84 @@ class AgentLoop:
             current_prediction_available=request.current_prediction is not None,
             references=references,
         )
+        router_started = time.monotonic()
         try:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AgentTimeout("agent deadline exceeded")
             route = await asyncio.wait_for(
                 self._structured_router.route(context), timeout=remaining)
+            router_duration = time.monotonic() - router_started
+            accounting.add_calls(
+                route.attempt_count, router_duration, route.usage)
+            metrics.increment(
+                "treesem_agent_intent_router_requests_total",
+                result="success")
+            metrics.observe(
+                "treesem_agent_intent_router_duration_seconds",
+                router_duration, result="success")
+            if route.repaired:
+                metrics.increment(
+                    "treesem_agent_intent_router_repairs_total",
+                    result="success")
+            trace_event(
+                trace.child(), "agent.intent_router", router_started,
+                "success", attempt_count=route.attempt_count,
+                repaired=route.repaired)
             validation = validate_and_bind_intent(
                 route.frame, references, request)
             dispatch = self._intent_dispatcher.dispatch(validation)
         except asyncio.TimeoutError as exc:
+            duration = time.monotonic() - router_started
+            metrics.increment(
+                "treesem_agent_intent_router_requests_total",
+                result="intent_router_unavailable")
+            metrics.observe(
+                "treesem_agent_intent_router_duration_seconds", duration,
+                result="intent_router_unavailable")
+            trace_event(
+                trace.child(), "agent.intent_router", router_started, "error",
+                error_code="intent_router_unavailable", attempt_count=0,
+                repaired=False)
             raise AgentTimeout("agent deadline exceeded") from exc
         except StructuredRouterError as exc:
+            duration = time.monotonic() - router_started
+            accounting.add_calls(exc.attempt_count, duration)
+            metrics.increment(
+                "treesem_agent_intent_router_requests_total",
+                result=exc.code)
+            metrics.observe(
+                "treesem_agent_intent_router_duration_seconds", duration,
+                result=exc.code)
+            if exc.repaired:
+                metrics.increment(
+                    "treesem_agent_intent_router_repairs_total",
+                    result="failed")
+            trace_event(
+                trace.child(), "agent.intent_router", router_started, "error",
+                error_code=exc.code, attempt_count=exc.attempt_count,
+                repaired=exc.repaired)
             raise AgentExecutionError(exc.code, exc.code) from exc
         except IntentFrameViolation as exc:
+            dispatch_started = time.monotonic()
+            metrics.increment(
+                "treesem_agent_intent_dispatch_total", dispatch="invalid")
+            trace_event(
+                trace.child(), "agent.intent_dispatch", dispatch_started,
+                "error", error_code="invalid_intent_frame",
+                goal_count=len(route.frame.goals))
             raise AgentExecutionError(
                 "Router produced an invalid intent frame",
                 "invalid_intent_frame") from exc
+
+        dispatch_started = time.monotonic()
+        metrics.increment(
+            "treesem_agent_intent_dispatch_total",
+            dispatch=dispatch.kind.value)
+        trace_event(
+            trace.child(), "agent.intent_dispatch", dispatch_started,
+            "success", dispatch=dispatch.kind.value,
+            goal_count=len(route.frame.goals))
 
         if dispatch.kind == DispatchKind.CLARIFICATION:
             answer = _CLARIFICATIONS.get(dispatch.clarification_code or "")
@@ -603,16 +715,24 @@ class AgentLoop:
             execution = await self._workflow_executor.execute(
                 dispatch.recipe, dispatch.validated_intent,
                 tool_context, request.message)
+            recipe_class = (
+                "composite" if dispatch.kind == DispatchKind.COMPOSITE_WORKFLOW
+                else "single")
+            metrics.increment(
+                "treesem_agent_workflow_executions_total",
+                result=("success" if execution.completed else "failure"),
+                recipe_class=recipe_class)
             if not execution.completed:
                 return self._workflow_failure_response(
                     execution, route.attempt_count)
             return await self._finalize_structured_workflow(
                 request, execution, dispatch.recipe.renderer,
-                deadline, route.attempt_count)
+                deadline, route.attempt_count, accounting)
 
         guard = AgentRunGuard.for_allowed_tools(set(dispatch.allowed_tools))
         return await self._run_structured_open_agent(
-            request, tool_context, guard, deadline, route.attempt_count)
+            request, tool_context, guard, deadline, route.attempt_count,
+            accounting)
 
     @staticmethod
     def _workflow_failure_response(
@@ -651,7 +771,8 @@ class AgentLoop:
     async def _finalize_structured_workflow(
             self, request: AgentRunRequest, execution: WorkflowExecution,
             renderer: RendererKind, deadline: float,
-            route_attempts: int) -> AgentRunResponse:
+            route_attempts: int,
+            accounting: _StructuredRunAccounting) -> AgentRunResponse:
         messages = self._base_messages(request)
         if execution.active_skill is not None:
             messages.append({
@@ -671,14 +792,18 @@ class AgentLoop:
                     execution.tool_results, ensure_ascii=False,
                     separators=(",", ":"))),
         })
+        llm_started: float | None = None
         try:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise asyncio.TimeoutError()
+            llm_started = time.monotonic()
             turn = await asyncio.wait_for(
                 self._llm.complete(
                     messages, [], remaining, LlmToolPolicy.none()),
                 timeout=remaining)
+            accounting.add_calls(
+                1, time.monotonic() - llm_started, turn.usage)
             answer = (turn.content or "").strip()
             prediction_grounding, source_grounding = self._policy.validate(
                 answer,
@@ -704,7 +829,20 @@ class AgentLoop:
                 knowledge_index_version=execution.knowledge_index_version,
                 skill_used=skill,
             )
-        except (asyncio.TimeoutError, LlmError, PolicyViolation):
+        except (asyncio.TimeoutError, LlmError):
+            if llm_started is not None:
+                accounting.add_calls(
+                    1, time.monotonic() - llm_started)
+            return AgentRunResponse(
+                answer=_WORKFLOW_FALLBACKS[renderer],
+                step_count=max(1, route_attempts + 1),
+                tools_used=list(execution.tool_usages),
+                grounding_prediction_ids=sorted(execution.prediction_ids),
+                grounding_source_ids=[],
+                citations=[],
+                knowledge_index_version=execution.knowledge_index_version,
+            )
+        except PolicyViolation:
             return AgentRunResponse(
                 answer=_WORKFLOW_FALLBACKS[renderer],
                 step_count=max(1, route_attempts + 1),
@@ -718,7 +856,8 @@ class AgentLoop:
     async def _run_structured_open_agent(
             self, request: AgentRunRequest, context: ToolContext,
             guard: AgentRunGuard, deadline: float,
-            route_attempts: int) -> AgentRunResponse:
+            route_attempts: int,
+            accounting: _StructuredRunAccounting) -> AgentRunResponse:
         messages = self._base_messages(request)
         usages: list[ToolUse] = []
         available_ids: set[str] = set()
@@ -733,14 +872,21 @@ class AgentLoop:
             definitions = self._tools.definitions(
                 context, active_skill, guard.allowed_tools())
             try:
+                llm_started = time.monotonic()
                 turn = await asyncio.wait_for(
                     self._llm.complete(
                         messages, definitions, remaining,
                         LlmToolPolicy.auto()),
                     timeout=remaining)
+                accounting.add_calls(
+                    1, time.monotonic() - llm_started, turn.usage)
             except asyncio.TimeoutError as exc:
+                accounting.add_calls(
+                    1, time.monotonic() - llm_started)
                 raise AgentTimeout("agent deadline exceeded") from exc
             except LlmError as exc:
+                accounting.add_calls(
+                    1, time.monotonic() - llm_started)
                 raise AgentExecutionError("LLM failed", "llm_failed") from exc
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
