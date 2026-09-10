@@ -55,6 +55,22 @@ class StubLoop:
         raise AssertionError("run should not be called by health checks")
 
 
+class SlowLoop:
+    def __init__(self):
+        self.started = asyncio.Event()
+
+    async def run(self, request):
+        del request
+        self.started.set()
+        await asyncio.sleep(0.15)
+        return {
+            "answer": "completed",
+            "step_count": 1,
+            "tools_used": [],
+            "grounding_prediction_ids": [],
+        }
+
+
 class HealthyResponse:
     def raise_for_status(self):
         return None
@@ -222,6 +238,37 @@ class ServerRoutingTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["routing_mode"], "injected")
         self.assertNotIn("router_model", response.json())
+
+    @unittest.skipUnless(HAS_FASTAPI, "FastAPI service dependency is absent")
+    def test_health_remains_responsive_while_agent_run_is_waiting(self):
+        import httpx
+
+        server = self._load_server()
+        slow_loop = SlowLoop()
+        with patch.dict(os.environ, SERVER_ENVIRONMENT, clear=False):
+            app = server.create_app(loop=slow_loop)
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                    transport=transport, base_url="http://agent.test") as client:
+                run = asyncio.create_task(client.post(
+                    "/v1/agent/runs",
+                    headers={"X-TreeSem-Agent-Token": "s" * 32},
+                    json={
+                        "run_id": "run_" + "1" * 32,
+                        "session_id": "ses_" + "2" * 32,
+                        "message": "解释当前结果",
+                    }))
+                await asyncio.wait_for(slow_loop.started.wait(), timeout=0.05)
+                health = await asyncio.wait_for(
+                    client.get("/health"), timeout=0.05)
+                response = await run
+                return health, response
+
+        health, response = asyncio.run(exercise())
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(response.status_code, 200)
 
     @unittest.skipUnless(HAS_FASTAPI, "FastAPI service dependency is absent")
     def test_ready_reports_routing_state_without_embedding_request(self):

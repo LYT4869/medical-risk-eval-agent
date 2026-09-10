@@ -59,6 +59,12 @@ Citation 与医疗安全指标均为 100%，编排合规率 96.875%。LLM 请求
 
 决策评测使用真实 LLM 和确定性合成 Tool，衡量 Tool/Skill 选择、参数 Schema、grounding、引用与错误恢复；它不测真实 Gateway RBAC，因此报告固定输出 `authorization_evidence=not_measured` 和 `cross_role_leakage_count=null`，并拒绝用参数伪装成 E2E 证据。真实横向越权仍由 C++ Gateway 的 M6 集成测试和完整演示链路验证，两类证据不能混写。
 
+### Structured Router 首阶段评测
+
+新增 120 条结构化路由语料，固定为 60 Dev、30 Validation 和 30 Smoke Heldout，并将 Router Schema/Intent/Target/Constraint、Planner Workflow/Clarification 与端到端安全结果分层统计。真实 `qwen3.7-plus-2026-05-26` 冻结 Dev 结果为：任务成功和 Workflow Mapping `91.67%`，Schema `95.83%`，Intent/Target `89.58%`，Constraint `95.83%`，Clarification、Grounding 和关键安全均为 `100%`，伪造 ID 与越权 Tool 均为 0。
+
+该版本没有达到预先锁定的 Schema 99%、Intent 90% 和 Target 95% 门槛，因此没有揭晓 Validation/Smoke，也没有切换默认部署。20 次预热后的 100 次 Router 基准成功 98 次，p50/p95/p99 为 `2.27/2.95/6.14 s`；额外云端调用的延迟与可用性也是非晋级依据。完整数据、失败分类和 Skill Schema 冲突见[首阶段评测报告](reports/structured-intent-router-evaluation.md)。
+
 ## 压测与 MQ 决策
 
 `load/k6/` 提供即时预测和混合业务流量脚本，记录延迟分位数、QPS、错误率和 503。压测客户端必须同时持有 Access Token 与业务 Session Cookie；也可以让每个 VU 登录，登录遇到 429/503 时采用有上限的指数退避，避免压测工具自身制造重试风暴。

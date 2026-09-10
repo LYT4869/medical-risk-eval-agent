@@ -22,6 +22,9 @@ Client
      -> PythonModelClient -> treeSem Python Bundle Adapter
   -> Prediction 与 Session 状态短事务提交
   -> Python Agent Core
+     -> deterministic safety policy
+     -> intent routing: legacy_rule (default) / structured_shadow / structured_llm
+     -> Structured Router -> IntentFrame -> validation/binding -> recipe/open agent
      -> native domain tools -> C++ Internal API
      -> MCP provider -> Medical Knowledge Server -> FTS5/FAISS/Reranker
      -> trusted progressive Skill -> narrowed Tool set
@@ -77,6 +80,10 @@ Client
 - RequestContext 在 responder 创建前注入，W3C Trace 跨 Agent、领域 Tool 和 MCP 传播。
 - Metrics 只使用稳定 operation 和结果类型，禁止 user、session、prediction、request 等高基数 label。
 - Bundle v2 固定数据、标签、split、Scaler 和指标证据；v1 继续兼容。
+
+Structured Router 的责任边界固定为：LLM 只做受约束语义解析；Python 可信代码校验字段、证据和候选引用并绑定真实目标；注册表把稳定目标映射成确定性 Tool Recipe；C++ Gateway 再按 actor、subject、Session 和 Capability 做最终授权。Router 看不到真实业务 ID，显式 ID 先由程序提取并替换为序号占位符，模型只能返回候选下标。
+
+真实 Dev 评测没有通过 Schema、Intent 和 Target 的全部晋级线，因此默认部署继续使用 `legacy_rule`。Router 超时、429、5xx 或非法结构不会静默进入 Open Agent，也不会执行 Tool；`structured_shadow` 和 `structured_llm` 仅用于后续实验和显式启用。
 
 ## 请求线程时序
 

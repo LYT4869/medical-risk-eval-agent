@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import tempfile
 import unittest
 import subprocess
 import shutil
@@ -25,12 +24,12 @@ def load_prepare_demo_module():
 
 
 class RoutingPackagingTest(unittest.TestCase):
-    def test_agent_image_keeps_onnx_dependencies_optional(self):
+    def test_agent_image_does_not_install_historical_e5_runtime(self):
         dockerfile = (ROOT / "deploy/docker/agent.Dockerfile").read_text(
             encoding="utf-8")
-        self.assertIn("ARG TREESEM_INSTALL_SEMANTIC_ROUTING=false", dockerfile)
-        self.assertIn("requirements-routing.txt", dockerfile)
-        self.assertIn("TREESEM_INSTALL_SEMANTIC_ROUTING", dockerfile)
+        self.assertNotIn("TREESEM_INSTALL_SEMANTIC_ROUTING", dockerfile)
+        self.assertNotIn("requirements-routing.txt", dockerfile)
+        self.assertNotIn("onnxruntime", dockerfile)
         self.assertNotIn("snapshot_download", dockerfile)
         requirements = (
             ROOT / "PythonServices/TreeSemAgent/requirements-routing.txt"
@@ -42,30 +41,35 @@ class RoutingPackagingTest(unittest.TestCase):
         self.assertNotIn("sentence-transformers", requirements)
         self.assertNotIn("transformers==", requirements)
 
-    def test_compose_uses_pinned_read_only_routing_artifact(self):
+    def test_compose_configures_structured_router_without_e5_mount(self):
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-        self.assertIn("TREESEM_INSTALL_SEMANTIC_ROUTING", compose)
         self.assertIn("TREESEM_AGENT_ROUTING_MODE", compose)
-        self.assertIn("TREESEM_AGENT_ROUTING_MODEL_REVISION", compose)
-        self.assertIn("TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND", compose)
-        self.assertIn(
-            "TREESEM_AGENT_ROUTING_ARTIFACT_DIR: /routing/artifact", compose)
-        self.assertIn("/routing/artifact:ro", compose)
+        for name in (
+                "TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS",
+                "TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS",
+                "TREESEM_AGENT_ROUTER_MAX_ATTEMPTS",
+                "TREESEM_AGENT_ROUTER_RETRY_BACKOFF_MS",
+                "TREESEM_AGENT_ROUTER_CONTEXT_MESSAGES",
+                "TREESEM_AGENT_ROUTER_CONTEXT_MAX_CHARS"):
+            self.assertIn(name, compose)
+        self.assertNotIn("TREESEM_INSTALL_SEMANTIC_ROUTING", compose)
+        self.assertNotIn("TREESEM_AGENT_ROUTING_ARTIFACT_DIR", compose)
+        self.assertNotIn("/routing/artifact", compose)
         agent_section = compose.split("\n  agent:\n", 1)[1].split(
             "\n  demo-web:\n", 1)[0]
         self.assertNotIn("HF_HUB_OFFLINE", agent_section)
         self.assertNotIn("TRANSFORMERS_OFFLINE", agent_section)
         self.assertNotIn("/app/.cache/huggingface", agent_section)
 
-    def test_environment_defaults_to_rules_and_pins_model_revision(self):
+    def test_environment_defaults_to_legacy_rule_and_router_budget(self):
         environment = (ROOT / ".env.example").read_text(encoding="utf-8")
-        self.assertIn("TREESEM_AGENT_ROUTING_MODE=rule", environment)
-        self.assertIn(f"TREESEM_AGENT_ROUTING_MODEL={MODEL}", environment)
-        self.assertIn(
-            f"TREESEM_AGENT_ROUTING_MODEL_REVISION={REVISION}", environment)
-        self.assertIn("TREESEM_INSTALL_SEMANTIC_ROUTING=false", environment)
-        self.assertIn(
-            "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND=onnx_fp32", environment)
+        self.assertIn("TREESEM_AGENT_ROUTING_MODE=legacy_rule", environment)
+        self.assertIn("TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS=3000", environment)
+        self.assertIn("TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS=7000", environment)
+        self.assertIn("TREESEM_AGENT_ROUTER_MAX_ATTEMPTS=2", environment)
+        self.assertIn("TREESEM_AGENT_ROUTER_RETRY_BACKOFF_MS=100", environment)
+        self.assertNotIn("TREESEM_INSTALL_SEMANTIC_ROUTING", environment)
+        self.assertNotIn("TREESEM_AGENT_ROUTING_ARTIFACT_DIR", environment)
 
     def test_operator_preparation_and_make_targets_are_reproducible(self):
         script = ROOT / "scripts/prepare-routing-model.sh"
@@ -78,10 +82,6 @@ class RoutingPackagingTest(unittest.TestCase):
         self.assertIn("TREESEM_ROUTING_OUTPUT_ROOT", content)
         self.assertIn("HF_HUB_OFFLINE=1", content)
         self.assertNotIn("snapshot_download", content)
-        prepare_demo = (ROOT / "scripts/prepare_demo.py").read_text(
-            encoding="utf-8")
-        self.assertIn("valid_routing_artifact", prepare_demo)
-        self.assertIn("TREESEM_AGENT_ROUTING_ARTIFACT_DIR", prepare_demo)
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         for target in (
                 "routing-unit:", "routing-calibrate:",
@@ -112,26 +112,44 @@ class RoutingPackagingTest(unittest.TestCase):
                 path.endswith((".pt", ".pth", ".onnx", ".safetensors"))
                 for path in tracked))
 
-    def test_prepare_demo_fails_fast_for_invalid_hybrid_artifact(self):
-        prepare_demo = load_prepare_demo_module()
-        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
-                os.environ, {}, clear=True):
-            with self.assertRaisesRegex(SystemExit, "artifact failed"):
-                prepare_demo.prepare_routing({
-                    "TREESEM_AGENT_ROUTING_MODE": "hybrid_required",
-                    "TREESEM_INSTALL_SEMANTIC_ROUTING": "true",
-                    "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "onnx_fp32",
-                    "TREESEM_AGENT_ROUTING_ARTIFACT_DIR": directory,
-                })
-
-    def test_prepare_demo_rule_mode_does_not_require_artifact(self):
+    def test_prepare_demo_rejects_impossible_router_deadline(self):
         prepare_demo = load_prepare_demo_module()
         with mock.patch.dict(os.environ, {}, clear=True):
-            mode, directory = prepare_demo.prepare_routing({
-                "TREESEM_AGENT_ROUTING_MODE": "rule",
+            with self.assertRaisesRegex(SystemExit, "deadline"):
+                prepare_demo.prepare_routing({
+                    "TREESEM_AGENT_ROUTING_MODE": "structured_llm",
+                    "TREESEM_AGENT_LLM_MODE": "scripted_demo",
+                    "TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS": "3000",
+                    "TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS": "6000",
+                    "TREESEM_AGENT_ROUTER_MAX_ATTEMPTS": "2",
+                    "TREESEM_AGENT_ROUTER_RETRY_BACKOFF_MS": "100",
+                })
+
+    def test_prepare_demo_legacy_rule_does_not_require_cloud_or_artifact(self):
+        prepare_demo = load_prepare_demo_module()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            mode = prepare_demo.prepare_routing({
+                "TREESEM_AGENT_ROUTING_MODE": "legacy_rule",
             })
-        self.assertEqual(mode, "rule")
-        self.assertTrue(directory.is_dir())
+        self.assertEqual(mode, "legacy_rule")
+
+    def test_prepare_demo_scripted_structured_router_needs_no_cloud(self):
+        prepare_demo = load_prepare_demo_module()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            mode = prepare_demo.prepare_routing({
+                "TREESEM_AGENT_ROUTING_MODE": "structured_llm",
+                "TREESEM_AGENT_LLM_MODE": "scripted_demo",
+            })
+        self.assertEqual(mode, "structured_llm")
+
+    def test_prepare_demo_real_structured_router_requires_endpoint_and_model(self):
+        prepare_demo = load_prepare_demo_module()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "BASE_URL.*MODEL"):
+                prepare_demo.prepare_routing({
+                    "TREESEM_AGENT_ROUTING_MODE": "structured_shadow",
+                    "TREESEM_AGENT_LLM_MODE": "real",
+                })
 
 
 if __name__ == "__main__":

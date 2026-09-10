@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import secrets
-import sys
 from pathlib import Path
 
 
@@ -67,69 +66,56 @@ def read_environment_file(path: Path) -> dict[str, str]:
     return values
 
 
-def valid_routing_artifact(directory: Path, backend: str) -> bool:
+def _routing_integer(configured: dict[str, str], name: str, default: int,
+                     *, minimum: int = 1, maximum: int | None = None) -> int:
     try:
-        agent_root = ROOT / "PythonServices" / "TreeSemAgent"
-        sys.path.insert(0, str(agent_root))
-        from agent.routing_artifact import load_routing_artifact
-        from agent.task_registry import SUPPORTED_DOMAIN_TOOLS, TaskRegistry
-
-        tasks = agent_root / "config" / "tasks.yaml"
-        thresholds = agent_root / "config" / "routing_thresholds.json"
-        registry = TaskRegistry.load(tasks, SUPPORTED_DOMAIN_TOOLS)
-        load_routing_artifact(
-            directory,
-            task_registry_path=tasks,
-            thresholds_path=thresholds,
-            registry=registry,
-            expected_backend=backend,
-            expected_model_id="intfloat/multilingual-e5-small",
-            expected_revision=(
-                "614241f622f53c4eeff9890bdc4f31cfecc418b3"),
-        )
-        return True
-    except (OSError, RuntimeError, ValueError):
-        return False
+        value = int(configured.get(name, str(default)))
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be an integer") from exc
+    if value < minimum or (maximum is not None and value > maximum):
+        raise SystemExit(f"invalid {name}")
+    return value
 
 
-def prepare_routing(existing: dict[str, str]) -> tuple[str, Path]:
+def prepare_routing(existing: dict[str, str]) -> str:
     configured = dict(existing)
     configured.update(os.environ)
-    mode = configured.get("TREESEM_AGENT_ROUTING_MODE", "rule")
-    backend = configured.get(
-        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND", "onnx_fp32")
-    if mode not in {"rule", "hybrid_optional", "hybrid_required"}:
+    mode = configured.get("TREESEM_AGENT_ROUTING_MODE", "legacy_rule")
+    if mode not in {"legacy_rule", "structured_shadow", "structured_llm"}:
         raise SystemExit("invalid TREESEM_AGENT_ROUTING_MODE")
-    if backend not in {"onnx_fp32", "onnx_int8"}:
-        raise SystemExit("invalid TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND")
-
-    disabled = (ROOT / "artifacts" / "agent-routing" / "disabled").resolve()
-    if mode == "rule":
-        disabled.mkdir(parents=True, exist_ok=True)
-        return mode, disabled
-
-    if configured.get("TREESEM_INSTALL_SEMANTIC_ROUTING", "false") != "true":
-        raise SystemExit(
-            "hybrid routing requires TREESEM_INSTALL_SEMANTIC_ROUTING=true")
-    raw_directory = configured.get(
-        "TREESEM_AGENT_ROUTING_ARTIFACT_DIR", "").strip()
-    if not raw_directory:
-        raise SystemExit(
-            "hybrid routing requires TREESEM_AGENT_ROUTING_ARTIFACT_DIR")
-    directory = Path(raw_directory).expanduser()
-    if not directory.is_absolute():
-        directory = ROOT / directory
-    directory = directory.resolve()
-    if not valid_routing_artifact(directory, backend):
-        raise SystemExit(
-            "configured Agent routing artifact failed checksum or contract validation")
-    return mode, directory
+    llm_mode = configured.get("TREESEM_AGENT_LLM_MODE", "scripted_demo")
+    if llm_mode not in {"real", "scripted_demo"}:
+        raise SystemExit("invalid TREESEM_AGENT_LLM_MODE")
+    request_ms = _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS", 3000)
+    deadline_ms = _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS", 7000)
+    attempts = _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_MAX_ATTEMPTS", 2, maximum=2)
+    backoff_ms = _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_RETRY_BACKOFF_MS", 100,
+        minimum=0)
+    _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_CONTEXT_MESSAGES", 4,
+        minimum=0, maximum=4)
+    _routing_integer(
+        configured, "TREESEM_AGENT_ROUTER_CONTEXT_MAX_CHARS", 6000)
+    required_ms = request_ms * attempts + (backoff_ms if attempts > 1 else 0)
+    if deadline_ms < required_ms:
+        raise SystemExit("structured Router total deadline cannot cover attempts")
+    if mode != "legacy_rule" and llm_mode == "real":
+        if (not configured.get("TREESEM_AGENT_LLM_BASE_URL", "").strip() or
+                not configured.get("TREESEM_AGENT_LLM_MODEL", "").strip()):
+            raise SystemExit(
+                "TREESEM_AGENT_LLM_BASE_URL and TREESEM_AGENT_LLM_MODEL "
+                "are required for structured routing")
+    return mode
 
 
 def main() -> None:
     env_path = ROOT / ".env"
     existing_values = read_environment_file(env_path)
-    routing_mode, routing_artifact = prepare_routing(existing_values)
+    routing_mode = prepare_routing(existing_values)
     bundle = newest_valid(ROOT / "artifacts" / "treesem" / "pph", valid_bundle)
     index = newest_valid(ROOT / "artifacts" / "knowledge", valid_index)
     cache = (Path.home() / ".cache" / "huggingface").resolve()
@@ -152,7 +138,6 @@ def main() -> None:
         print(f"validated bundle: {bundle}")
         print(f"validated index:  {index}")
         print(f"routing mode:     {routing_mode}")
-        print(f"routing artifact: {routing_artifact}")
         return
     secret = lambda: secrets.token_hex(32)
     password = lambda: secrets.token_urlsafe(18)
@@ -168,10 +153,13 @@ def main() -> None:
         "TREESEM_SERVING_BUNDLE_DIR": str(bundle),
         "TREESEM_KNOWLEDGE_INDEX_DIR": str(index),
         "TREESEM_HF_CACHE_DIR": str(cache),
-        "TREESEM_INSTALL_SEMANTIC_ROUTING": "false",
-        "TREESEM_AGENT_ROUTING_MODE": "rule",
-        "TREESEM_AGENT_ROUTING_EMBEDDING_BACKEND": "onnx_fp32",
-        "TREESEM_AGENT_ROUTING_ARTIFACT_DIR": str(routing_artifact),
+        "TREESEM_AGENT_ROUTING_MODE": "legacy_rule",
+        "TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS": "3000",
+        "TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS": "7000",
+        "TREESEM_AGENT_ROUTER_MAX_ATTEMPTS": "2",
+        "TREESEM_AGENT_ROUTER_RETRY_BACKOFF_MS": "100",
+        "TREESEM_AGENT_ROUTER_CONTEXT_MESSAGES": "4",
+        "TREESEM_AGENT_ROUTER_CONTEXT_MAX_CHARS": "6000",
         "TREESEM_AGENT_LLM_MODE": "scripted_demo",
         "TREESEM_AGENT_LLM_BASE_URL": "", "TREESEM_AGENT_LLM_MODEL": "",
         "TREESEM_AGENT_LLM_API_KEY": "",
@@ -190,7 +178,6 @@ def main() -> None:
     print(f"validated bundle: {bundle}")
     print(f"validated index:  {index}")
     print(f"routing mode:     {routing_mode}")
-    print(f"routing artifact: {routing_artifact}")
 
 
 if __name__ == "__main__":

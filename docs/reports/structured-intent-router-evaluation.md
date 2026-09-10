@@ -121,3 +121,12 @@ Rollback: configuration-only, no request-level silent fallback
 ```
 
 Router 基础设施失败、超时或无效 Schema 时不执行任何业务 Tool，也不自动获得更大的 Open Agent 自主权。该失败模式比“为了可用性而猜一个工作流”更符合医疗场景的安全边界。
+
+## 部署收口验证
+
+- Compose 展开与配置校验通过；默认模式为 `legacy_rule`，Structured Router 的超时、总 deadline、尝试次数与上下文预算均已进入部署配置。
+- Agent 运行镜像不再安装或挂载历史 E5/ONNX 路由运行时，历史导出、Parity 和 Benchmark 工具仍保留为离线实验入口。
+- 407 条 Agent 单元测试通过，宿主环境因未安装 FastAPI 明确跳过 4 条服务测试；其中“Agent 等待期间 `/health` 仍响应”已在带 FastAPI 的现有 Agent 镜像中挂载当前源码单独验证通过。
+- 64 条 `FakeStructuredRouter` 确定性 Agent 回归全部通过，Router 失败零 Tool、澄清零 Tool、显式 `legacy_rule` 回滚均有自动化测试。
+
+本轮没有把新镜像构建和浏览器 Compose 链路记为通过。重建时 Debian/Python 包下载经宿主 HTTP 代理失败：使用代理会遇到代理 CA 不被基础镜像信任，移除代理后运行环境又无法直连公网。该问题发生在依赖下载阶段，并非代码或依赖解析失败；项目没有通过关闭 TLS 校验或增加不安全源来掩盖。完成宿主代理 CA 注入后，仍需重新执行 `docker compose build agent backend demo-web`、完整 `demo_flow.py` 与浏览器验收。

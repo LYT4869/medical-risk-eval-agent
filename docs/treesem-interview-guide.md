@@ -900,6 +900,30 @@ precision/recall。类型化改造后的 150 条兼容集已知准确率为 55.5
 Unknown 和组合请求强制路由率均为 0；说明它没有为了提高快路径覆盖率而把不确定请求强行分类。
 规则未命中不是系统失败，而是有意交给受 Tool、步骤、deadline 和权限约束的 Open Agent。
 
+## F23. Structured LLM Router 是怎么设计的，为什么不是让模型直接选 Tool【P0】
+
+**参考回答：**
+
+我把链路拆成四层：LLM 只把自然语言解析成 Intent、符号目标、请求维度和否定约束；可信代码校验 Schema、证据和候选引用并绑定真实 Prediction；版本化注册表把稳定目标映射为确定性 Workflow；C++ Gateway 最后按 actor、subject、Session 和 Capability 授权。模型不能输出 Tool 名、业务 ID、权限或执行计划，所以“语义理解错”和“越权执行”不会被混成同一个安全边界。
+
+显式 Prediction ID 会在进模型前被替换成 `<prediction_ref_N>`，模型只能返回候选下标；Validator 再把它绑定回用户原文中的 ID。这样既保留自然语言理解，又从结构上降低凭空生成 ID 的机会。
+
+## F24. Structured Router 为什么没有直接晋级默认主链【P0】
+
+**参考回答：**
+
+我先冻结门槛，再在 60 条 Dev 上评测。最终任务成功和 Workflow Mapping 都是 91.67%，关键安全、Grounding、澄清和业务 ID 防伪造通过；但 Schema 只有 95.83%，Intent/Target 都是 89.58%，没有达到 99%/90%/95% 的晋级线。20 次预热加 100 次真实请求的 p50/p95/p99 是 2.27/2.95/6.14 秒，且有 2 次云端不可用。
+
+失败集中在 Skill：模型自然地把“用 Skill 解释”拆成 `skill + explanation`，而 v1 Schema 把 Skill 当成一个互斥 Intent。继续加 Prompt 后 Schema 一度降到 77.08%，所以我停止补丁式调参，没有揭晓 Validation/Heldout，默认保留 `legacy_rule`。下一步应把 Skill 改成执行偏好或在 Planner 做可验证的语义规范化，再用全新数据重新晋级。
+
+## F25. Router 的超时和失败为什么不自动降级到 Open Agent【P1】
+
+**参考回答：**
+
+Router 单次超时 3 秒、最多两次、100 毫秒退避，总 deadline 7 秒，启动时校验总预算必须覆盖潜在尝试。网络、429、5xx 与 Schema 失败分开统计；Schema 只允许一次格式修复。
+
+如果受约束解析都失败，再把同一个请求交给权限更宽、步骤更多的 Open Agent，会把故障降级成自主性升级。项目因此选择不执行 Tool并返回安全错误；真正回滚通过服务级配置切回 `legacy_rule`，而不是在单个请求内悄悄换策略。
+
 ---
 
 # G. 身份、权限与安全
@@ -1467,6 +1491,8 @@ Knowledge、Adapter 与 MySQL，只向宿主暴露 Web 入口；Bundle 和知识
 | qwen3.7 混合编排定向对照 | 同一 12 场景由严格 `5/12` 提升为 `12/12`；13 轮、32 次请求、45,204 Token，三组指标 100% | 分阶段 Tool Choice 修复了代表性过度规划路径，并达到完整矩阵晋级门槛 | 只运行一次且只有 12 场景，不能替代完整 64 场景和重复稳定性评测 |
 | qwen3.7 首次混合编排全量 | 64 场景、79 轮 `61/64`，Citation 96.875%，245,222 Token | 混合编排已覆盖主体路径，并暴露漏引用和冗余步骤问题 | 仍是修复前的独立原始报告，不能用最终结果覆盖 |
 | qwen3.7 最终完整单次评测 | `64/64`，Grounding、Citation、医疗安全 100%，编排合规 96.875%，244,929 Token，平均/p95 6.82/12.86 秒 | 混合编排、动态 Tool 收窄和受控 Citation 修复在完整固定集上闭环 | 只运行一次，使用合成 Tool fixture，不测真实 Gateway RBAC 或真实患者质量 |
+| Structured Router Dev | 60 条：任务成功与 Workflow Mapping `91.67%`，Schema `95.83%`，Intent/Target `89.58%`；安全、Grounding、澄清 100% | 受约束语义解析、可信目标绑定和安全失败边界已实现 | 未过晋级线，Validation/Heldout 未揭晓，不能宣称已替代默认路由 |
+| Structured Router 延迟 | 20 次预热 + 100 次计时，成功 98 次，p50/p95/p99 `2.27/2.95/6.14 s` | 真实云端额外调用的延迟与可用性成本 | 不是完整 Agent 端到端延迟，也不包含失败请求的完整 usage |
 | RAG 固定集 | Recall@5 `0.9375`，MRR@10 `0.9271` | 当前索引对固定问题的召回能力 | 对所有医学问题都有效 |
 | RAG 无答案 | `1.0`，跨角色泄漏 `0` | 固定负例与权限用例通过 | 不等于没有任何未知攻击方式 |
 | Skill 场景 | 3 个 Skill × 8 场景 | 渐进加载、Tool 收窄和角色说明可回归 | 真实 LLM 一定选对 Skill |
@@ -1838,6 +1864,7 @@ MQ 不会减少实际计算时间，只会增加任务状态和重复消费问�
 | `PythonServices/TreeSemAgent/agent/loop.py` | Agent 状态机、终止、重试、deadline、重复 Tool | F |
 | `agent/routing.py`、`semantic_routing.py`、`routing_executor.py` | 安全前置、规则快路径、语义阈值、有界 admission 与降级 | F、H |
 | `agent/routing_artifact.py`、`onnx_embedding_provider.py`、`tools/export_routing_artifact.py` | ONNX 路由导出、Tokenizer/Pooling 契约、checksum、FP32/INT8 parity 与回滚 | F |
+| `agent/intent_frame.py`、`structured_router.py`、`intent_validation.py`、`intent_dispatch.py` | 结构化语义契约、候选引用、重试预算、目标绑定和 Workflow/Open Agent 分流 | F、K |
 | `PythonServices/TreeSemAgent/agent/tool_registry.py` 与 `tools/` | Schema、上下文绑定、Tool 错误和 MCP provider | F、J |
 | `WebApps/TreeSemServer/src/security` 与认证应用层 | JWT、Refresh、RBAC、Capability 与审计 | G |
 | `PythonServices/TreeSemKnowledge/knowledge/retrieval` | BM25、Dense、RRF、rerank、过滤和降级 | J |
