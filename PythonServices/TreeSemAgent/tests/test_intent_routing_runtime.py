@@ -48,7 +48,7 @@ class EmptyBackend:
 
 def other_frame() -> IntentFrame:
     return IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": "other",
             "target": {
@@ -67,6 +67,7 @@ def other_frame() -> IntentFrame:
         },
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": None,
     })
 
 
@@ -210,7 +211,7 @@ class IntentRoutingRuntimeTest(unittest.TestCase):
         self.assertEqual(metadata["routing_mode"], "structured_llm")
         self.assertEqual(metadata["router_model"], "scripted_demo")
         self.assertRegex(metadata["router_prompt_sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(metadata["intent_frame_schema_version"], 1)
+        self.assertEqual(metadata["intent_frame_schema_version"], 2)
         self.assertRegex(
             metadata["workflow_registry_version"], r"^[0-9a-f]{64}$")
         self.assertNotIn("base_url", metadata)

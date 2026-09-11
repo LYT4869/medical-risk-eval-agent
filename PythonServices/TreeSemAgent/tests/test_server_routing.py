@@ -42,7 +42,7 @@ class FakeRoutingRuntime:
             "routing_mode": "structured_shadow",
             "router_model": "qwen-test",
             "router_prompt_sha256": "a" * 64,
-            "intent_frame_schema_version": 1,
+            "intent_frame_schema_version": 2,
             "workflow_registry_version": "b" * 64,
         }
 
@@ -221,7 +221,7 @@ class ServerRoutingTest(unittest.TestCase):
                                  "structured_shadow")
                 self.assertEqual(health.json()["router_model"], "qwen-test")
                 self.assertEqual(
-                    health.json()["intent_frame_schema_version"], 1)
+                    health.json()["intent_frame_schema_version"], 2)
             self.assertEqual(runtime.close_calls, 1)
 
     @unittest.skipUnless(HAS_FASTAPI, "FastAPI service dependency is absent")

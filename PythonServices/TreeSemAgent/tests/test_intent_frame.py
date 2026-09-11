@@ -7,7 +7,7 @@ from agent.intent_frame import IntentFrame, IntentKind, TargetKind
 
 def explanation_frame() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": "explanation",
             "target": {
@@ -26,6 +26,7 @@ def explanation_frame() -> dict:
         },
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": None,
     }
 
 
@@ -33,7 +34,7 @@ class IntentFrameTest(unittest.TestCase):
     def test_accepts_minimal_explanation_frame(self):
         frame = IntentFrame.model_validate(explanation_frame())
 
-        self.assertEqual(frame.schema_version, 1)
+        self.assertEqual(frame.schema_version, 2)
         self.assertEqual(frame.goals[0].intent, IntentKind.EXPLANATION)
         self.assertEqual(
             frame.goals[0].target.type, TargetKind.PREVIOUS_PREDICTION)
@@ -57,6 +58,21 @@ class IntentFrameTest(unittest.TestCase):
         payload = explanation_frame()
         payload["goals"] = payload["goals"] * 4
 
+        with self.assertRaises(ValidationError):
+            IntentFrame.model_validate(payload)
+
+    def test_allows_empty_goals_only_for_an_unresolved_clarification(self):
+        payload = explanation_frame()
+        payload["goals"] = []
+        payload["unresolved_references"] = ["missing_prediction_target"]
+        payload["needs_clarification"] = True
+
+        frame = IntentFrame.model_validate(payload)
+
+        self.assertEqual(frame.goals, [])
+
+        payload["unresolved_references"] = []
+        payload["needs_clarification"] = False
         with self.assertRaises(ValidationError):
             IntentFrame.model_validate(payload)
 
@@ -95,6 +111,29 @@ class IntentFrameTest(unittest.TestCase):
     def test_symbolic_target_rejects_candidate_indexes(self):
         payload = explanation_frame()
         payload["goals"][0]["target"]["explicit_reference_index"] = 0
+
+        with self.assertRaises(ValidationError):
+            IntentFrame.model_validate(payload)
+
+    def test_accepts_a_trusted_skill_as_an_execution_preference(self):
+        payload = explanation_frame()
+        payload["requested_skill"] = "explain_prediction"
+
+        frame = IntentFrame.model_validate(payload)
+
+        self.assertEqual(frame.requested_skill.value, "explain_prediction")
+        self.assertEqual(frame.goals[0].intent, IntentKind.EXPLANATION)
+
+    def test_rejects_skill_as_a_business_intent(self):
+        payload = explanation_frame()
+        payload["goals"][0]["intent"] = "skill"
+
+        with self.assertRaises(ValidationError):
+            IntentFrame.model_validate(payload)
+
+    def test_rejects_an_untrusted_requested_skill(self):
+        payload = explanation_frame()
+        payload["requested_skill"] = "download_remote_plugin"
 
         with self.assertRaises(ValidationError):
             IntentFrame.model_validate(payload)

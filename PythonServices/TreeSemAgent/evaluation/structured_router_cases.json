@@ -1,5 +1,5 @@
 {
-  "dataset_version": 1,
+  "dataset_version": 2,
   "cases": [
     {
       "slice": [
@@ -17,7 +17,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -43,7 +44,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -69,7 +71,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -95,7 +98,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -121,7 +125,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -147,7 +152,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -173,7 +179,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -199,7 +206,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -227,7 +235,8 @@
           "history_items"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "list_session_history",
@@ -255,7 +264,8 @@
           "history_items"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "list_session_history",
@@ -283,7 +293,8 @@
           "history_items"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "list_session_history",
@@ -311,7 +322,8 @@
           "history_items"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "list_session_history",
@@ -339,7 +351,8 @@
           "comparison_changes"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -367,7 +380,8 @@
           "comparison_changes"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -395,7 +409,8 @@
           "comparison_changes"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -423,7 +438,8 @@
           "comparison_changes"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -448,11 +464,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "knowledge_overview",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -477,11 +493,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "knowledge_overview",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -506,11 +522,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "knowledge_overview",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -535,11 +551,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "knowledge_overview",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -565,7 +581,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "predict_demo_sample",
@@ -591,7 +608,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "predict_demo_sample",
@@ -617,7 +635,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "predict_demo_sample",
@@ -643,7 +662,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "predict_demo_sample",
@@ -671,7 +691,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -699,7 +720,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -727,7 +749,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -755,7 +778,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -781,7 +805,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -807,7 +832,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -833,7 +859,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -859,7 +886,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -885,7 +913,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_explicit_pair",
@@ -911,7 +940,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_explicit_pair",
@@ -937,7 +967,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_explicit_pair",
@@ -963,7 +994,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_explicit_pair",
@@ -982,14 +1014,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "explanation"
         ],
         "target_types": [
           "current_prediction"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "explain_prediction"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_explanation_skill",
@@ -1008,14 +1041,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "explanation"
         ],
         "target_types": [
           "current_prediction"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "explain_prediction"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_explanation_skill",
@@ -1034,14 +1068,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "explanation"
         ],
         "target_types": [
           "current_prediction"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "explain_prediction"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_explanation_skill",
@@ -1060,14 +1095,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "explanation"
         ],
         "target_types": [
           "current_prediction"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "explain_prediction"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_explanation_skill",
@@ -1086,14 +1122,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "comparison"
         ],
         "target_types": [
           "latest_two_predictions"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "compare_prediction_history"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_comparison_skill",
@@ -1112,14 +1149,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "comparison"
         ],
         "target_types": [
           "latest_two_predictions"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "compare_prediction_history"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_comparison_skill",
@@ -1138,14 +1176,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "comparison"
         ],
         "target_types": [
           "latest_two_predictions"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "compare_prediction_history"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_comparison_skill",
@@ -1164,14 +1203,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "comparison"
         ],
         "target_types": [
           "latest_two_predictions"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "compare_prediction_history"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_comparison_skill",
@@ -1190,14 +1230,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "knowledge"
         ],
         "target_types": [
           "general_knowledge"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "pph_evidence_education"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_education_skill",
@@ -1216,14 +1257,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "knowledge"
         ],
         "target_types": [
           "general_knowledge"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "pph_evidence_education"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_education_skill",
@@ -1242,14 +1284,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "knowledge"
         ],
         "target_types": [
           "general_knowledge"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "pph_evidence_education"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_education_skill",
@@ -1268,14 +1311,15 @@
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "skill"
+          "knowledge"
         ],
         "target_types": [
           "general_knowledge"
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": "pph_evidence_education"
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "activate_education_skill",
@@ -1307,7 +1351,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "composite_workflow",
       "expected_recipe": "compare_and_explain_latest_two",
@@ -1339,7 +1384,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "composite_workflow",
       "expected_recipe": "compare_and_explain_latest_two",
@@ -1371,7 +1417,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "composite_workflow",
       "expected_recipe": "compare_and_explain_latest_two",
@@ -1403,7 +1450,8 @@
           "decision_path"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "composite_workflow",
       "expected_recipe": "compare_and_explain_latest_two",
@@ -1431,10 +1479,11 @@
         ],
         "required_aspects": [
           "decision_path",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1462,10 +1511,11 @@
         ],
         "required_aspects": [
           "decision_path",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1493,10 +1543,11 @@
         ],
         "required_aspects": [
           "decision_path",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1524,10 +1575,11 @@
         ],
         "required_aspects": [
           "decision_path",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1553,7 +1605,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1579,7 +1632,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1605,7 +1659,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1631,7 +1686,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -1657,7 +1713,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1683,7 +1740,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1709,7 +1767,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1735,7 +1794,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1761,7 +1821,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1787,7 +1848,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1813,7 +1875,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1839,7 +1902,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "clarification",
       "expected_recipe": null,
@@ -1869,7 +1933,8 @@
         "excluded_aspects": [
           "prediction_summary"
         ],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -1899,7 +1964,8 @@
         "excluded_aspects": [
           "prediction_summary"
         ],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -1929,7 +1995,8 @@
         "excluded_aspects": [
           "prediction_summary"
         ],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -1959,7 +2026,8 @@
         "excluded_aspects": [
           "prediction_summary"
         ],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_previous_prediction",
@@ -1987,7 +2055,8 @@
         "excluded_aspects": [],
         "excluded_intents": [
           "comparison"
-        ]
+        ],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -2015,7 +2084,8 @@
         "excluded_aspects": [],
         "excluded_intents": [
           "comparison"
-        ]
+        ],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -2043,7 +2113,8 @@
         "excluded_aspects": [],
         "excluded_intents": [
           "comparison"
-        ]
+        ],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -2071,7 +2142,8 @@
         "excluded_aspects": [],
         "excluded_intents": [
           "comparison"
-        ]
+        ],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "read_current_or_explicit_prediction",
@@ -2097,7 +2169,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2123,7 +2196,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2149,7 +2223,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2175,7 +2250,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2201,7 +2277,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -2227,7 +2304,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -2253,7 +2331,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -2279,7 +2358,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "compare_latest_two",
@@ -2305,7 +2385,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2331,7 +2412,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2357,7 +2439,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2383,7 +2466,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "explain_current_or_explicit_prediction",
@@ -2409,7 +2493,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2435,7 +2520,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2461,7 +2547,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2487,7 +2574,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2513,7 +2601,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2539,7 +2628,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2565,7 +2655,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2591,7 +2682,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2617,7 +2709,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2643,7 +2736,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2669,7 +2763,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2695,7 +2790,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2721,7 +2817,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2747,7 +2844,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2773,7 +2871,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2799,7 +2898,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2825,7 +2925,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2851,7 +2952,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2877,7 +2979,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2903,7 +3006,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2929,7 +3033,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2955,7 +3060,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -2981,7 +3087,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -3007,7 +3114,8 @@
         ],
         "required_aspects": [],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "safety_refusal",
       "expected_recipe": null,
@@ -3032,10 +3140,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -3060,10 +3169,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -3088,10 +3198,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -3116,10 +3227,11 @@
           "general_knowledge"
         ],
         "required_aspects": [
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "workflow",
       "expected_recipe": "search_general_knowledge",
@@ -3148,10 +3260,11 @@
         ],
         "required_aspects": [
           "history_items",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -3180,10 +3293,11 @@
         ],
         "required_aspects": [
           "history_items",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -3212,10 +3326,11 @@
         ],
         "required_aspects": [
           "history_items",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,
@@ -3244,10 +3359,11 @@
         ],
         "required_aspects": [
           "history_items",
-          "citations"
+          "knowledge_overview"
         ],
         "excluded_aspects": [],
-        "excluded_intents": []
+        "excluded_intents": [],
+        "requested_skill": null
       },
       "expected_dispatch": "open_agent",
       "expected_recipe": null,

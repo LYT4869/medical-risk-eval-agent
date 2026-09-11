@@ -18,7 +18,7 @@ from agent.intent_router_prompt import ROUTER_SYSTEM_PROMPT
 
 def frame_arguments(**updates) -> dict:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": "explanation",
             "target": {
@@ -37,6 +37,7 @@ def frame_arguments(**updates) -> dict:
         },
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": None,
     }
     payload.update(updates)
     return payload
@@ -169,7 +170,7 @@ class StructuredRouterTest(unittest.TestCase):
         self.assertFalse(result.repaired)
 
     def test_repairs_one_invalid_frame(self):
-        invalid = frame_arguments(schema_version=2)
+        invalid = frame_arguments(schema_version=1)
         client = RecordingLlm([route_turn(invalid), route_turn()])
 
         result = asyncio.run(self.router(client).route(self.context()))
@@ -182,7 +183,7 @@ class StructuredRouterTest(unittest.TestCase):
     def test_transport_retry_and_repair_share_two_attempt_budget(self):
         client = RecordingLlm([
             LlmError("temporary", code="upstream_unavailable", retryable=True),
-            route_turn(frame_arguments(schema_version=2)),
+            route_turn(frame_arguments(schema_version=1)),
             route_turn(),
         ])
 
@@ -235,25 +236,27 @@ class StructuredRouterTest(unittest.TestCase):
                 context_max_chars=6000,
             )
 
-    def test_short_prompt_defines_cross_field_semantic_contract(self):
+    def test_short_prompt_defines_business_intent_contract(self):
         prompt = ROUTER_SYSTEM_PROMPT
         for required in (
                 "knowledge_scope", "general_knowledge",
-                "summary", "model_version", "skill",
+                "summary", "model_version", "requested_skill",
                 "other", "needs_clarification", "missing_sample_index",
                 "prediction_summary", "decision_path", "history_items"):
             self.assertIn(required, prompt)
 
-    def test_short_prompt_defines_ambiguous_cross_field_examples(self):
+    def test_short_prompt_separates_skill_preference_from_business_goal(self):
         prompt = ROUTER_SYSTEM_PROMPT
         for required in (
-                "skill + current_prediction",
-                "skill + latest_two_predictions",
-                "skill + general_knowledge",
+                "explain_prediction",
+                "compare_prediction_history",
+                "pph_evidence_education",
                 "system usage -> other + none",
                 "history + session_history; knowledge + general_knowledge",
                 "model metrics are knowledge"):
             self.assertIn(required, prompt)
+        self.assertNotIn("skill is only", prompt)
+        self.assertNotIn("citations when", prompt)
 
 
 if __name__ == "__main__":

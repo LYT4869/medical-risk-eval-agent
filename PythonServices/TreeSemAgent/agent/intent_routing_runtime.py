@@ -140,10 +140,10 @@ class ScriptedStructuredRouter:
                 "产后出血", "pph", "指南", "知识", "what is")):
             intent = "knowledge"
             target = "general_knowledge"
-            aspects = ["knowledge_overview", "citations"]
+            aspects = ["knowledge_overview"]
             knowledge_scope = "all"
         return IntentFrame.model_validate({
-            "schema_version": 1,
+            "schema_version": 2,
             "goals": [{
                 "intent": intent,
                 "target": {
@@ -162,6 +162,7 @@ class ScriptedStructuredRouter:
             },
             "unresolved_references": [],
             "needs_clarification": False,
+            "requested_skill": None,
         })
 
     async def route(self, context: RouterContext) -> StructuredRoute:
@@ -188,7 +189,7 @@ class IntentRoutingRuntime:
             "routing_mode": self.mode.value,
             "router_model": self._settings.router_model,
             "router_prompt_sha256": ROUTER_PROMPT_SHA256,
-            "intent_frame_schema_version": 1,
+            "intent_frame_schema_version": 2,
             "workflow_registry_version": default_workflow_registry().version,
         }
 

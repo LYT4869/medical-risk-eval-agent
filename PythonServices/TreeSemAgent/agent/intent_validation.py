@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -7,6 +8,7 @@ from .intent_frame import (
     IntentFrame,
     IntentKind,
     KnowledgeScope,
+    RequestedSkill,
     RequestedAspect,
     TargetKind,
     UnresolvedReference,
@@ -23,6 +25,7 @@ class IntentFrameViolation(ValueError):
         "incompatible_aspect",
         "invalid_clarification_state",
         "invalid_knowledge_scope",
+        "incompatible_skill",
     }
 
     def __init__(self, code: str):
@@ -53,6 +56,7 @@ class ValidatedIntent:
     goals: tuple[BoundGoal, ...]
     excluded_intents: frozenset[IntentKind]
     excluded_aspects: frozenset[RequestedAspect]
+    requested_skill: RequestedSkill | None
 
 
 @dataclass(frozen=True)
@@ -85,14 +89,6 @@ _TARGETS = {
         TargetKind.EXPLICIT_PREDICTION_PAIR,
     },
     IntentKind.KNOWLEDGE: {TargetKind.GENERAL_KNOWLEDGE},
-    IntentKind.SKILL: {
-        TargetKind.CURRENT_PREDICTION,
-        TargetKind.PREVIOUS_PREDICTION,
-        TargetKind.LATEST_TWO_PREDICTIONS,
-        TargetKind.EXPLICIT_PREDICTION,
-        TargetKind.EXPLICIT_PREDICTION_PAIR,
-        TargetKind.GENERAL_KNOWLEDGE,
-    },
     IntentKind.OTHER: set(TargetKind),
 }
 
@@ -122,10 +118,21 @@ _ASPECTS = {
     IntentKind.COMPARISON: {RequestedAspect.COMPARISON_CHANGES},
     IntentKind.KNOWLEDGE: {
         RequestedAspect.KNOWLEDGE_OVERVIEW,
-        RequestedAspect.CITATIONS,
     },
-    IntentKind.SKILL: set(RequestedAspect),
     IntentKind.OTHER: set(RequestedAspect),
+}
+
+_SKILL_GOALS = {
+    RequestedSkill.EXPLAIN_PREDICTION: {
+        (IntentKind.EXPLANATION, TargetKind.CURRENT_PREDICTION),
+        (IntentKind.EXPLANATION, TargetKind.EXPLICIT_PREDICTION),
+    },
+    RequestedSkill.COMPARE_PREDICTION_HISTORY: {
+        (IntentKind.COMPARISON, TargetKind.LATEST_TWO_PREDICTIONS),
+    },
+    RequestedSkill.PPH_EVIDENCE_EDUCATION: {
+        (IntentKind.KNOWLEDGE, TargetKind.GENERAL_KNOWLEDGE),
+    },
 }
 
 _CLARIFICATION = {
@@ -137,9 +144,32 @@ _CLARIFICATION = {
     UnresolvedReference.AMBIGUOUS_REFERENCE: "ambiguous_reference",
 }
 
+_EXPLICIT_SKILL_MARKERS = (
+    "技能", "激活", "skill", "activate",
+    "explain_prediction", "compare_prediction_history",
+    "pph_evidence_education",
+)
+_EXPLICIT_SKILL_PATTERNS = (
+    re.compile(
+        r"(?:可信|稳定|患者版|医生版|循证|预测解释|历史比较|教育).{0,12}流程"),
+    re.compile(
+        r"\b(?:use|run|activate)\b.{0,40}\bworkflow\b"),
+    re.compile(
+        r"\b(?:trusted|stable)\b.{0,20}\b(?:workflow|process)\b"),
+)
+
 
 def _normalize(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def _explicit_skill_requested(normalized_message: str) -> bool:
+    return (
+        any(marker in normalized_message
+            for marker in _EXPLICIT_SKILL_MARKERS) or
+        any(pattern.search(normalized_message)
+            for pattern in _EXPLICIT_SKILL_PATTERNS)
+    )
 
 
 def _clarification_for_unresolved(
@@ -223,7 +253,7 @@ def validate_and_bind_intent(
             raise IntentFrameViolation("incompatible_aspect")
         if ((goal.intent == IntentKind.KNOWLEDGE and
              goal.knowledge_scope is None) or
-                (goal.intent not in {IntentKind.KNOWLEDGE, IntentKind.SKILL}
+                (goal.intent != IntentKind.KNOWLEDGE
                  and goal.knowledge_scope is not None)):
             raise IntentFrameViolation("invalid_knowledge_scope")
         bound = _bind_target(goal, references, request)
@@ -236,9 +266,20 @@ def validate_and_bind_intent(
             goal.knowledge_scope,
         ))
 
+    requested_skill = frame.requested_skill
+    if (requested_skill is not None and
+            not _explicit_skill_requested(normalized_message)):
+        requested_skill = None
+    if requested_skill is not None:
+        signature = (bound_goals[0].intent, bound_goals[0].target.kind)
+        if (len(bound_goals) != 1 or signature not in
+                _SKILL_GOALS[requested_skill]):
+            raise IntentFrameViolation("incompatible_skill")
+
     return IntentValidationResult(validated=ValidatedIntent(
         frame=frame,
         goals=tuple(bound_goals),
         excluded_intents=excluded_intents,
         excluded_aspects=excluded_aspects,
+        requested_skill=requested_skill,
     ))

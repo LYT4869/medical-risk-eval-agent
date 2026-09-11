@@ -37,7 +37,6 @@ _OPEN_TOOLS = {
     IntentKind.COMPARISON: frozenset({
         "get_prediction_history", "compare_predictions"}),
     IntentKind.KNOWLEDGE: frozenset({"search_medical_knowledge"}),
-    IntentKind.SKILL: frozenset({"activate_skill"}),
     IntentKind.OTHER: frozenset(),
 }
 

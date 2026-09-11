@@ -57,7 +57,7 @@ class MeasuredRouter:
 
 def explanation_frame() -> IntentFrame:
     return IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": "explanation",
             "target": {
@@ -76,12 +76,13 @@ def explanation_frame() -> IntentFrame:
         },
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": None,
     })
 
 
 def other_frame() -> IntentFrame:
     return IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": "other",
             "target": {
@@ -100,6 +101,7 @@ def other_frame() -> IntentFrame:
         },
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": None,
     })
 
 

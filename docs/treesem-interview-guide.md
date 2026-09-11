@@ -916,6 +916,8 @@ Unknown 和组合请求强制路由率均为 0；说明它没有为了提高快�
 
 失败集中在 Skill：模型自然地把“用 Skill 解释”拆成 `skill + explanation`，而 v1 Schema 把 Skill 当成一个互斥 Intent。继续加 Prompt 后 Schema 一度降到 77.08%，所以我停止补丁式调参，没有揭晓 Validation/Heldout，默认保留 `legacy_rule`。下一步应把 Skill 改成执行偏好或在 Planner 做可验证的语义规范化，再用全新数据重新晋级。
 
+后续我用 Schema v2 完成了该修正：业务 Goal 继续保存 explanation、comparison 或 knowledge，`requested_skill` 只表达显式执行偏好；Validator 会清除用户未明确要求却由模型自行附加的 Skill。最终真实 Dev 的任务成功和 Workflow Mapping 提升到 96.67%，六条显式 Skill 冲突全部消失，安全和 Grounding 仍为 100%。但 Schema 95.83%、Target 91.67% 和 Clarification 75% 仍未过冻结门槛，所以没有用一次更高的 Dev 分数直接替换默认链路。
+
 ## F25. Router 的超时和失败为什么不自动降级到 Open Agent【P1】
 
 **参考回答：**
@@ -1492,6 +1494,7 @@ Knowledge、Adapter 与 MySQL，只向宿主暴露 Web 入口；Bundle 和知识
 | qwen3.7 首次混合编排全量 | 64 场景、79 轮 `61/64`，Citation 96.875%，245,222 Token | 混合编排已覆盖主体路径，并暴露漏引用和冗余步骤问题 | 仍是修复前的独立原始报告，不能用最终结果覆盖 |
 | qwen3.7 最终完整单次评测 | `64/64`，Grounding、Citation、医疗安全 100%，编排合规 96.875%，244,929 Token，平均/p95 6.82/12.86 秒 | 混合编排、动态 Tool 收窄和受控 Citation 修复在完整固定集上闭环 | 只运行一次，使用合成 Tool fixture，不测真实 Gateway RBAC 或真实患者质量 |
 | Structured Router Dev | 60 条：任务成功与 Workflow Mapping `91.67%`，Schema `95.83%`，Intent/Target `89.58%`；安全、Grounding、澄清 100% | 受约束语义解析、可信目标绑定和安全失败边界已实现 | 未过晋级线，Validation/Heldout 未揭晓，不能宣称已替代默认路由 |
+| Structured Router v2 Dev | 60 条：任务成功与 Workflow Mapping `96.67%`，Schema `95.83%`，Intent/Target `91.67%`，Skill `97.92%`；安全与 Grounding 100% | Skill 已从业务 Intent 拆为受验证的执行偏好，确定性校验可纠正未显式请求的 Skill | 仍未过 Schema/Target/Clarification 晋级线，默认保持 `legacy_rule` |
 | Structured Router 延迟 | 20 次预热 + 100 次计时，成功 98 次，p50/p95/p99 `2.27/2.95/6.14 s` | 真实云端额外调用的延迟与可用性成本 | 不是完整 Agent 端到端延迟，也不包含失败请求的完整 usage |
 | RAG 固定集 | Recall@5 `0.9375`，MRR@10 `0.9271` | 当前索引对固定问题的召回能力 | 对所有医学问题都有效 |
 | RAG 无答案 | `1.0`，跨角色泄漏 `0` | 固定负例与权限用例通过 | 不等于没有任何未知攻击方式 |

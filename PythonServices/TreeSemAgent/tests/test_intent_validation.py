@@ -29,9 +29,9 @@ def frame(*, intent="explanation", target="current_prediction",
           aspects=None, evidence=None, excluded_intents=None,
           excluded_aspects=None, unresolved=None, clarification=False,
           explicit_index=None, second_index=None, sample_index=None,
-          knowledge_scope=None) -> IntentFrame:
+          knowledge_scope=None, requested_skill=None) -> IntentFrame:
     return IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": [{
             "intent": intent,
             "target": {
@@ -50,6 +50,7 @@ def frame(*, intent="explanation", target="current_prediction",
         },
         "unresolved_references": unresolved or [],
         "needs_clarification": clarification,
+        "requested_skill": requested_skill,
     })
 
 
@@ -204,6 +205,21 @@ class IntentValidationTest(unittest.TestCase):
         self.assertIsNone(result.validated)
         self.assertEqual(result.clarification_code, "ambiguous_reference")
 
+    def test_empty_goals_can_still_produce_deterministic_clarification(self):
+        value = frame(
+            target="none", evidence=["那个"],
+            unresolved=["missing_prediction_target"], clarification=True)
+        payload = value.model_dump(mode="json")
+        payload["goals"] = []
+
+        result = self.validate(
+            IntentFrame.model_validate(payload),
+            request("解释那个", current=False))
+
+        self.assertIsNone(result.validated)
+        self.assertEqual(
+            result.clarification_code, "prediction_target_missing")
+
     def test_clarification_flag_must_match_unresolved_references(self):
         with self.assertRaises(IntentFrameViolation) as caught:
             self.validate(
@@ -234,6 +250,46 @@ class IntentValidationTest(unittest.TestCase):
         self.assertIn(
             IntentKind.EXPLANATION,
             {goal.intent for goal in result.validated.goals})
+
+    def test_preserves_compatible_skill_execution_preference(self):
+        result = self.validate(
+            frame(requested_skill="explain_prediction"),
+            request("使用可信预测解释流程解释当前结果"))
+
+        self.assertEqual(
+            result.validated.requested_skill.value, "explain_prediction")
+
+    def test_rejects_skill_incompatible_with_underlying_goal(self):
+        value = frame(
+            intent="knowledge", target="general_knowledge",
+            knowledge_scope="clinical", evidence=["产后出血"],
+            requested_skill="explain_prediction")
+
+        with self.assertRaises(IntentFrameViolation) as caught:
+            self.validate(value, request("用预测解释技能介绍产后出血"))
+
+        self.assertEqual(caught.exception.code, "incompatible_skill")
+
+    def test_drops_skill_preference_not_explicitly_requested_by_user(self):
+        result = self.validate(
+            frame(
+                intent="comparison", target="latest_two_predictions",
+                aspects=["comparison_changes"], evidence=["比较"],
+                requested_skill="compare_prediction_history"),
+            request("比较最近两次预测"))
+
+        self.assertIsNone(result.validated.requested_skill)
+
+    def test_generic_workflow_topic_does_not_authorize_a_skill(self):
+        result = self.validate(
+            frame(
+                intent="knowledge", target="general_knowledge",
+                aspects=["knowledge_overview"], evidence=["工作流程"],
+                knowledge_scope="model",
+                requested_skill="pph_evidence_education"),
+            request("解释一下模型的工作流程"))
+
+        self.assertIsNone(result.validated.requested_skill)
 
 
 if __name__ == "__main__":

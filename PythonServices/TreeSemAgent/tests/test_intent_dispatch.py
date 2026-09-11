@@ -37,13 +37,15 @@ def goal(intent, target, evidence, aspects=None, **indexes):
     }
 
 
-def validation(user_request, goals, *, unresolved=None, clarify=False):
+def validation(user_request, goals, *, unresolved=None, clarify=False,
+               requested_skill=None):
     value = IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": goals,
         "constraints": {"excluded_intents": [], "excluded_aspects": []},
         "unresolved_references": unresolved or [],
         "needs_clarification": clarify,
+        "requested_skill": requested_skill,
     })
     references = extract_references(user_request.message)
     return validate_and_bind_intent(value, references, user_request)
@@ -126,17 +128,29 @@ class IntentDispatcherTest(unittest.TestCase):
             "get_prediction_history", "get_explanation"}))
         self.assertNotIn("predict_sample", result.allowed_tools)
 
-    def test_skill_target_selects_a_trusted_recipe_not_a_model_skill_id(self):
+    def test_skill_preference_selects_recipe_for_underlying_business_intent(self):
         user_request = request("使用稳定流程解释当前结果")
         validated = validation(user_request, [goal(
-            "skill", "current_prediction", ["稳定流程", "解释"],
-            ["decision_path"])])
+            "explanation", "current_prediction", ["稳定流程", "解释"],
+            ["decision_path"])], requested_skill="explain_prediction")
 
         result = self.dispatcher.dispatch(validated)
 
         self.assertEqual(
             result.recipe.recipe_id, "activate_explanation_skill")
         self.assertEqual(result.recipe.trusted_skill_id, "explain_prediction")
+
+    def test_inferred_skill_preference_cannot_replace_regular_workflow(self):
+        user_request = request("比较最近两次预测")
+        validated = validation(user_request, [goal(
+            "comparison", "latest_two_predictions", ["比较"],
+            ["comparison_changes"])],
+            requested_skill="compare_prediction_history")
+
+        result = self.dispatcher.dispatch(validated)
+
+        self.assertEqual(result.recipe.recipe_id, "compare_latest_two")
+        self.assertIsNone(result.recipe.trusted_skill_id)
 
 
 if __name__ == "__main__":

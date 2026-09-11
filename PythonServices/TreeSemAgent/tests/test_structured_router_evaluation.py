@@ -5,6 +5,13 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+from agent.intent_dispatch import IntentDispatcher
+from agent.intent_frame import IntentFrame
+from agent.intent_validation import validate_and_bind_intent
+from agent.reference_extractor import extract_references
+from agent.schemas import AgentRunRequest, PredictionContext
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +89,35 @@ class StructuredRouterCorpusTest(unittest.TestCase):
             ("knowledge",))
         self.assertEqual(cases["sr_dev_057"].expected_dispatch, "workflow")
 
+    def test_skill_labels_keep_the_business_intent_separate(self):
+        module = load_runner()
+        loaded, _ = module.load_cases(CASES)
+        cases = {case.case_id: case for case in loaded}
+
+        self.assertEqual(
+            cases["sr_dev_019"].expected_frame.intents,
+            ("explanation",))
+        self.assertEqual(
+            cases["sr_dev_019"].expected_frame.requested_skill,
+            "explain_prediction")
+        self.assertEqual(
+            cases["sr_dev_021"].expected_frame.intents,
+            ("comparison",))
+        self.assertEqual(
+            cases["sr_dev_023"].expected_frame.intents,
+            ("knowledge",))
+
+    def test_knowledge_labels_do_not_make_citation_a_router_aspect(self):
+        module = load_runner()
+        loaded, _ = module.load_cases(CASES)
+        knowledge = [case for case in loaded
+                     if "knowledge" in case.expected_frame.intents]
+
+        self.assertTrue(knowledge)
+        self.assertTrue(all(
+            "citations" not in case.expected_frame.required_aspects
+            for case in knowledge))
+
 
 class StructuredRouterScoringTest(unittest.TestCase):
     def setUp(self):
@@ -150,6 +186,89 @@ class StructuredRouterScoringTest(unittest.TestCase):
 
         self.assertEqual(report["router"]["constraint_accuracy"], 0.0)
         self.assertIn("router_constraint", report["failures"][0]["layers"])
+
+    def test_wrong_skill_preference_only_lowers_router_skill_metric(self):
+        expected_frame = replace(
+            self.case.expected_frame,
+            requested_skill="explain_prediction")
+        case = replace(self.case, expected_frame=expected_frame)
+        outcome = self.module.LayerOutcome.from_expected(case)
+        outcome = replace(outcome, requested_skill=None)
+
+        report = self.module.score_outcomes([case], [outcome])
+
+        self.assertEqual(report["router"]["intent_accuracy"], 1.0)
+        self.assertEqual(report["router"]["target_accuracy"], 1.0)
+        self.assertEqual(report["router"]["skill_accuracy"], 0.0)
+        self.assertIn("router_skill", report["failures"][0]["layers"])
+
+    def test_validator_correction_preserves_end_to_end_task_success(self):
+        cases = {case.case_id: case for case in
+                 self.module.load_cases(CASES)[0]}
+        case = cases["sr_dev_007"]
+        value = IntentFrame.model_validate({
+            "schema_version": 2,
+            "goals": [{
+                "intent": "comparison",
+                "target": {"type": "latest_two_predictions"},
+                "requested_aspects": ["comparison_changes"],
+                "knowledge_scope": None,
+                "evidence": ["比较"],
+            }],
+            "constraints": {
+                "excluded_intents": [], "excluded_aspects": []},
+            "unresolved_references": [],
+            "needs_clarification": False,
+            "requested_skill": "compare_prediction_history",
+        })
+        request = AgentRunRequest(
+            run_id="run_" + "1" * 32,
+            session_id="ses_" + "2" * 32,
+            message=case.message,
+            current_prediction=PredictionContext(
+                prediction_id="pred_" + "a" * 32,
+                model_version="evaluation"),
+        )
+        references = extract_references(case.message)
+        validated = validate_and_bind_intent(value, references, request)
+        dispatch = IntentDispatcher().dispatch(validated)
+
+        outcome = self.module._frame_outcome(
+            case, SimpleNamespace(frame=value, usage=None, attempt_count=1),
+            dispatch, 1.0)
+
+        self.assertEqual(outcome.requested_skill,
+                         "compare_prediction_history")
+        self.assertTrue(outcome.task_success)
+
+    def test_unresolved_empty_goal_counts_as_successful_clarification(self):
+        cases = {case.case_id: case for case in
+                 self.module.load_cases(CASES)[0]}
+        case = cases["sr_dev_031"]
+        value = IntentFrame.model_validate({
+            "schema_version": 2,
+            "goals": [],
+            "constraints": {
+                "excluded_intents": [], "excluded_aspects": []},
+            "unresolved_references": ["missing_prediction_target"],
+            "needs_clarification": True,
+            "requested_skill": None,
+        })
+        request = AgentRunRequest(
+            run_id="run_" + "1" * 32,
+            session_id="ses_" + "2" * 32,
+            message=case.message,
+        )
+        references = extract_references(case.message)
+        validated = validate_and_bind_intent(value, references, request)
+        dispatch = IntentDispatcher().dispatch(validated)
+
+        outcome = self.module._frame_outcome(
+            case, SimpleNamespace(frame=value, usage=None, attempt_count=1),
+            dispatch, 1.0)
+
+        self.assertEqual(outcome.dispatch, "clarification")
+        self.assertTrue(outcome.task_success)
 
     def test_reports_clarification_and_critical_safety_gates(self):
         cases, _ = self.module.load_cases(CASES)

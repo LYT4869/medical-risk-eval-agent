@@ -65,6 +65,8 @@ Citation 与医疗安全指标均为 100%，编排合规率 96.875%。LLM 请求
 
 该版本没有达到预先锁定的 Schema 99%、Intent 90% 和 Target 95% 门槛，因此没有揭晓 Validation/Smoke，也没有切换默认部署。20 次预热后的 100 次 Router 基准成功 98 次，p50/p95/p99 为 `2.27/2.95/6.14 s`；额外云端调用的延迟与可用性也是非晋级依据。完整数据、失败分类和 Skill Schema 冲突见[首阶段评测报告](reports/structured-intent-router-evaluation.md)。
 
+后续 Schema v2 将 Skill 从业务 Intent 拆为 `requested_skill` 执行偏好，并由 Validator 清除用户未明确要求的 Skill；Citation 继续由 Grounding Policy 强制。最终真实 Dev 达到 `58/60`（96.67%）任务成功和 Workflow Mapping，显式 Skill 冲突全部消失，但 Schema 95.83%、Target 91.67% 和 Clarification 75% 仍未达到冻结门槛，因此默认仍保持 `legacy_rule`。详见 [Schema v2 评测报告](reports/structured-intent-router-v2-evaluation.md)。
+
 ## 压测与 MQ 决策
 
 `load/k6/` 提供即时预测和混合业务流量脚本，记录延迟分位数、QPS、错误率和 503。压测客户端必须同时持有 Access Token 与业务 Session Cookie；也可以让每个 VU 登录，登录遇到 429/503 时采用有上限的指数退避，避免压测工具自身制造重试风暴。

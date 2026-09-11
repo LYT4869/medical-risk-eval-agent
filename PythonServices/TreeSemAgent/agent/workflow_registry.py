@@ -117,7 +117,9 @@ class WorkflowRegistry:
         ids = [item.recipe_id for item in self._recipes]
         if len(ids) != len(set(ids)):
             raise WorkflowRegistryError("duplicate recipe id")
-        expanded: dict[tuple[tuple[str, str], ...], str] = {}
+        expanded: dict[
+            tuple[str | None, tuple[tuple[str, str], ...]], str
+        ] = {}
         for recipe in self._recipes:
             for stage in recipe.stages:
                 if stage.tool_name not in _TOOL_SOURCES:
@@ -137,16 +139,17 @@ class WorkflowRegistry:
 
     @staticmethod
     def _expanded_keys(
-            recipe: WorkflowRecipe) -> set[tuple[tuple[str, str], ...]]:
-        result: set[tuple[tuple[str, str], ...]] = set()
+            recipe: WorkflowRecipe
+            ) -> set[tuple[str | None, tuple[tuple[str, str], ...]]]:
+        result: set[tuple[str | None, tuple[tuple[str, str], ...]]] = set()
         choices = [pattern.target_kinds for pattern in recipe.goal_patterns]
         for targets in itertools.product(*choices):
             if recipe.require_same_target and len(set(targets)) != 1:
                 continue
-            key = tuple(sorted(
+            goals = tuple(sorted(
                 (pattern.intent.value, target.value)
                 for pattern, target in zip(recipe.goal_patterns, targets)))
-            result.add(key)
+            result.add((recipe.trusted_skill_id, goals))
         return result
 
     def _calculate_version(self) -> str:
@@ -169,9 +172,13 @@ class WorkflowRegistry:
         return hashlib.sha256(encoded).hexdigest()
 
     def match(self, intent: ValidatedIntent) -> WorkflowRecipe | None:
-        key = tuple(sorted(
-            (goal.intent.value, goal.target.kind.value)
-            for goal in intent.goals))
+        key = (
+            None if intent.requested_skill is None
+            else intent.requested_skill.value,
+            tuple(sorted(
+                (goal.intent.value, goal.target.kind.value)
+                for goal in intent.goals)),
+        )
         matches = [recipe for recipe in self._recipes
                    if key in self._expanded_keys(recipe)]
         if len(matches) > 1:
@@ -252,7 +259,7 @@ def default_workflow_registry() -> WorkflowRegistry:
             RendererKind.KNOWLEDGE_TEMPORARILY_UNRENDERED),
         WorkflowRecipe(
             "activate_explanation_skill",
-            (_pattern(IntentKind.SKILL, *current_or_explicit),),
+            (_pattern(IntentKind.EXPLANATION, *current_or_explicit),),
             (
                 _stage("activate_skill", ArgumentSource.TRUSTED_SKILL_ID),
                 _stage("get_prediction", ArgumentSource.BOUND_PREDICTION),
@@ -265,7 +272,7 @@ def default_workflow_registry() -> WorkflowRegistry:
         WorkflowRecipe(
             "activate_comparison_skill",
             (_pattern(
-                IntentKind.SKILL,
+                IntentKind.COMPARISON,
                 TargetKind.LATEST_TWO_PREDICTIONS),),
             (
                 _stage("activate_skill", ArgumentSource.TRUSTED_SKILL_ID),
@@ -277,7 +284,7 @@ def default_workflow_registry() -> WorkflowRegistry:
             trusted_skill_id="compare_prediction_history"),
         WorkflowRecipe(
             "activate_education_skill",
-            (_pattern(IntentKind.SKILL, TargetKind.GENERAL_KNOWLEDGE),),
+            (_pattern(IntentKind.KNOWLEDGE, TargetKind.GENERAL_KNOWLEDGE),),
             (
                 _stage("activate_skill", ArgumentSource.TRUSTED_SKILL_ID),
                 _stage("search_medical_knowledge",

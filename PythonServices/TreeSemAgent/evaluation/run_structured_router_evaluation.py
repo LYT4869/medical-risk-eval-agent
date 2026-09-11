@@ -45,6 +45,7 @@ class ExpectedFrame:
     required_aspects: tuple[str, ...]
     excluded_aspects: tuple[str, ...]
     excluded_intents: tuple[str, ...]
+    requested_skill: str | None
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class LayerOutcome:
     dispatch: str
     recipe: str | None
     excluded_intents: tuple[str, ...] = ()
+    requested_skill: str | None = None
     hallucinated_id_count: int = 0
     unauthorized_tool_execution: int = 0
     task_success: bool = True
@@ -94,6 +96,7 @@ class LayerOutcome:
             dispatch=case.expected_dispatch,
             recipe=case.expected_recipe,
             excluded_intents=case.expected_frame.excluded_intents,
+            requested_skill=case.expected_frame.requested_skill,
         )
 
 
@@ -111,7 +114,7 @@ def _string_tuple(value: Any, name: str, *, minimum: int = 0) -> tuple[str, ...]
 def load_cases(path: Path) -> tuple[list[StructuredRouterCase], str]:
     raw = path.read_bytes()
     document = json.loads(raw)
-    if document.get("dataset_version") != 1:
+    if document.get("dataset_version") != 2:
         raise ValueError("unsupported structured Router dataset")
     cases: list[StructuredRouterCase] = []
     for item in document.get("cases", []):
@@ -141,6 +144,7 @@ def load_cases(path: Path) -> tuple[list[StructuredRouterCase], str]:
                 excluded_intents=_string_tuple(
                     expected.get("excluded_intents", []),
                     "excluded intents"),
+                requested_skill=expected.get("requested_skill"),
             ),
             expected_dispatch=str(item["expected_dispatch"]),
             expected_recipe=item.get("expected_recipe"),
@@ -162,6 +166,11 @@ def load_cases(path: Path) -> tuple[list[StructuredRouterCase], str]:
         if len(case.expected_frame.intents) != len(
                 case.expected_frame.target_types):
             raise ValueError("expected intents and targets must align")
+        if (case.expected_frame.requested_skill is not None and
+                case.expected_frame.requested_skill not in {
+                    "explain_prediction", "compare_prediction_history",
+                    "pph_evidence_education"}):
+            raise ValueError("invalid expected requested skill")
         cases.append(case)
 
     if len({item.case_id for item in cases}) != len(cases):
@@ -202,6 +211,9 @@ def score_outcomes(
             for case, outcome in routed]),
         "target_accuracy": _ratio([
             outcome.target_types == case.expected_frame.target_types
+            for case, outcome in routed]),
+        "skill_accuracy": _ratio([
+            outcome.requested_skill == case.expected_frame.requested_skill
             for case, outcome in routed]),
         "aspect_accuracy": _ratio([
             set(case.expected_frame.required_aspects) <= set(outcome.aspects)
@@ -270,6 +282,9 @@ def score_outcomes(
                 layers.append("router_intent")
             if outcome.target_types != case.expected_frame.target_types:
                 layers.append("router_target")
+            if (outcome.requested_skill !=
+                    case.expected_frame.requested_skill):
+                layers.append("router_skill")
             if not set(case.expected_frame.required_aspects) <= set(
                     outcome.aspects):
                 layers.append("router_aspect")
@@ -300,6 +315,9 @@ def score_outcomes(
                 "actual_intents": list(outcome.intents),
                 "expected_targets": list(case.expected_frame.target_types),
                 "actual_targets": list(outcome.target_types),
+                "expected_requested_skill":
+                    case.expected_frame.requested_skill,
+                "actual_requested_skill": outcome.requested_skill,
                 "expected_recipe": case.expected_recipe,
                 "actual_recipe": outcome.recipe,
                 "error_code": outcome.error_code,
@@ -325,13 +343,21 @@ def _frame_outcome(case: StructuredRouterCase, route, dispatch,
     recipe = None if dispatch.recipe is None else dispatch.recipe.recipe_id
     exact_ids = _ID_PATTERN.findall(json.dumps(
         frame.model_dump(mode="json"), ensure_ascii=False))
-    expected_ok = (
-        tuple(goal.intent.value for goal in frame.goals) ==
+    validated = dispatch.validated_intent
+    semantic_ok = (
+        validated is not None and
+        tuple(goal.intent.value for goal in validated.goals) ==
         case.expected_frame.intents and
-        tuple(goal.target.type.value for goal in frame.goals) ==
+        tuple(goal.target.kind.value for goal in validated.goals) ==
         case.expected_frame.target_types and
+        (None if validated.requested_skill is None
+         else validated.requested_skill.value) ==
+        case.expected_frame.requested_skill)
+    planner_ok = (
         dispatch.kind.value == case.expected_dispatch and
         recipe == case.expected_recipe)
+    expected_ok = planner_ok and (
+        case.expected_dispatch == "clarification" or semantic_ok)
     return LayerOutcome(
         schema_valid=True,
         intents=tuple(goal.intent.value for goal in frame.goals),
@@ -341,6 +367,9 @@ def _frame_outcome(case: StructuredRouterCase, route, dispatch,
         dispatch=dispatch.kind.value,
         recipe=recipe,
         excluded_intents=excluded_intents,
+        requested_skill=(
+            None if frame.requested_skill is None
+            else frame.requested_skill.value),
         hallucinated_id_count=len(exact_ids),
         task_success=expected_ok,
         llm_calls=route.attempt_count,
@@ -375,6 +404,9 @@ def _invalid_frame_outcome(route, elapsed: float, error_code: str
         recipe=None,
         excluded_intents=tuple(sorted(
             intent.value for intent in frame.constraints.excluded_intents)),
+        requested_skill=(
+            None if frame.requested_skill is None
+            else frame.requested_skill.value),
         task_success=False,
         llm_calls=route.attempt_count,
         llm_tokens=0 if usage is None else usage.total_tokens,
@@ -462,7 +494,7 @@ async def evaluate(args) -> dict[str, Any]:
         "dataset_sha256": dataset_sha,
         "router_model": runtime.metadata["router_model"],
         "router_prompt_sha256": runtime.metadata["router_prompt_sha256"],
-        "intent_frame_schema_version": 1,
+        "intent_frame_schema_version": 2,
         "workflow_registry_version":
             runtime.metadata["workflow_registry_version"],
         **report,

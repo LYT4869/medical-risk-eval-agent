@@ -118,9 +118,10 @@ def goal(intent, target, evidence, aspects=None):
     }
 
 
-def frame(goals, *, excluded_aspects=None, unresolved=None, clarify=False):
+def frame(goals, *, excluded_aspects=None, unresolved=None, clarify=False,
+          requested_skill=None):
     return IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": goals,
         "constraints": {
             "excluded_intents": [],
@@ -128,6 +129,7 @@ def frame(goals, *, excluded_aspects=None, unresolved=None, clarify=False):
         },
         "unresolved_references": unresolved or [],
         "needs_clarification": clarify,
+        "requested_skill": requested_skill,
     })
 
 

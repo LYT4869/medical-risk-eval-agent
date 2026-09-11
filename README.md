@@ -10,7 +10,7 @@ Browser -> C++ Gateway -> ONNX treeSem / MySQL
 
 当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。64 条独立 Agent 场景（79 轮）确定性评测全部通过；真实 `qwen3.7-plus-2026-05-26` 完整单次评测任务成功率、Prediction Grounding、Citation 与医疗安全指标均为 `100%`，编排合规率 `96.875%`。完整历史、口径和失败审计由评测脚本及报告保留。
 
-Agent 意图路由默认采用“确定性安全策略 + 高精度规则快路径 + 受限 Open Agent”。项目另实现了 Structured LLM Router：模型只输出 Intent/Target/Aspect/Constraint，可信代码再做 Schema、证据、目标绑定和 Workflow 映射，C++ 最终执行资源授权。真实 qwen3.7 的 60 条 Dev 评测达到 `91.67%` 任务成功和工作流映射、100% 安全与 Grounding，但 Schema `95.83%`、Intent/Target `89.58%` 未过预设晋级线；因此默认保持 `legacy_rule`，Structured Router 只通过配置显式启用，Validation/Heldout 未用于反向调参。
+Agent 意图路由默认采用“确定性安全策略 + 高精度规则快路径 + 受限 Open Agent”。项目另实现了 Structured LLM Router：模型输出业务 Goal、Target、Aspect、Constraint 和可选 Skill 执行偏好，可信代码再做 Schema、证据、目标绑定和 Workflow 映射，C++ 最终执行资源授权。Schema v2 的真实 qwen3.7 60 条 Dev 评测达到 `96.67%` 任务成功和工作流映射、100% 安全与 Grounding；但 Schema `95.83%`、Target `91.67%` 未过预设晋级线，因此默认保持 `legacy_rule`，Structured Router 只通过配置显式启用，Validation/Heldout 未用于反向调参。
 
 ## 快速演示
 
@@ -49,6 +49,7 @@ make demo-flow
 - [Routing Quality Set 外部生成任务说明书](docs/routing-quality-set-generation-brief.md)
 - [Routing Quality Set 生成、审核与 Calibration 报告](docs/reports/routing-quality-set-review.md)
 - [Structured LLM Intent Router 首阶段评测](docs/reports/structured-intent-router-evaluation.md)
+- [Structured LLM Intent Router Schema v2 评测](docs/reports/structured-intent-router-v2-evaluation.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 

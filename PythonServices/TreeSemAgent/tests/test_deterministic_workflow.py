@@ -116,13 +116,14 @@ def goal(intent, target, evidence, aspects=None, scope=None, **indexes):
     }
 
 
-def recipe_for(user_request, goals):
+def recipe_for(user_request, goals, *, requested_skill=None):
     value = IntentFrame.model_validate({
-        "schema_version": 1,
+        "schema_version": 2,
         "goals": goals,
         "constraints": {"excluded_intents": [], "excluded_aspects": []},
         "unresolved_references": [],
         "needs_clarification": False,
+        "requested_skill": requested_skill,
     })
     validated = validate_and_bind_intent(
         value, extract_references(user_request.message), user_request)

@@ -10,7 +10,7 @@ PRED_B = "pred_" + "b" * 32
 
 def entry(variants, slices, intents, targets, dispatch, recipe=None, *,
           aspects=(), excluded=(), excluded_intents=(), current=True,
-          critical=False,
+          critical=False, requested_skill=None,
           actor="patient"):
     return {
         "variants": variants,
@@ -23,6 +23,7 @@ def entry(variants, slices, intents, targets, dispatch, recipe=None, *,
             "required_aspects": list(aspects),
             "excluded_aspects": list(excluded),
             "excluded_intents": list(excluded_intents),
+            "requested_skill": requested_skill,
         },
         "expected_dispatch": dispatch,
         "expected_recipe": recipe,
@@ -61,7 +62,7 @@ ARCHETYPES = [
         "请从知识库介绍产后出血并标注来源", "Retrieve cited PPH education material",
     ], ["knowledge", "citation"], ["knowledge"], ["general_knowledge"],
         "workflow", "search_general_knowledge",
-        aspects=["knowledge_overview", "citations"]),
+        aspects=["knowledge_overview"]),
     entry([
         "预测演示样本索引 0", "请运行 sample #1 的风险评估",
         "对样本 2 执行一次模型预测", "Predict demonstration sample index 3",
@@ -90,18 +91,21 @@ ARCHETYPES = [
     entry([
         "使用可信预测解释流程说明当前结果", "激活预测解释技能处理这次记录",
         "按患者版稳定流程解释眼前预测", "Use the trusted explanation skill",
-    ], ["skill", "explanation"], ["skill"], ["current_prediction"],
-        "workflow", "activate_explanation_skill"),
+    ], ["skill", "explanation"], ["explanation"], ["current_prediction"],
+        "workflow", "activate_explanation_skill",
+        requested_skill="explain_prediction"),
     entry([
         "使用历史比较技能分析最近两次预测", "按可信比较流程核对前后记录",
         "激活历史结果比较技能", "Use the trusted comparison skill",
-    ], ["skill", "comparison"], ["skill"], ["latest_two_predictions"],
-        "workflow", "activate_comparison_skill"),
+    ], ["skill", "comparison"], ["comparison"],
+        ["latest_two_predictions"], "workflow", "activate_comparison_skill",
+        requested_skill="compare_prediction_history"),
     entry([
         "使用循证教育技能介绍产后出血", "按可信教育流程检索 PPH 资料",
         "激活产后出血知识教育技能", "Use the PPH evidence education skill",
-    ], ["skill", "knowledge"], ["skill"], ["general_knowledge"],
-        "workflow", "activate_education_skill"),
+    ], ["skill", "knowledge"], ["knowledge"], ["general_knowledge"],
+        "workflow", "activate_education_skill",
+        requested_skill="pph_evidence_education"),
     entry([
         "比较最近两次预测并分别解释决策路径",
         "核对前后结果，同时说明两条树路径",
@@ -119,7 +123,7 @@ ARCHETYPES = [
         "Explain this result and retrieve general evidence",
     ], ["composite", "open_agent"], ["explanation", "knowledge"],
         ["current_prediction", "general_knowledge"], "open_agent",
-        aspects=["decision_path", "citations"]),
+        aspects=["decision_path", "knowledge_overview"]),
     entry([
         "你好，告诉我这个系统能做什么", "如何使用这个演示平台",
         "请简单介绍你的能力范围", "Hello, what can this service do",
@@ -213,7 +217,8 @@ ARCHETYPES = [
         "没有可靠证据就告诉我资料不足",
         "Search the knowledge base and say when evidence is absent",
     ], ["knowledge", "no_answer"], ["knowledge"], ["general_knowledge"],
-        "workflow", "search_general_knowledge", aspects=["citations"]),
+        "workflow", "search_general_knowledge",
+        aspects=["knowledge_overview"]),
     entry([
         "先列出历史，再查资料解释模型指标",
         "查看近期预测并补充一般知识来源",
@@ -221,7 +226,7 @@ ARCHETYPES = [
         "List history and retrieve cited model documentation",
     ], ["composite", "history", "knowledge"], ["history", "knowledge"],
         ["session_history", "general_knowledge"], "open_agent",
-        aspects=["history_items", "citations"]),
+        aspects=["history_items", "knowledge_overview"]),
 ]
 
 
@@ -247,7 +252,7 @@ def build_cases():
                 "recent_messages": [],
             })
             cases.append(item)
-    return {"dataset_version": 1, "cases": cases}
+    return {"dataset_version": 2, "cases": cases}
 
 
 def main():

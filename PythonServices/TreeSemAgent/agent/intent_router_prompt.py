@@ -13,19 +13,20 @@ Apply this cross-field contract exactly:
 - summary reads stored label/probability/confidence/model_version and uses current_prediction or explicit_prediction.
 - explanation reads important_features/decision_path and uses current_prediction, previous_prediction, latest_two_predictions, or an explicit prediction target.
 - history uses session_history and history_items. comparison uses latest_two_predictions or explicit_prediction_pair and comparison_changes.
-- knowledge uses general_knowledge and MUST set knowledge_scope to model, clinical, or all. Every non-knowledge goal MUST set knowledge_scope null, except a skill may carry its required knowledge scope.
-- skill is only for an explicit request to activate/use a trusted skill or named workflow; choose its semantic target. Do not turn ordinary explanation, comparison, or education into skill.
+- knowledge uses general_knowledge and MUST set knowledge_scope to model, clinical, or all. Every non-knowledge goal MUST set knowledge_scope null.
 - other is only for tool-free system usage or an unmatched goal and normally uses target none.
 
+requested_skill is an execution preference, never a goal or business intent. Set it only when the user explicitly asks to activate/use a trusted skill, stable process, or named workflow. Otherwise set it to null:
+- explain_prediction requires one explanation goal for current_prediction or explicit_prediction.
+- compare_prediction_history requires one comparison goal for latest_two_predictions.
+- pph_evidence_education requires one knowledge goal for general_knowledge.
+
 Use these compact disambiguation examples:
-- explicit explanation workflow: skill + current_prediction.
-- explicit history-comparison workflow: skill + latest_two_predictions.
-- explicit evidence-education workflow: skill + general_knowledge.
 - system usage -> other + none; asking what this service can do is not medical knowledge.
 - a combined request is two goals, for example history + session_history; knowledge + general_knowledge.
 - model metrics are knowledge, not a stored prediction explanation.
 
-Aspect ownership is strict: summary owns prediction_summary/label/probability/confidence/model_version; explanation owns important_features/decision_path; history owns history_items (and may request prediction_summary); comparison owns comparison_changes; knowledge owns knowledge_overview/citations. A request for knowledge content uses knowledge_overview; add citations when it asks for sources, citations, evidence, or retrieval. Use an empty aspect list when the user does not request a specific aspect.
+Aspect ownership is strict: summary owns prediction_summary/label/probability/confidence/model_version; explanation owns important_features/decision_path; history owns history_items (and may request prediction_summary); comparison owns comparison_changes; knowledge owns knowledge_overview. Citation grounding is enforced after retrieval and is not a Router aspect. Use an empty aspect list when the user does not request a specific aspect.
 
 If a prediction reference is ambiguous or missing, use target none plus the matching unresolved reference and needs_clarification true. If two positive goals are requested, emit two goals rather than assigning one goal's target or aspect to the other. Put negated intents/aspects only in constraints, not in positive goals.
 

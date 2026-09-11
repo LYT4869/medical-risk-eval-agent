@@ -410,34 +410,43 @@ class FixtureStructuredRouter:
     def __init__(self, case: Case):
         self._case = case
 
-    def _semantic_goal(self) -> tuple[str, str, list[str], str | None]:
+    def _semantic_goal(
+            self) -> tuple[str, str, list[str], str | None, str | None]:
         tools = self._case.tools
         if self._case.skill == "explain_prediction":
-            return "skill", "current_prediction", [], None
+            return ("explanation", "current_prediction", [], None,
+                    "explain_prediction")
         if self._case.skill == "compare_prediction_history":
-            return "skill", "latest_two_predictions", [], None
+            return ("comparison", "latest_two_predictions", [], None,
+                    "compare_prediction_history")
         if self._case.skill == "pph_evidence_education":
-            return "skill", "general_knowledge", [], None
+            return ("knowledge", "general_knowledge",
+                    ["knowledge_overview"], "all",
+                    "pph_evidence_education")
         if "predict_sample" in tools:
-            return "prediction", "demo_sample", [], None
+            return "prediction", "demo_sample", [], None, None
         if tools == ["get_prediction"]:
-            return "summary", "current_prediction", ["prediction_summary"], None
+            return ("summary", "current_prediction", ["prediction_summary"],
+                    None, None)
         if tools == ["get_explanation"]:
-            return "explanation", "current_prediction", ["decision_path"], None
+            return ("explanation", "current_prediction", ["decision_path"],
+                    None, None)
         if tools == ["get_prediction_history"]:
-            return "history", "session_history", ["history_items"], None
+            return ("history", "session_history", ["history_items"], None,
+                    None)
         if "compare_predictions" in tools:
             return ("comparison", "latest_two_predictions",
-                    ["comparison_changes"], None)
+                    ["comparison_changes"], None, None)
         if "search_medical_knowledge" in tools:
-            return "knowledge", "general_knowledge", ["citations"], "all"
-        return "other", "none", [], None
+            return ("knowledge", "general_knowledge",
+                    ["knowledge_overview"], "all", None)
+        return "other", "none", [], None, None
 
     async def route(self, context) -> StructuredRoute:
-        intent, target, aspects, scope = self._semantic_goal()
+        intent, target, aspects, scope, requested_skill = self._semantic_goal()
         sample_index = 0 if target == "demo_sample" else None
         frame = IntentFrame.model_validate({
-            "schema_version": 1,
+            "schema_version": 2,
             "goals": [{
                 "intent": intent,
                 "target": {
@@ -454,6 +463,7 @@ class FixtureStructuredRouter:
                 "excluded_intents": [], "excluded_aspects": []},
             "unresolved_references": [],
             "needs_clarification": False,
+            "requested_skill": requested_skill,
         })
         return StructuredRoute(
             frame, usage=None, attempt_count=1, repaired=False)

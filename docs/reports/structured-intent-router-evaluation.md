@@ -1,5 +1,7 @@
 # Structured LLM Intent Router 首阶段评测报告
 
+> 本文保留 Schema v1 的冻结结果。Skill 维度修正和后续真实 Dev 结果见 [Schema v2 评测报告](structured-intent-router-v2-evaluation.md)。
+
 ## 结论
 
 截至 2026-09-10，Structured LLM Intent Router 已完成实现、确定性回归、真实模型 Dev 评测和独立延迟基准，但**不晋级为默认路由**。冻结候选在 60 条 Dev 场景上的端到端任务成功率和工作流映射准确率均为 `91.67%`，安全、Grounding 和业务 ID 防伪造门槛全部通过；Schema 有效率、Intent 和 Target 准确率未达到预先冻结的晋级线。
