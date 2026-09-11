@@ -122,6 +122,17 @@ _ASPECTS = {
     IntentKind.OTHER: set(RequestedAspect),
 }
 
+_COMPARISON_DETAIL_ASPECTS = {
+    RequestedAspect.PREDICTION_SUMMARY,
+    RequestedAspect.LABEL,
+    RequestedAspect.PROBABILITY,
+    RequestedAspect.CONFIDENCE,
+    RequestedAspect.MODEL_VERSION,
+    RequestedAspect.IMPORTANT_FEATURES,
+    RequestedAspect.DECISION_PATH,
+    RequestedAspect.COMPARISON_CHANGES,
+}
+
 _SKILL_GOALS = {
     RequestedSkill.EXPLAIN_PREDICTION: {
         (IntentKind.EXPLANATION, TargetKind.CURRENT_PREDICTION),
@@ -249,7 +260,11 @@ def validate_and_bind_intent(
     for goal in frame.goals:
         if goal.target.type not in _TARGETS[goal.intent]:
             raise IntentFrameViolation("incompatible_target")
-        if not set(goal.requested_aspects) <= _ASPECTS[goal.intent]:
+        requested_aspects = tuple(goal.requested_aspects)
+        if (goal.intent == IntentKind.COMPARISON and requested_aspects and
+                set(requested_aspects) <= _COMPARISON_DETAIL_ASPECTS):
+            requested_aspects = (RequestedAspect.COMPARISON_CHANGES,)
+        if not set(requested_aspects) <= _ASPECTS[goal.intent]:
             raise IntentFrameViolation("incompatible_aspect")
         if ((goal.intent == IntentKind.KNOWLEDGE and
              goal.knowledge_scope is None) or
@@ -262,7 +277,7 @@ def validate_and_bind_intent(
         bound_goals.append(BoundGoal(
             goal.intent,
             bound,
-            tuple(goal.requested_aspects),
+            requested_aspects,
             goal.knowledge_scope,
         ))
 

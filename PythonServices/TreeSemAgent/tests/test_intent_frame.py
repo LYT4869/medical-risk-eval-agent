@@ -61,18 +61,12 @@ class IntentFrameTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             IntentFrame.model_validate(payload)
 
-    def test_allows_empty_goals_only_for_an_unresolved_clarification(self):
+    def test_requires_recognized_goal_for_an_unresolved_clarification(self):
         payload = explanation_frame()
         payload["goals"] = []
         payload["unresolved_references"] = ["missing_prediction_target"]
         payload["needs_clarification"] = True
 
-        frame = IntentFrame.model_validate(payload)
-
-        self.assertEqual(frame.goals, [])
-
-        payload["unresolved_references"] = []
-        payload["needs_clarification"] = False
         with self.assertRaises(ValidationError):
             IntentFrame.model_validate(payload)
 

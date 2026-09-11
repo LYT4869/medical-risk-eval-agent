@@ -159,6 +159,23 @@ class IntentValidationTest(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, "incompatible_aspect")
 
+    def test_comparison_detail_aspects_are_canonicalized_to_changes(self):
+        result = validate_and_bind_intent(
+            frame(
+                intent="comparison", target="latest_two_predictions",
+                aspects=["probability", "decision_path"],
+                evidence=["概率", "路径差异"]),
+            extract_references("核对前后两次概率和路径差异"),
+            request("核对前后两次概率和路径差异"),
+        )
+
+        self.assertIsNotNone(result.validated)
+        self.assertEqual(
+            tuple(item.value for item in
+                  result.validated.goals[0].requested_aspects),
+            ("comparison_changes",),
+        )
+
     def test_history_may_request_prediction_summaries(self):
         result = self.validate(
             frame(intent="history", target="session_history",
@@ -204,21 +221,6 @@ class IntentValidationTest(unittest.TestCase):
 
         self.assertIsNone(result.validated)
         self.assertEqual(result.clarification_code, "ambiguous_reference")
-
-    def test_empty_goals_can_still_produce_deterministic_clarification(self):
-        value = frame(
-            target="none", evidence=["那个"],
-            unresolved=["missing_prediction_target"], clarification=True)
-        payload = value.model_dump(mode="json")
-        payload["goals"] = []
-
-        result = self.validate(
-            IntentFrame.model_validate(payload),
-            request("解释那个", current=False))
-
-        self.assertIsNone(result.validated)
-        self.assertEqual(
-            result.clarification_code, "prediction_target_missing")
 
     def test_clarification_flag_must_match_unresolved_references(self):
         with self.assertRaises(IntentFrameViolation) as caught:

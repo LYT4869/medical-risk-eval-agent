@@ -119,6 +119,27 @@ class StructuredRouterCorpusTest(unittest.TestCase):
             "citations" not in case.expected_frame.required_aspects
             for case in knowledge))
 
+    def test_validation_labels_follow_the_literal_requested_aspect(self):
+        module = load_runner()
+        loaded, _ = module.load_cases(CASES)
+        cases = {case.case_id: case for case in loaded}
+
+        self.assertEqual(
+            cases["sr_validation_013"].expected_frame.required_aspects,
+            ("comparison_changes", "important_features"),
+        )
+
+    def test_policy_only_statement_is_not_labelled_as_a_knowledge_query(self):
+        module = load_runner()
+        loaded, _ = module.load_cases(CASES)
+        case = {item.case_id: item for item in loaded}["sr_validation_029"]
+
+        self.assertEqual(case.expected_frame.intents, ("other",))
+        self.assertEqual(case.expected_frame.target_types, ("none",))
+        self.assertEqual(case.expected_frame.required_aspects, ())
+        self.assertEqual(case.expected_dispatch, "open_agent")
+        self.assertIsNone(case.expected_recipe)
+
 
 class StructuredRouterScoringTest(unittest.TestCase):
     def setUp(self):
@@ -242,13 +263,19 @@ class StructuredRouterScoringTest(unittest.TestCase):
                          "compare_prediction_history")
         self.assertTrue(outcome.task_success)
 
-    def test_unresolved_empty_goal_counts_as_successful_clarification(self):
+    def test_unresolved_goal_retains_intent_and_counts_as_clarification(self):
         cases = {case.case_id: case for case in
                  self.module.load_cases(CASES)[0]}
         case = cases["sr_dev_031"]
         value = IntentFrame.model_validate({
             "schema_version": 2,
-            "goals": [],
+            "goals": [{
+                "intent": "explanation",
+                "target": {"type": "none"},
+                "requested_aspects": [],
+                "knowledge_scope": None,
+                "evidence": ["解释"],
+            }],
             "constraints": {
                 "excluded_intents": [], "excluded_aspects": []},
             "unresolved_references": ["missing_prediction_target"],

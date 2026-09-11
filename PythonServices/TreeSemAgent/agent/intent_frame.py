@@ -142,21 +142,12 @@ class IntentConstraints(StrictFrameModel):
 
 class IntentFrame(StrictFrameModel):
     schema_version: int = Field(ge=2, le=2)
-    goals: list[IntentGoal] = Field(max_length=3)
+    goals: list[IntentGoal] = Field(min_length=1, max_length=3)
     constraints: IntentConstraints
     unresolved_references: list[UnresolvedValue] = Field(
         default_factory=list, max_length=4)
     needs_clarification: bool
     requested_skill: RequestedSkillValue | None = None
-
-    @model_validator(mode="after")
-    def validate_empty_clarification(self) -> "IntentFrame":
-        if not self.goals and not (
-                self.needs_clarification and self.unresolved_references and
-                self.requested_skill is None):
-            raise ValueError(
-                "empty goals require an unresolved clarification")
-        return self
 
     @field_validator("unresolved_references")
     @classmethod

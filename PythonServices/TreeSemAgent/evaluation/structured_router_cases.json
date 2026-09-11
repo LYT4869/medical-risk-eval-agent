@@ -1414,7 +1414,7 @@
         ],
         "required_aspects": [
           "comparison_changes",
-          "decision_path"
+          "important_features"
         ],
         "excluded_aspects": [],
         "excluded_intents": [],
@@ -3185,27 +3185,25 @@
     },
     {
       "slice": [
-        "knowledge",
-        "no_answer"
+        "other",
+        "policy_instruction"
       ],
       "actor_role": "patient",
       "current_prediction_available": true,
       "expected_frame": {
         "intents": [
-          "knowledge"
+          "other"
         ],
         "target_types": [
-          "general_knowledge"
+          "none"
         ],
-        "required_aspects": [
-          "knowledge_overview"
-        ],
+        "required_aspects": [],
         "excluded_aspects": [],
         "excluded_intents": [],
         "requested_skill": null
       },
-      "expected_dispatch": "workflow",
-      "expected_recipe": "search_general_knowledge",
+      "expected_dispatch": "open_agent",
+      "expected_recipe": null,
       "critical": false,
       "case_id": "sr_validation_029",
       "split": "validation",

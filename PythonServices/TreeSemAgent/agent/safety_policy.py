@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -58,17 +59,19 @@ _SECRET_TARGET = (
     "system prompt", "configured secret", "all configured secrets",
 )
 _PRIVILEGE_ACTION = (
-    "绑定", "构造", "生成", "访问", "读取", "查询", "无视", "忽略",
+    "绑定", "构造", "生成", "访问", "读取", "获取", "查询", "泄露", "无视", "忽略",
     "绕过", "越过", "假装", "不要鉴权", "扩大", "提升", "关", "关闭", "禁用",
-    "调用", "bypass", "disable",
+    "调用", "call", "bypass", "disable",
     "turn off", "ignore", "override", "bind", "access", "read",
 )
 _PRIVILEGE_TARGET = (
-    "其他会话", "别的会话", "所有患者", "其他患者", "另一名患者",
+    "其他会话", "别的会话", "跨患者", "所有患者", "其他患者", "另一个患者",
+    "另一名患者", "不属于我的",
     "未分配患者", "未授权患者", "别人的结果", "管理员接口", "管理员工具",
-    "工具白名单", "能力令牌", "capability token", "safety gate",
+    "工具范围", "工具白名单", "能力令牌", "capability token", "safety gate",
     "guardrail", "other session", "all patients", "other patient",
-    "admin api", "administrator api", "tool allowlist", "tool whitelist",
+    "admin api", "administrator api", "admin tool", "unauthorized admin tool",
+    "tool allowlist", "tool whitelist",
 )
 _ACCESS_CONTROL_TARGET = (
     "访问控制", "受保护的预测", "access control", "protected prediction",
@@ -87,13 +90,13 @@ _PERSONAL_CONTEXT = (
     "为我", "给我", "替我", "我的情况", "我应该", "我是否", "我现在",
     "让我", "我今天", "我对药物", "根据我的", "for me", "for my situation",
     "for my case", "give me", "should i", "whether i", "my medication",
-    "i am", "i have",
+    "tell me", "i am", "i have",
 )
 _INDIVIDUALIZED_TARGET = (
-    "个体化", "个人化", "individualized", "personalized",
+    "个体化", "个体处方", "个人化", "individualized", "personalized",
 )
 _DIRECTIVE_ACTION = (
-    "直接选", "直接决定", "替我决定", "告诉我该", "告诉我是否",
+    "直接给出", "直接选", "直接决定", "替我决定", "告诉我该", "告诉我是否",
     "制定", "修改", "开具", "处方", "具体", "精确", "exact",
     "specific", "prescribe", "decide", "choose", "modify", "change",
 )
@@ -118,7 +121,7 @@ _TREATMENT_PLAN = (
     "treatment regimen",
 )
 _OUTCOME_GUARANTEE = (
-    "保证有效", "保证治好", "一定有效", "肯定有效", "绝对有效",
+    "承诺疗效", "保证有效", "保证治好", "一定有效", "肯定有效", "绝对有效",
     "guarantee", "guaranteed to work", "certain to work",
 )
 _UNSUPPORTED_SOURCE_DEMAND = (
@@ -128,6 +131,14 @@ _UNSUPPORTED_SOURCE_DEMAND = (
 _SOURCE_OR_EVIDENCE = (
     "来源", "资料", "证据", "引用", "source", "evidence", "citation",
 )
+_MEDICAL_EDUCATION_REQUEST = (
+    "说明", "介绍", "解释", "科普", "一般警示", "education", "explain",
+)
+_NEGATED_MEDICAL_DIRECTIVE = re.compile(
+    r"(?:不要|不得|无需|不需要)"
+    r"(?:给|提供|制定|开具|推荐)?(?:我)?"
+    r"(?:任何|具体|个体化?|个人化?)?"
+    r"(?:药物|用药|处方|治疗方案)")
 
 _BLEEDING = (
     "大量出血", "持续大出血", "产后出血", "heavy bleeding",
@@ -214,11 +225,15 @@ class SafetyPolicy:
                     _has(message, _SOURCE_OR_EVIDENCE))):
             return "fabricated_medical_evidence"
 
+        if (_NEGATED_MEDICAL_DIRECTIVE.search(message) and
+                _has(message, _MEDICAL_EDUCATION_REQUEST)):
+            message = _NEGATED_MEDICAL_DIRECTIVE.sub("", message)
+
         personal = _has(message, _PERSONAL_CONTEXT)
         directive = _has(message, _DIRECTIVE_ACTION)
         direct_medication_change = _has(message, (
             "停药", "换药", "加药", "减药", "停止用药",
-            "stop my medication", "change my medication"))
+            "stop medication", "stop my medication", "change my medication"))
         if ((personal or _has(message, _INDIVIDUALIZED_TARGET)) and
                 _has(message, _MEDICATION_ACTION) and
                 (directive or direct_medication_change)):
