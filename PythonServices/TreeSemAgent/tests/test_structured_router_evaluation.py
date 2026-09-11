@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 import importlib.util
 import sys
@@ -300,6 +301,26 @@ class StructuredRouterScoringTest(unittest.TestCase):
 
         self.assertTrue(self.module.report_passes_command_gate(passing))
         self.assertFalse(self.module.report_passes_command_gate(failing))
+
+    def test_evaluation_can_select_explicit_case_ids(self):
+        report = asyncio.run(self.module.evaluate(SimpleNamespace(
+            mode="fake",
+            split="dev",
+            cases=str(CASES),
+            case_ids=["sr_dev_031", "sr_dev_034"],
+        )))
+
+        self.assertEqual(report["router"]["case_count"], 2)
+        self.assertEqual(report["planner"]["case_count"], 2)
+
+    def test_evaluation_rejects_unknown_case_id(self):
+        with self.assertRaisesRegex(ValueError, "unknown evaluation case"):
+            asyncio.run(self.module.evaluate(SimpleNamespace(
+                mode="fake",
+                split="dev",
+                cases=str(CASES),
+                case_ids=["sr_dev_999"],
+            )))
 
 
 if __name__ == "__main__":

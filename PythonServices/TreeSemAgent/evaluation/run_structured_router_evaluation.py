@@ -423,6 +423,15 @@ async def evaluate(args) -> dict[str, Any]:
     path = Path(args.cases)
     all_cases, dataset_sha = load_cases(path)
     selected = [item for item in all_cases if item.split == args.split]
+    requested_ids = list(getattr(args, "case_ids", None) or [])
+    if requested_ids:
+        by_id = {item.case_id: item for item in selected}
+        unknown = [case_id for case_id in requested_ids
+                   if case_id not in by_id]
+        if unknown:
+            raise ValueError(
+                "unknown evaluation case: " + ", ".join(unknown))
+        selected = [by_id[case_id] for case_id in requested_ids]
     if args.mode == "fake":
         report = score_outcomes(
             selected, [LayerOutcome.from_expected(item) for item in selected])
@@ -524,6 +533,7 @@ def main() -> int:
         "--split", choices=tuple(sorted(_SPLITS)), default="dev")
     parser.add_argument("--cases", default=str(
         Path(__file__).with_name("structured_router_cases.json")))
+    parser.add_argument("--case-id", dest="case_ids", action="append")
     parser.add_argument("--output")
     args = parser.parse_args()
     report = asyncio.run(evaluate(args))
