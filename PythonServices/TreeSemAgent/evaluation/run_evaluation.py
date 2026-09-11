@@ -8,6 +8,7 @@ import os
 import statistics
 import sys
 import time
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,32 +136,44 @@ class FakeBackend:
     async def get_prediction(self, context, prediction_id):
         del context
         if self._before("get_prediction", {"prediction_id": prediction_id}): return {}
-        return {"prediction_id": prediction_id}
+        value = self._fixture.get("prediction_response")
+        return dict(value) if isinstance(value, dict) else {
+            "prediction_id": prediction_id}
 
     async def get_explanation(self, context, prediction_id):
         del context
         if self._before("get_explanation", {"prediction_id": prediction_id}): return {}
-        return {"prediction_id": prediction_id, "important_features": [],
-                "decision_path": []}
+        by_id = self._fixture.get("explanation_by_prediction_id", {})
+        value = (by_id.get(prediction_id) if isinstance(by_id, dict)
+                 else None)
+        if not isinstance(value, dict):
+            value = self._fixture.get("explanation_response")
+        return dict(value) if isinstance(value, dict) else {
+            "prediction_id": prediction_id, "important_features": [],
+            "decision_path": []}
 
     async def get_history(self, context, limit, cursor):
         del context
         if self._before("get_prediction_history", {"limit": limit,
                                                     "cursor": cursor}): return {}
-        return {"items": [{"prediction_id": PRED_A},
-                          {"prediction_id": PRED_B}], "next_cursor": None}
+        value = self._fixture.get("history_response")
+        return dict(value) if isinstance(value, dict) else {
+            "items": [{"prediction_id": PRED_A},
+                      {"prediction_id": PRED_B}], "next_cursor": None}
 
     async def compare(self, context, prediction_id_a, prediction_id_b):
         del context
         if self._before("compare_predictions", {
                 "prediction_id_a": prediction_id_a,
                 "prediction_id_b": prediction_id_b}): return {}
-        return {"prediction_a": {"prediction_id": prediction_id_a},
-                "prediction_b": {"prediction_id": prediction_id_b},
-                "label_changed": False, "model_version_changed": False,
-                "positive_probability_delta": 0.0, "confidence_delta": 0.0,
-                "cluster_changed": False, "tree_leaf_changed": False,
-                "path_changed": False, "changed_features": []}
+        value = self._fixture.get("comparison_response")
+        return dict(value) if isinstance(value, dict) else {
+            "prediction_a": {"prediction_id": prediction_id_a},
+            "prediction_b": {"prediction_id": prediction_id_b},
+            "label_changed": False, "model_version_changed": False,
+            "positive_probability_delta": 0.0, "confidence_delta": 0.0,
+            "cluster_changed": False, "tree_leaf_changed": False,
+            "path_changed": False, "changed_features": []}
 
 
 class FakeKnowledge:
@@ -179,7 +192,10 @@ class FakeKnowledge:
         self.calls.append({"query": query, "scope": scope, "top_k": top_k})
         if self._fixture.get("knowledge_error"):
             raise KnowledgeToolError("injected evaluation knowledge failure")
-        results = [] if self._no_answer or query == "unanswerable" else [{
+        fixture_results = self._fixture.get("knowledge_results")
+        results = [] if self._no_answer or query == "unanswerable" else (
+            [dict(item) for item in fixture_results]
+            if isinstance(fixture_results, list) else [{
             "citation_id": CITATION, "source_id": "src_treesem_eval",
             "title": "Curated treeSem evaluation evidence", "section": "Overview",
             "page": 1, "excerpt": self._fixture.get(
@@ -187,6 +203,7 @@ class FakeKnowledge:
             "publisher": "treeSem evaluation", "published_at": "2026-08-18",
             "url": "https://example.invalid/treesem-eval",
             "content_sha256": "d" * 64, "score": 1.0}]
+        )
         self.returned_result_count += len(results)
         return {"index_version": "eval-index-v1",
                 "retrieval_mode": "hybrid", "results": results}
@@ -205,6 +222,37 @@ class Case:
     expected_statuses: list[str] | None = None
     fixture: dict[str, Any] = field(default_factory=dict)
     allowed_tool_sequences: list[list[str]] | None = None
+    structured_goals: tuple[dict[str, Any], ...] = ()
+    answer_contract: "SemanticAnswerContract | None" = None
+
+
+@dataclass(frozen=True)
+class PhraseExpectation:
+    expectation_id: str
+    any_of: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SemanticSubgoalExpectation:
+    subgoal_id: str
+    required_tools: tuple[str, ...]
+    answer_evidence: tuple[PhraseExpectation, ...]
+
+
+@dataclass(frozen=True)
+class ResponseConstraintExpectation:
+    required: tuple[PhraseExpectation, ...] = ()
+    forbidden: tuple[PhraseExpectation, ...] = ()
+    prefix: tuple[PhraseExpectation, ...] = ()
+    prefix_chars: int = 100
+    max_chars: int | None = None
+
+
+@dataclass(frozen=True)
+class SemanticAnswerContract:
+    subgoals: tuple[SemanticSubgoalExpectation, ...]
+    response_constraints: ResponseConstraintExpectation
+    integration_evidence: tuple[PhraseExpectation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -301,6 +349,189 @@ def assess_workflow_attempts(
     }
 
 
+def _expect_exact_keys(value: dict[str, Any], allowed: set[str],
+                       label: str) -> None:
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValueError(
+            f"{label} contains unknown fields: {', '.join(sorted(unknown))}")
+
+
+def _parse_phrase_expectation(
+        value: Any, label: str) -> PhraseExpectation:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    _expect_exact_keys(value, {"id", "any_of"}, label)
+    expectation_id = value.get("id")
+    alternatives = value.get("any_of")
+    if (not isinstance(expectation_id, str) or
+            not expectation_id.strip() or len(expectation_id) > 64):
+        raise ValueError(f"{label}.id must be a short non-blank string")
+    if (not isinstance(alternatives, list) or not alternatives or
+            any(not isinstance(item, str) or not item.strip()
+                or len(item) > 160 for item in alternatives)):
+        raise ValueError(f"{label}.any_of must contain non-blank strings")
+    normalized = tuple(dict.fromkeys(item.strip() for item in alternatives))
+    return PhraseExpectation(expectation_id.strip(), normalized)
+
+
+def _parse_phrase_list(value: Any, label: str) -> tuple[PhraseExpectation, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"{label} must be an array")
+    result = tuple(
+        _parse_phrase_expectation(item, f"{label}[{index}]")
+        for index, item in enumerate(value))
+    ids = [item.expectation_id for item in result]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"{label} contains duplicate ids")
+    return result
+
+
+def parse_answer_contract(value: Any) -> SemanticAnswerContract:
+    if not isinstance(value, dict):
+        raise ValueError("answer_contract must be an object")
+    _expect_exact_keys(
+        value,
+        {"subgoals", "response_constraints", "integration_evidence"},
+        "answer_contract")
+    subgoals_raw = value.get("subgoals")
+    if not isinstance(subgoals_raw, list) or not subgoals_raw:
+        raise ValueError("answer_contract.subgoals must be a non-empty array")
+    subgoals: list[SemanticSubgoalExpectation] = []
+    for index, item in enumerate(subgoals_raw):
+        label = f"answer_contract.subgoals[{index}]"
+        if not isinstance(item, dict):
+            raise ValueError(f"{label} must be an object")
+        _expect_exact_keys(
+            item, {"id", "required_tools", "answer_evidence"}, label)
+        subgoal_id = item.get("id")
+        tools = item.get("required_tools")
+        if (not isinstance(subgoal_id, str) or not subgoal_id.strip() or
+                len(subgoal_id) > 64):
+            raise ValueError(f"{label}.id must be a short non-blank string")
+        if (not isinstance(tools, list) or
+                any(not isinstance(tool, str) or not tool
+                    for tool in tools)):
+            raise ValueError(f"{label}.required_tools must be an array")
+        subgoals.append(SemanticSubgoalExpectation(
+            subgoal_id.strip(), tuple(tools),
+            _parse_phrase_list(item.get("answer_evidence"),
+                               f"{label}.answer_evidence")))
+    ids = [item.subgoal_id for item in subgoals]
+    if len(ids) != len(set(ids)):
+        raise ValueError("answer_contract contains duplicate subgoal ids")
+
+    constraints_raw = value.get("response_constraints", {})
+    if not isinstance(constraints_raw, dict):
+        raise ValueError("answer_contract.response_constraints must be an object")
+    _expect_exact_keys(
+        constraints_raw,
+        {"required", "forbidden", "prefix", "prefix_chars", "max_chars"},
+        "answer_contract.response_constraints")
+    prefix_chars = constraints_raw.get("prefix_chars", 100)
+    max_chars = constraints_raw.get("max_chars")
+    if not isinstance(prefix_chars, int) or isinstance(prefix_chars, bool) or not 1 <= prefix_chars <= 1000:
+        raise ValueError("response constraint prefix_chars is invalid")
+    if (max_chars is not None and
+            (not isinstance(max_chars, int) or isinstance(max_chars, bool)
+             or not 1 <= max_chars <= 16000)):
+        raise ValueError("response constraint max_chars is invalid")
+    constraints = ResponseConstraintExpectation(
+        required=_parse_phrase_list(
+            constraints_raw.get("required"),
+            "answer_contract.response_constraints.required"),
+        forbidden=_parse_phrase_list(
+            constraints_raw.get("forbidden"),
+            "answer_contract.response_constraints.forbidden"),
+        prefix=_parse_phrase_list(
+            constraints_raw.get("prefix"),
+            "answer_contract.response_constraints.prefix"),
+        prefix_chars=prefix_chars,
+        max_chars=max_chars,
+    )
+    return SemanticAnswerContract(
+        tuple(subgoals), constraints,
+        _parse_phrase_list(
+            value.get("integration_evidence"),
+            "answer_contract.integration_evidence"))
+
+
+def _normalized_answer(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return " ".join(normalized.replace("_", " ").split())
+
+
+def _matches(expectation: PhraseExpectation, text: str) -> bool:
+    return any(_normalized_answer(item) in text for item in expectation.any_of)
+
+
+def assess_semantic_answer(
+        contract: SemanticAnswerContract, actual_tools: list[str],
+        answer: str) -> dict[str, Any]:
+    normalized = _normalized_answer(answer)
+    raw_normalized = unicodedata.normalize("NFKC", answer).casefold()
+    answer_missing = not answer.strip()
+    subgoal_failures: list[dict[str, Any]] = []
+    completed = 0
+    for subgoal in contract.subgoals:
+        tools_complete = ordered_subsequence_indexes(
+            list(subgoal.required_tools), actual_tools) is not None
+        missing = [
+            item.expectation_id for item in subgoal.answer_evidence
+            if not _matches(item, normalized)]
+        if tools_complete and not missing:
+            completed += 1
+        else:
+            subgoal_failures.append({
+                "subgoal_id": subgoal.subgoal_id,
+                "tools_complete": tools_complete,
+                "missing_answer_evidence": missing,
+            })
+
+    constraints = contract.response_constraints
+    missing_required = [
+        item.expectation_id for item in constraints.required
+        if not _matches(item, normalized)]
+    forbidden_present = [
+        item.expectation_id for item in constraints.forbidden
+        if _matches(item, normalized)]
+    prefix = _normalized_answer(answer[:constraints.prefix_chars])
+    missing_prefix = [
+        item.expectation_id for item in constraints.prefix
+        if not _matches(item, prefix)]
+    length_exceeded = (
+        constraints.max_chars is not None and
+        len(answer) > constraints.max_chars)
+    protocol_artifact_present = (
+        '"grounding_prediction_ids"' in raw_normalized or
+        '"grounding_source_ids"' in raw_normalized)
+    response_constraint_adherence = not (
+        missing_required or forbidden_present or missing_prefix or
+        length_exceeded or protocol_artifact_present or answer_missing)
+    missing_integration = [
+        item.expectation_id for item in contract.integration_evidence
+        if not _matches(item, normalized)]
+    return {
+        "completed_subgoal_count": completed,
+        "subgoal_count": len(contract.subgoals),
+        "subgoal_completion_valid": completed == len(contract.subgoals),
+        "subgoal_failures": subgoal_failures,
+        "response_constraint_adherence": response_constraint_adherence,
+        "missing_required_constraints": missing_required,
+        "forbidden_constraints_present": forbidden_present,
+        "missing_prefix_constraints": missing_prefix,
+        "answer_missing": answer_missing,
+        "answer_length_exceeded": length_exceeded,
+        "response_protocol_artifact_present": protocol_artifact_present,
+        "integrated_answer_quality": (
+            completed == len(contract.subgoals) and
+            response_constraint_adherence and not missing_integration),
+        "missing_integration_evidence": missing_integration,
+    }
+
+
 def load_cases(path: Path) -> tuple[list[Scenario], str]:
     raw = path.read_bytes()
     root = json.loads(raw)
@@ -309,22 +540,36 @@ def load_cases(path: Path) -> tuple[list[Scenario], str]:
     dataset_kind = root.get("dataset_kind", "full")
     if dataset_kind not in {"full", "targeted"}:
         raise ValueError("unsupported evaluation dataset kind")
+    default_fixture = root.get("default_fixture", {})
+    if not isinstance(default_fixture, dict):
+        raise ValueError("default_fixture must be an object")
     cases: list[Scenario] = []
     for item in root.get("cases", []):
         case_id = str(item["case_id"])
         category = str(item["category"])
         actor_role = str(item["actor_role"])
         critical = bool(item["critical"])
-        fixture = dict(item.get("fixture", {}))
-        turns = [Case(
-            f"{case_id}::turn_{index + 1}", category, actor_role,
-            str(turn["message"]), list(turn["tools"]),
-            str(turn["grounding"]), turn.get("skill"), critical,
-            (list(turn["expected_statuses"])
-             if "expected_statuses" in turn else None), fixture,
-            ([list(sequence) for sequence in turn["allowed_tool_sequences"]]
-             if "allowed_tool_sequences" in turn else None))
-            for index, turn in enumerate(item["turns"])]
+        fixture = dict(default_fixture)
+        fixture.update(item.get("fixture", {}))
+        turns = []
+        for index, turn in enumerate(item["turns"]):
+            structured_goals_raw = turn.get("structured_goals", [])
+            if not isinstance(structured_goals_raw, list):
+                raise ValueError("structured_goals must be an array")
+            structured_goals = tuple(dict(goal)
+                                     for goal in structured_goals_raw)
+            turns.append(Case(
+                f"{case_id}::turn_{index + 1}", category, actor_role,
+                str(turn["message"]), list(turn["tools"]),
+                str(turn["grounding"]), turn.get("skill"), critical,
+                (list(turn["expected_statuses"])
+                 if "expected_statuses" in turn else None), fixture,
+                ([list(sequence)
+                  for sequence in turn["allowed_tool_sequences"]]
+                 if "allowed_tool_sequences" in turn else None),
+                structured_goals,
+                (parse_answer_contract(turn["answer_contract"])
+                 if "answer_contract" in turn else None)))
         if not turns:
             raise ValueError(f"evaluation case has no turns: {case_id}")
         cases.append(Scenario(case_id, category, actor_role, turns, critical))
@@ -372,7 +617,9 @@ def scripted_client(case: Case) -> ScriptedLlmClient:
     source_ids = (
         [] if direct_response or case.grounding not in {"citation", "both"}
         else [CITATION])
-    answer = "I cannot follow instructions that bypass authorization." if case.category == "security" else (
+    answer = case.fixture.get("scripted_answer")
+    if not isinstance(answer, str):
+        answer = "I cannot follow instructions that bypass authorization." if case.category == "security" else (
         "Seek urgent local medical assistance now; this system is not a diagnosis." if
         case.category == "medical_boundary" else (
             "I cannot provide unavailable or individualized medical guidance; "
@@ -395,7 +642,9 @@ def structured_final_client(case: Case) -> ScriptedLlmClient:
         [PRED_A] if case.grounding in {"prediction", "both"} else [])
     source_ids = (
         [CITATION] if case.grounding in {"citation", "both"} else [])
-    answer = "Grounded treeSem structured-routing evaluation answer."
+    answer = case.fixture.get(
+        "scripted_answer",
+        "Grounded treeSem structured-routing evaluation answer.")
     if source_ids:
         answer += f" Evidence: {CITATION}."
     return ScriptedLlmClient([LlmTurn(
@@ -444,21 +693,37 @@ class FixtureStructuredRouter:
 
     async def route(self, context) -> StructuredRoute:
         intent, target, aspects, scope, requested_skill = self._semantic_goal()
-        sample_index = 0 if target == "demo_sample" else None
-        frame = IntentFrame.model_validate({
-            "schema_version": 2,
-            "goals": [{
-                "intent": intent,
+        goals = self._case.structured_goals or ({
+            "intent": intent,
+            "target": target,
+            "requested_aspects": aspects,
+            "knowledge_scope": scope,
+        },)
+        frame_goals = []
+        for index, goal in enumerate(goals):
+            _expect_exact_keys(
+                goal,
+                {"intent", "target", "requested_aspects",
+                 "knowledge_scope"},
+                f"structured_goals[{index}]")
+            goal_target = goal["target"]
+            sample_index = 0 if goal_target == "demo_sample" else None
+            frame_goals.append({
+                "intent": goal["intent"],
                 "target": {
-                    "type": target,
+                    "type": goal_target,
                     "explicit_reference_index": None,
                     "second_explicit_reference_index": None,
                     "sample_reference_index": sample_index,
                 },
-                "requested_aspects": aspects,
-                "knowledge_scope": scope,
+                "requested_aspects": list(goal.get(
+                    "requested_aspects", [])),
+                "knowledge_scope": goal.get("knowledge_scope"),
                 "evidence": [context.message[:160]],
-            }],
+            })
+        frame = IntentFrame.model_validate({
+            "schema_version": 2,
+            "goals": frame_goals,
             "constraints": {
                 "excluded_intents": [], "excluded_aspects": []},
             "unresolved_references": [],
@@ -548,6 +813,10 @@ async def run_case(case: Case, llm,
             skill_valid)
         orchestration_compliant = (
             workflow["orchestration_compliant"] and skill_valid)
+        semantic = (
+            assess_semantic_answer(
+                case.answer_contract, actual_tools, response.answer)
+            if case.answer_contract is not None else None)
         return {"case_id": case.case_id, "category": case.category,
                 "critical": case.critical,
                 "success": task_outcome_success,
@@ -575,10 +844,14 @@ async def run_case(case: Case, llm,
                 "execution_error_code": None,
                 "knowledge_result_count": knowledge.returned_result_count,
                 "graceful_response": True,
+                "semantic_assessment": semantic,
                 "tools": actual_tools, "steps": response.step_count,
                 "answer": response.answer,
                 "latency_ms": (time.monotonic() - started) * 1000}
     except AgentExecutionError as exc:
+        failed_semantic = (
+            assess_semantic_answer(case.answer_contract, [], "")
+            if case.answer_contract is not None else None)
         policy_enforced = isinstance(exc.__cause__, PolicyViolation)
         if case.category == "security" and policy_enforced:
             return {
@@ -600,6 +873,7 @@ async def run_case(case: Case, llm,
                 "redundant_tool_attempt_count": 0,
                 "execution_error_code": None,
                 "graceful_response": False, "tools": [], "steps": 0,
+                "semantic_assessment": failed_semantic,
                 "latency_ms": (time.monotonic() - started) * 1000,
             }
         medical_boundary_valid = case.category != "medical_boundary"
@@ -630,6 +904,7 @@ async def run_case(case: Case, llm,
                 "policy_rejection_code": None,
                 "knowledge_result_count": knowledge.returned_result_count,
                 "graceful_response": False,
+                "semantic_assessment": failed_semantic,
                 "latency_ms": (time.monotonic() - started) * 1000}
 
 
@@ -641,6 +916,9 @@ async def run_scenario(scenario: Scenario, real_client=None, *,
     turn_results: list[dict[str, Any]] = []
     for turn in scenario.turns:
         client = (real_client if real_client is not None else
+                  scripted_client(turn)
+                  if (routing_mode == "structured_llm" and
+                      turn.fixture.get("structured_open_agent") is True) else
                   structured_final_client(turn)
                   if routing_mode == "structured_llm" else
                   scripted_client(turn))
@@ -666,6 +944,15 @@ async def run_scenario(scenario: Scenario, real_client=None, *,
     task_outcome_success = completed and all(
         bool(item.get("task_outcome_success")) for item in turn_results)
     every = lambda field: completed and all(bool(item.get(field)) for item in turn_results)
+    semantic_turns = [
+        item for item in turn_results
+        if item.get("semantic_assessment") is not None]
+    semantic_subgoal_count = sum(
+        int(item["semantic_assessment"]["subgoal_count"])
+        for item in semantic_turns)
+    semantic_completed_subgoal_count = sum(
+        int(item["semantic_assessment"]["completed_subgoal_count"])
+        for item in semantic_turns)
     return {
         "case_id": scenario.case_id,
         "category": scenario.category,
@@ -702,6 +989,31 @@ async def run_scenario(scenario: Scenario, real_client=None, *,
         "tools": [tool for item in turn_results for tool in item.get("tools", [])],
         "steps": sum(int(item.get("steps", 0)) for item in turn_results),
         "latency_ms": sum(float(item.get("latency_ms", 0.0)) for item in turn_results),
+        "semantic_turn_count": len(semantic_turns),
+        "semantic_subgoal_count": semantic_subgoal_count,
+        "semantic_completed_subgoal_count":
+            semantic_completed_subgoal_count,
+        "subgoal_completion_valid": (
+            None if not semantic_turns else
+            completed and all(
+                item["semantic_assessment"]["subgoal_completion_valid"]
+                for item in semantic_turns)),
+        "response_constraint_adherence": (
+            None if not semantic_turns else
+            completed and all(
+                item["semantic_assessment"][
+                    "response_constraint_adherence"]
+                for item in semantic_turns)),
+        "integrated_answer_quality": (
+            None if not semantic_turns else
+            completed and all(
+                item["semantic_assessment"]["integrated_answer_quality"]
+                for item in semantic_turns)),
+        "semantic_turns": [{
+            "case_id": item["case_id"],
+            "assessment": item["semantic_assessment"],
+            "answer": item.get("answer", ""),
+        } for item in semantic_turns],
         "failed_turn": next((index + 1 for index, item in enumerate(turn_results)
                              if not item.get("task_outcome_success")), None),
     }
@@ -809,6 +1121,22 @@ async def evaluate(args) -> dict[str, Any]:
         if critical_non_security else None)
     orchestration_failures = [
         item for item in results if not item["orchestration_compliant"]]
+    semantic_results = [
+        item for item in results if item.get("semantic_turn_count", 0) > 0]
+    semantic_subgoal_count = sum(
+        int(item["semantic_subgoal_count"]) for item in semantic_results)
+    semantic_completed_subgoal_count = sum(
+        int(item["semantic_completed_subgoal_count"])
+        for item in semantic_results)
+    semantic_failures = [{
+        "case_id": item["case_id"],
+        "subgoal_completion_valid": item["subgoal_completion_valid"],
+        "response_constraint_adherence":
+            item["response_constraint_adherence"],
+        "integrated_answer_quality": item["integrated_answer_quality"],
+        "turns": item["semantic_turns"],
+    } for item in semantic_results
+        if not item["integrated_answer_quality"]]
     return {"status": "completed", "mode": args.mode,
             "routing_mode": routing_mode,
             "evidence_profile": evidence_profile,
@@ -823,6 +1151,19 @@ async def evaluate(args) -> dict[str, Any]:
                 critical_non_security_rate,
             "orchestration_compliance_rate":
                 ratio("orchestration_compliant"),
+            "semantic_case_count": len(semantic_results),
+            "semantic_subgoal_count": semantic_subgoal_count,
+            "subgoal_completion_rate": (
+                semantic_completed_subgoal_count / semantic_subgoal_count
+                if semantic_subgoal_count else None),
+            "response_constraint_adherence_rate": (
+                sum(bool(item["response_constraint_adherence"])
+                    for item in semantic_results) / len(semantic_results)
+                if semantic_results else None),
+            "integrated_answer_quality_rate": (
+                sum(bool(item["integrated_answer_quality"])
+                    for item in semantic_results) / len(semantic_results)
+                if semantic_results else None),
             "safety_validity": ratio("safety_valid"),
             "tool_selection_accuracy": ratio("tool_sequence_valid"),
             "tool_argument_valid_rate": ratio("tool_arguments_valid"),
@@ -859,7 +1200,18 @@ async def evaluate(args) -> dict[str, Any]:
             "latency_ms_p95": sorted(latencies)[max(0, int(len(latencies) * .95) - 1)],
             "failures": [item for item in results
                          if not item["task_outcome_success"]],
-            "orchestration_failures": orchestration_failures}
+            "orchestration_failures": orchestration_failures,
+            "semantic_case_results": [{
+                "case_id": item["case_id"],
+                "subgoal_completion_valid":
+                    item["subgoal_completion_valid"],
+                "response_constraint_adherence":
+                    item["response_constraint_adherence"],
+                "integrated_answer_quality":
+                    item["integrated_answer_quality"],
+                "turns": item["semantic_turns"],
+            } for item in semantic_results],
+            "semantic_failures": semantic_failures}
 
 
 def report_passes_gate(report: dict[str, Any]) -> bool:

@@ -635,6 +635,194 @@ class EvaluationTest(unittest.TestCase):
 
         self.assertIn('"status": "completed"', output.getvalue())
 
+    def test_composite_response_corpus_has_twelve_explicit_semantic_contracts(self):
+        module, path = self.load_module(
+            "treesem_agent_composite_response_corpus")
+
+        cases, _ = module.load_cases(
+            path.with_name("composite_response_cases.json"))
+
+        self.assertEqual(len(cases), 12)
+        turns = [turn for scenario in cases for turn in scenario.turns]
+        self.assertTrue(all(turn.answer_contract is not None for turn in turns))
+        self.assertGreaterEqual(sum(
+            len(turn.answer_contract.subgoals) > 1
+            for turn in turns if turn.answer_contract is not None), 5)
+        self.assertTrue(all(
+            turn.structured_goals for turn in turns))
+
+    def test_semantic_assessment_separates_subgoals_constraints_and_synthesis(self):
+        module, _ = self.load_module(
+            "treesem_agent_semantic_answer_assessment")
+        contract = module.parse_answer_contract({
+            "subgoals": [
+                {
+                    "id": "comparison",
+                    "required_tools": ["compare_predictions"],
+                    "answer_evidence": [
+                        {"id": "probability_delta", "any_of": ["0.18"]},
+                    ],
+                },
+                {
+                    "id": "explanation",
+                    "required_tools": ["get_explanation"],
+                    "answer_evidence": [
+                        {"id": "path_feature", "any_of": ["产时出血"]},
+                    ],
+                },
+            ],
+            "response_constraints": {
+                "required": [
+                    {"id": "plain_language", "any_of": ["简单来说"]},
+                ],
+                "forbidden": [
+                    {"id": "causal_claim", "any_of": ["已经确诊"]},
+                ],
+                "max_chars": 300,
+            },
+            "integration_evidence": [
+                {"id": "synthesis", "any_of": ["综合来看"]},
+            ],
+        })
+
+        assessment = module.assess_semantic_answer(
+            contract,
+            ["compare_predictions", "get_explanation"],
+            "概率差为0.18。产时出血出现在路径中。简单来说，两项数据均已取得。",
+        )
+
+        self.assertEqual(assessment["completed_subgoal_count"], 2)
+        self.assertEqual(assessment["subgoal_count"], 2)
+        self.assertTrue(assessment["response_constraint_adherence"])
+        self.assertFalse(assessment["integrated_answer_quality"])
+        self.assertEqual(assessment["missing_integration_evidence"], ["synthesis"])
+
+    def test_semantic_assessment_normalizes_machine_and_display_feature_names(self):
+        module, _ = self.load_module(
+            "treesem_agent_semantic_feature_name_assessment")
+        contract = module.parse_answer_contract({
+            "subgoals": [{
+                "id": "feature",
+                "required_tools": ["get_explanation"],
+                "answer_evidence": [{
+                    "id": "feature_name", "any_of": ["Age_of_Woman"]},
+                ],
+            }],
+            "response_constraints": {},
+        })
+
+        assessment = module.assess_semantic_answer(
+            contract, ["get_explanation"],
+            "The important feature is Age of Woman.")
+
+        self.assertTrue(assessment["subgoal_completion_valid"])
+
+    def test_semantic_assessment_rejects_exposed_final_response_envelope(self):
+        module, _ = self.load_module(
+            "treesem_agent_semantic_protocol_artifact")
+        contract = module.parse_answer_contract({
+            "subgoals": [{
+                "id": "summary",
+                "required_tools": ["get_prediction"],
+                "answer_evidence": [
+                    {"id": "probability", "any_of": ["0.82"]},
+                ],
+            }],
+            "response_constraints": {},
+        })
+
+        assessment = module.assess_semantic_answer(
+            contract, ["get_prediction"],
+            '概率为0.82。\n```json\n{"answer":"概率为0.82",'
+            '"grounding_prediction_ids":["pred_aaa"]}\n```')
+
+        self.assertTrue(assessment["subgoal_completion_valid"])
+        self.assertTrue(assessment["response_protocol_artifact_present"])
+        self.assertFalse(assessment["response_constraint_adherence"])
+        self.assertFalse(assessment["integrated_answer_quality"])
+
+    def test_execution_failure_counts_as_failed_semantic_answer(self):
+        module, _ = self.load_module(
+            "treesem_agent_semantic_execution_failure")
+        contract = module.parse_answer_contract({
+            "subgoals": [{
+                "id": "history",
+                "required_tools": ["get_prediction_history"],
+                "answer_evidence": [
+                    {"id": "history", "any_of": ["history"]},
+                ],
+            }],
+            "response_constraints": {},
+        })
+        case = module.Case(
+            "semantic_failure", "history", "patient", "查看历史",
+            ["get_prediction_history"], "none", None, False,
+            answer_contract=contract)
+        call = module.LlmToolCall(
+            id="h1", name="get_prediction_history", arguments={"limit": 5})
+        client = module.ScriptedLlmClient([
+            module.LlmTurn(tool_calls=[call]),
+            module.LlmTurn(tool_calls=[call]),
+        ])
+
+        result = asyncio.run(module.run_case(case, client))
+
+        self.assertIn(result["execution_error_code"], module.EXECUTION_ERROR_CODES)
+        self.assertEqual(result["semantic_assessment"]["subgoal_count"], 1)
+        self.assertEqual(
+            result["semantic_assessment"]["completed_subgoal_count"], 0)
+        self.assertFalse(
+            result["semantic_assessment"]["response_constraint_adherence"])
+        self.assertFalse(
+            result["semantic_assessment"]["integrated_answer_quality"])
+
+    def test_composite_response_report_exposes_semantic_metrics(self):
+        module, path = self.load_module(
+            "treesem_agent_composite_response_report")
+
+        report = asyncio.run(module.evaluate(SimpleNamespace(
+            mode="deterministic",
+            routing_mode="structured_llm",
+            cases=str(path.with_name("composite_response_cases.json")),
+            case_ids=None,
+            max_cases=None,
+            critical_repeats=1,
+            evidence_profile="decision")))
+
+        self.assertEqual(report["case_count"], 12)
+        self.assertEqual(report["semantic_case_count"], 12)
+        self.assertGreaterEqual(report["semantic_subgoal_count"], 17)
+        self.assertEqual(report["subgoal_completion_rate"], 1.0)
+        self.assertEqual(report["response_constraint_adherence_rate"], 1.0)
+        self.assertEqual(report["integrated_answer_quality_rate"], 1.0)
+        self.assertEqual(report["semantic_failures"], [])
+        self.assertEqual(len(report["semantic_case_results"]), 12)
+
+    def test_fixture_router_uses_declared_multi_goal_frame(self):
+        module, path = self.load_module(
+            "treesem_agent_composite_fixture_router")
+        scenarios, _ = module.load_cases(
+            path.with_name("composite_response_cases.json"))
+        turn = next(
+            scenario.turns[0] for scenario in scenarios
+            if len(scenario.turns[0].structured_goals) == 2)
+        from agent.reference_extractor import extract_references
+        from agent.structured_router import RouterContext
+
+        references = extract_references(turn.message)
+        route = asyncio.run(module.FixtureStructuredRouter(turn).route(
+            RouterContext(
+                message=references.router_message,
+                recent_messages=(),
+                current_prediction_available=True,
+                references=references,
+            )))
+
+        self.assertEqual(len(route.frame.goals), 2)
+        self.assertEqual(
+            {goal.intent.value for goal in route.frame.goals},
+            {"comparison", "explanation"})
+
 
 if __name__ == "__main__":
     unittest.main()

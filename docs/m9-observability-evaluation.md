@@ -67,6 +67,8 @@ Citation 与医疗安全指标均为 100%，编排合规率 96.875%。LLM 请求
 
 后续 Schema v2 将 Skill 从业务 Intent 拆为 `requested_skill` 执行偏好，并由 Validator 清除用户未明确要求的 Skill；Citation 继续由 Grounding Policy 强制。最终真实 Dev 达到 `58/60`（96.67%）任务成功和 Workflow Mapping，显式 Skill 冲突全部消失，但 Schema 95.83%、Target 91.67% 和 Clarification 75% 仍未达到冻结门槛，因此默认仍保持 `legacy_rule`。详见 [Schema v2 评测报告](reports/structured-intent-router-v2-evaluation.md)。
 
+为验证多目标拆分是否丢失用户总体诉求，另增加 12 条复合请求诊断，独立统计子目标完成、回答约束和综合回答质量。真实模型最终运行分别达到 `88.89% / 91.67% / 91.67%`；唯一失败为开放执行分支达到 Step 上限，目前没有足够证据升级 IntentFrame Schema。详见[复合请求与最终回答语义诊断](reports/composite-response-semantics-evaluation.md)。
+
 ## 压测与 MQ 决策
 
 `load/k6/` 提供即时预测和混合业务流量脚本，记录延迟分位数、QPS、错误率和 503。压测客户端必须同时持有 Access Token 与业务 Session Cookie；也可以让每个 VU 登录，登录遇到 429/503 时采用有上限的指数退避，避免压测工具自身制造重试风暴。
