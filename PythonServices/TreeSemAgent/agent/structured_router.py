@@ -79,6 +79,59 @@ class StructuredRoute:
     repaired: bool
 
 
+@dataclass(frozen=True)
+class _RepairHint:
+    reason: str
+    paths: tuple[str, ...] = ()
+
+
+class _RouterFrameError(ValueError):
+    def __init__(self, hint: _RepairHint):
+        super().__init__(hint.reason)
+        self.hint = hint
+
+
+_SAFE_FRAME_PATH_PARTS = frozenset({
+    "schema_version", "goals", "intent", "target", "type",
+    "explicit_reference_index", "second_explicit_reference_index",
+    "sample_reference_index", "requested_aspects", "knowledge_scope",
+    "evidence", "constraints", "excluded_intents", "excluded_aspects",
+    "unresolved_references", "needs_clarification", "requested_skill",
+})
+
+
+def _safe_validation_path(location: tuple[object, ...]) -> str:
+    path = ""
+    for part in location:
+        if isinstance(part, int) and 0 <= part <= 7:
+            path += f"[{part}]"
+        elif isinstance(part, str) and part in _SAFE_FRAME_PATH_PARTS:
+            path += ("." if path else "") + part
+        else:
+            return "unknown_field"
+    return path or "intent_frame"
+
+
+def _validation_hint(error: ValidationError) -> _RepairHint:
+    details = error.errors(
+        include_url=False, include_context=False, include_input=False)
+    kinds = {str(item.get("type", "")) for item in details}
+    if "missing" in kinds:
+        reason = "missing_required_field"
+    elif any(kind == "enum" or kind.endswith("_type") for kind in kinds):
+        reason = "invalid_enum_or_type"
+    elif "extra_forbidden" in kinds:
+        reason = "unexpected_field"
+    elif any(kind == "value_error" for kind in kinds):
+        reason = "cross_field_violation"
+    else:
+        reason = "schema_constraint_violation"
+    paths = tuple(dict.fromkeys(
+        _safe_validation_path(tuple(item.get("loc", ())))
+        for item in details))[:4]
+    return _RepairHint(reason, paths)
+
+
 def _add_usage(left: LlmUsage | None, right: LlmUsage | None) -> LlmUsage | None:
     if left is None:
         return right
@@ -117,7 +170,9 @@ class StructuredIntentRouter:
         result.reverse()
         return result
 
-    def _messages(self, context: RouterContext, *, repair: bool) -> list[dict]:
+    def _messages(
+            self, context: RouterContext,
+            *, repair: _RepairHint | None) -> list[dict]:
         payload = {
             "current_message": sanitize_router_context_text(context.message),
             "recent_final_messages": self._recent_messages(
@@ -142,12 +197,17 @@ class StructuredIntentRouter:
             {"role": "user", "content": json.dumps(
                 payload, ensure_ascii=False, separators=(",", ":"))},
         ]
-        if repair:
+        if repair is not None:
+            safe_feedback = json.dumps({
+                "reason": repair.reason,
+                "paths": list(repair.paths),
+            }, separators=(",", ":"))
             messages.append({
                 "role": "system",
                 "content": (
                     "FORMAT REPAIR: the previous response violated the required "
-                    "function or IntentFrame schema. Re-read the same Router input "
+                    "function or IntentFrame schema. Safe validation feedback: " +
+                    safe_feedback + ". Re-read the same Router input "
                     "and call route_user_request once with strictly valid arguments. "
                     "Do not add prose or new facts."),
             })
@@ -155,21 +215,25 @@ class StructuredIntentRouter:
 
     @staticmethod
     def _parse(turn) -> IntentFrame:
-        if (len(turn.tool_calls) != 1 or
-                turn.tool_calls[0].name != ROUTER_TOOL_NAME):
-            raise ValueError("required Router function call is missing")
-        return IntentFrame.model_validate(turn.tool_calls[0].arguments)
+        if len(turn.tool_calls) != 1:
+            raise _RouterFrameError(_RepairHint("wrong_tool_call_count"))
+        if turn.tool_calls[0].name != ROUTER_TOOL_NAME:
+            raise _RouterFrameError(_RepairHint("wrong_tool_name"))
+        try:
+            return IntentFrame.model_validate(turn.tool_calls[0].arguments)
+        except ValidationError as exc:
+            raise _RouterFrameError(_validation_hint(exc)) from exc
 
     async def route(self, context: RouterContext) -> StructuredRoute:
         deadline = self._monotonic() + self._config.total_deadline_seconds
         usage: LlmUsage | None = None
-        repair = False
+        repair: _RepairHint | None = None
         for attempt in range(1, self._config.maximum_attempts + 1):
             remaining = deadline - self._monotonic()
             if remaining <= 0:
                 raise StructuredRouterError(
                     "intent_router_unavailable", attempt_count=attempt - 1,
-                    repaired=repair)
+                    repaired=repair is not None)
             timeout = min(self._config.request_timeout_seconds, remaining)
             try:
                 turn = await asyncio.wait_for(
@@ -181,7 +245,8 @@ class StructuredIntentRouter:
                 )
                 usage = _add_usage(usage, turn.usage)
                 frame = self._parse(turn)
-                return StructuredRoute(frame, usage, attempt, repair)
+                return StructuredRoute(
+                    frame, usage, attempt, repair is not None)
             except asyncio.TimeoutError:
                 retryable = True
                 protocol_failure = False
@@ -191,27 +256,34 @@ class StructuredIntentRouter:
                 if not retryable and not protocol_failure:
                     raise StructuredRouterError(
                         "intent_router_unavailable", attempt_count=attempt,
-                        repaired=repair) from exc
+                        repaired=repair is not None) from exc
+                repair_candidate = _RepairHint("invalid_upstream_response")
+            except _RouterFrameError as exc:
+                retryable = False
+                protocol_failure = True
+                repair_candidate = exc.hint
             except (ValidationError, ValueError, TypeError, KeyError):
                 retryable = False
                 protocol_failure = True
+                repair_candidate = _RepairHint("invalid_upstream_response")
 
             if attempt >= self._config.maximum_attempts:
                 code = (
                     "invalid_intent_frame" if protocol_failure
                     else "intent_router_unavailable")
                 raise StructuredRouterError(
-                    code, attempt_count=attempt, repaired=repair)
+                    code, attempt_count=attempt,
+                    repaired=repair is not None)
             if protocol_failure:
-                repair = True
+                repair = repair_candidate
                 continue
             if not retryable:
                 raise StructuredRouterError(
                     "intent_router_unavailable", attempt_count=attempt,
-                    repaired=repair)
+                    repaired=repair is not None)
             if self._config.retry_backoff_seconds:
                 await self._sleep(self._config.retry_backoff_seconds)
         raise StructuredRouterError(
             "intent_router_unavailable",
             attempt_count=self._config.maximum_attempts,
-            repaired=repair)
+            repaired=repair is not None)

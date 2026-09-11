@@ -918,6 +918,8 @@ Unknown 和组合请求强制路由率均为 0；说明它没有为了提高快�
 
 后续我用 Schema v2 完成了该修正：业务 Goal 继续保存 explanation、comparison 或 knowledge，`requested_skill` 只表达显式执行偏好；Validator 会清除用户未明确要求却由模型自行附加的 Skill。最终真实 Dev 的任务成功和 Workflow Mapping 提升到 96.67%，六条显式 Skill 冲突全部消失，安全和 Grounding 仍为 100%。但 Schema 95.83%、Target 91.67% 和 Clarification 75% 仍未过冻结门槛，所以没有用一次更高的 Dev 分数直接替换默认链路。
 
+评测后又补了两道确定性边界：格式修复只向 Router 返回脱敏错误类别和字段路径；最终生成前按照 `requested_aspects` 投影解释 Tool Result。这样“只看决策路径”由代码删除无关的重要特征和解释元数据，而不是只在 Prompt 中要求模型不要提及。该投影只改变 LLM 可见副本，不改变 Tool API、持久化事实和 Grounding。
+
 ## F25. Router 的超时和失败为什么不自动降级到 Open Agent【P1】
 
 **参考回答：**

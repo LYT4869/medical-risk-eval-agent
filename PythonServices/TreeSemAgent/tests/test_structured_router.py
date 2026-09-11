@@ -170,15 +170,31 @@ class StructuredRouterTest(unittest.TestCase):
         self.assertFalse(result.repaired)
 
     def test_repairs_one_invalid_frame(self):
-        invalid = frame_arguments(schema_version=1)
+        invalid = frame_arguments()
+        invalid.pop("constraints")
         client = RecordingLlm([route_turn(invalid), route_turn()])
 
         result = asyncio.run(self.router(client).route(self.context()))
 
         self.assertEqual(result.attempt_count, 2)
         self.assertTrue(result.repaired)
-        self.assertIn(
-            "format", client.requests[1]["messages"][-1]["content"].lower())
+        repair = client.requests[1]["messages"][-1]["content"]
+        self.assertIn('"reason":"missing_required_field"', repair)
+        self.assertIn('"paths":["constraints"]', repair)
+
+    def test_protocol_repair_reports_only_a_safe_error_category(self):
+        client = RecordingLlm([
+            LlmTurn(content="sensitive malformed router output"),
+            route_turn(),
+        ])
+
+        result = asyncio.run(self.router(client).route(self.context()))
+
+        self.assertTrue(result.repaired)
+        repair = client.requests[1]["messages"][-1]["content"]
+        self.assertIn('"reason":"wrong_tool_call_count"', repair)
+        self.assertIn('"paths":[]', repair)
+        self.assertNotIn("sensitive malformed router output", repair)
 
     def test_transport_retry_and_repair_share_two_attempt_budget(self):
         client = RecordingLlm([

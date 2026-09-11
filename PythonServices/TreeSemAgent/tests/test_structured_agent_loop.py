@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from agent.intent_frame import IntentFrame
-from agent.llm_client import LlmToolPolicy, ScriptedLlmClient
+from agent.llm_client import LlmToolCall, LlmToolPolicy, ScriptedLlmClient
 from agent.loop import AgentExecutionError, AgentLoop
 from agent.schemas import (
     AgentRunRequest,
@@ -36,8 +36,10 @@ class FakeBackend:
         self.calls.append(("get_explanation", prediction_id))
         return {
             "prediction_id": prediction_id,
-            "important_features": [],
-            "decision_path": [],
+            "model_version": "v1",
+            "important_features": [{"name": "feature-that-must-be-hidden"}],
+            "decision_path": [{"node_id": 7}],
+            "explanation_metadata": "must-not-reach-the-final-llm",
         }
 
     async def get_history(self, context, limit, cursor):
@@ -180,6 +182,56 @@ class StructuredAgentLoopTest(unittest.TestCase):
             ("get_explanation", PREVIOUS),
         ])
         self.assertEqual(result.grounding_prediction_ids, [PREVIOUS])
+
+    def test_deterministic_workflow_projects_only_requested_explanation_data(self):
+        user_request = request("只看当前结果的决策路径")
+        router_frame = frame([
+            goal("explanation", "current_prediction", ["决策路径"],
+                 ["decision_path"]),
+        ])
+
+        _, _, llm, _ = self.execute(
+            user_request, router_frame,
+            [LlmTurn(content="这是当前预测的决策路径。",
+                     grounding_prediction_ids=[CURRENT])])
+
+        final_context = next(
+            item["content"] for item in llm.requests[0]
+            if item["role"] == "system" and
+            item["content"].startswith(
+                "Trusted deterministic workflow results"))
+        self.assertIn('"decision_path":[{"node_id":7}]', final_context)
+        self.assertIn('"prediction_id":"' + CURRENT + '"', final_context)
+        self.assertIn('"model_version":"v1"', final_context)
+        self.assertNotIn("important_features", final_context)
+        self.assertNotIn("explanation_metadata", final_context)
+
+    def test_structured_open_agent_projects_tool_messages_before_reuse(self):
+        user_request = request("列出历史并只解释当前决策路径")
+        router_frame = frame([
+            goal("history", "session_history", ["列出历史"],
+                 ["history_items"]),
+            goal("explanation", "current_prediction", ["决策路径"],
+                 ["decision_path"]),
+        ])
+
+        _, _, llm, _ = self.execute(
+            user_request, router_frame,
+            [
+                LlmTurn(tool_calls=[LlmToolCall(
+                    id="explain_1", name="get_explanation",
+                    arguments={"prediction_id": CURRENT})]),
+                LlmTurn(content="这是当前预测的决策路径。",
+                        grounding_prediction_ids=[CURRENT]),
+            ])
+
+        tool_context = next(
+            item["content"] for item in llm.requests[1]
+            if item["role"] == "tool")
+        self.assertIn('"decision_path": [{"node_id": 7}]', tool_context)
+        self.assertIn('"prediction_id": "' + CURRENT + '"', tool_context)
+        self.assertNotIn("important_features", tool_context)
+        self.assertNotIn("explanation_metadata", tool_context)
 
     def test_registered_composite_executes_four_direct_tool_calls(self):
         user_request = request("比较最近两次结果并分别解释决策路径")

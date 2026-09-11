@@ -8,6 +8,7 @@ from .intent_validation import ValidatedIntent
 from .reference_extractor import extract_references
 from .schemas import KnowledgeCitation, ToolUse
 from .skills import SkillActivation
+from .tool_result_projection import project_tool_result
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
 from .workflow_registry import (
@@ -153,6 +154,7 @@ class DeterministicWorkflowExecutor:
             self, recipe: WorkflowRecipe, intent: ValidatedIntent,
             context: ToolContext, message: str) -> WorkflowExecution:
         results: list[dict] = []
+        llm_results: list[dict] = []
         usages: list[ToolUse] = []
         prediction_ids: set[str] = set()
         citations: dict[str, KnowledgeCitation] = {}
@@ -164,15 +166,17 @@ class DeterministicWorkflowExecutor:
                     stage, recipe, intent, results, message)
             except _InsufficientHistory:
                 return self._result(
-                    False, results, usages, prediction_ids, citations,
+                    False, llm_results, usages, prediction_ids, citations,
                     index_version, active_skill, "insufficient_history")
             except ValueError:
                 return self._result(
-                    False, results, usages, prediction_ids, citations,
+                    False, llm_results, usages, prediction_ids, citations,
                     index_version, active_skill, "workflow_binding_failed")
             result = await self._tools.execute(
                 stage.tool_name, arguments, context, active_skill)
             results.append(result.content)
+            llm_results.append(project_tool_result(
+                stage.tool_name, result.content, intent))
             usages.append(result.usage)
             prediction_ids.update(result.prediction_ids)
             citations.update(result.citations)
@@ -182,10 +186,10 @@ class DeterministicWorkflowExecutor:
                 active_skill = result.skill_activation
             if result.usage.status != "success":
                 return self._result(
-                    False, results, usages, prediction_ids, citations,
+                    False, llm_results, usages, prediction_ids, citations,
                     index_version, active_skill,
                     str(result.content.get(
                         "error", "tool_execution_failed")))
         return self._result(
-            True, results, usages, prediction_ids, citations,
+            True, llm_results, usages, prediction_ids, citations,
             index_version, active_skill)

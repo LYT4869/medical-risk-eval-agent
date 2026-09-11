@@ -125,3 +125,12 @@ Validation/Smoke Heldout: sealed
 ```
 
 下一次晋级前应先用 Shadow 采集稳定性证据，确认 Schema 和澄清格式达到门槛，再运行 Validation；不能因为一次 Dev 达到 96.67% 就直接切换默认链路。
+
+## 评测后的工程加固
+
+本次冻结结果之后完成了两项不改变发布结论的工程加固：
+
+- Router 的第二次格式修复不再只给通用提示，而是提供固定、脱敏的错误类别和最多四个 Schema 字段路径；不回传第一次模型原文、字段值或异常正文。
+- Structured Workflow 和受限 Open Agent 在把 `get_explanation` 结果注入最终 LLM 前，按照已验证的 `requested_aspects` 投影数据。例如只请求 `decision_path` 时，只保留路径、`prediction_id` 和 `model_version`，不注入重要特征或其他解释元数据。
+
+完整 Tool API、业务持久化结果和 Grounding 元数据均不受投影影响。默认 `legacy_rule` 没有类型化 `requested_aspects`，因此不伪造同等裁剪能力；上述加固的真实模型收益需要下一次同口径评测确认，本文不回写已经冻结的 96.67% 指标。

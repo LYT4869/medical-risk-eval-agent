@@ -13,6 +13,7 @@ from .deterministic_workflow import (
 from .intent_dispatch import DispatchKind, IntentDispatcher
 from .intent_validation import (
     IntentFrameViolation,
+    ValidatedIntent,
     validate_and_bind_intent,
 )
 from .policy import (SAFE_EMERGENCY_RESPONSE, SAFE_MEDICAL_REFUSAL,
@@ -36,6 +37,7 @@ from .skills import SkillActivation
 from .tool_registry import ToolRegistry
 from .tools import ToolContext
 from .task_registry import TaskRegistry
+from .tool_result_projection import project_tool_result
 from .workflow import WorkflowMode, WorkflowPlanner
 from .structured_router import (
     RouterContext,
@@ -754,7 +756,7 @@ class AgentLoop:
         guard = AgentRunGuard.for_allowed_tools(set(dispatch.allowed_tools))
         return await self._run_structured_open_agent(
             request, tool_context, guard, deadline, route.attempt_count,
-            accounting)
+            accounting, dispatch.validated_intent)
 
     @staticmethod
     def _workflow_failure_response(
@@ -879,7 +881,8 @@ class AgentLoop:
             self, request: AgentRunRequest, context: ToolContext,
             guard: AgentRunGuard, deadline: float,
             route_attempts: int,
-            accounting: _StructuredRunAccounting) -> AgentRunResponse:
+            accounting: _StructuredRunAccounting,
+            intent: ValidatedIntent) -> AgentRunResponse:
         messages = self._base_messages(request)
         usages: list[ToolUse] = []
         available_ids: set[str] = set()
@@ -987,7 +990,9 @@ class AgentLoop:
                     "role": "tool",
                     "tool_call_id": call.id,
                     "content": json.dumps(
-                        result.content, ensure_ascii=False),
+                        project_tool_result(
+                            call.name, result.content, intent),
+                        ensure_ascii=False),
                 })
         raise AgentExecutionError("step limit reached", "step_limit")
 
