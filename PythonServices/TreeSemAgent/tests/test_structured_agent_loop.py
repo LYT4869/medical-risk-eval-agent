@@ -726,6 +726,65 @@ class StructuredAgentLoopTest(unittest.TestCase):
             loop._check_final(turn, set(), {citation}, require_envelope=True)
         self.assertEqual(caught.exception.code, "missing_knowledge_citation")
 
+    def test_workflow_final_evidence_has_program_bound_time_direction(self):
+        from test_comparison_presentation import comparison
+
+        class RichBackend(FakeBackend):
+            async def compare(self, context, prediction_id_a, prediction_id_b):
+                self.raw = comparison()
+                return self.raw
+
+        backend = RichBackend()
+        llm = RecordingLlm([LlmTurn(content="上次0.34，本次0.82，上升48个百分点。",
+                                   grounding_prediction_ids=[LATEST, PREVIOUS])])
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend),
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        asyncio.run(loop.run(request("比较最近两次预测")))
+        payload = json.loads(next(m["content"].split("\n", 1)[1]
+            for m in llm.requests[-1] if m["role"] == "user" and
+            m["content"].startswith("Finalization context:")))
+        data = next(e["data"] for e in payload["current_evidence"]
+                    if e["tool"] == "compare_predictions")
+        self.assertEqual(data["comparison_order"], "previous_to_latest")
+        self.assertEqual(data["positive_probability_delta"], 0.48)
+        self.assertEqual(backend.raw["positive_probability_delta"], -0.48)
+
+    def test_open_finalizer_refreshes_comparison_after_history_binds_targets(self):
+        from test_comparison_presentation import comparison
+
+        class RichBackend(FakeBackend):
+            async def compare(self, context, prediction_id_a, prediction_id_b):
+                return comparison()
+
+        # Reads are independent; relative binding arrives after comparison facts.
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[LlmToolCall(id="c", name="compare_predictions",
+                arguments={"prediction_id_a": LATEST, "prediction_id_b": PREVIOUS})]),
+            LlmTurn(tool_calls=[LlmToolCall(id="h", name="get_prediction_history",
+                arguments={"limit": 2})]),
+            LlmTurn(content="上次0.34，本次0.82，上升48个百分点。",
+                    grounding_prediction_ids=[LATEST, PREVIOUS]),
+        ])
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"]),
+            goal("history", "session_history", ["列出历史"]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(RichBackend()),
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        asyncio.run(loop.run(request("比较最近两次并列出历史")))
+        payload = json.loads(next(m["content"].split("\n", 1)[1]
+            for m in llm.requests[-1] if m["role"] == "user" and
+            m["content"].startswith("Finalization context:")))
+        data = next(e["data"] for e in payload["current_evidence"]
+                    if e["tool"] == "compare_predictions")
+        self.assertEqual(data["comparison_order"], "previous_to_latest")
+        self.assertEqual(data["positive_probability_direction"], "increase")
+
     def test_finalization_context_names_comparison_facts_to_cover(self):
         user_request = request("比较最近两次结果并解释两条路径")
         router_frame = frame([

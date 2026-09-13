@@ -191,7 +191,8 @@ class DeterministicWorkflowExecutor:
                          result.usage, {})
             results.append(result.content)
             llm_results.append(project_tool_result(
-                stage.tool_name, result.content, intent))
+                stage.tool_name, result.content, intent,
+                history_head_prediction_ids=state.history_head_prediction_ids))
             usages.append(result.usage)
             prediction_ids.update(result.prediction_ids)
             citations.update(result.citations)

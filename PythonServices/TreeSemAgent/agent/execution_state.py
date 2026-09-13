@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from .intent_frame import IntentKind, TargetKind
 from .intent_validation import BoundGoal, ValidatedIntent
 from .schemas import ToolUse
+from .tool_result_projection import project_tool_result
 
 
 _SAFE_TOOL_NAMES = frozenset({
@@ -34,15 +35,19 @@ class ExecutionState:
         self.evidence.append({"tool": safe_name, "data": evidence})
         self._facts.append((name, arguments, content, usage.status))
 
-    def _target_ids(self, goal: BoundGoal) -> tuple[str, ...]:
-        if goal.target.prediction_ids:
-            return goal.target.prediction_ids
+    @property
+    def history_head_prediction_ids(self) -> tuple[str, ...]:
         history = next((content for name, args, content, status in reversed(
             self._facts) if name == "get_prediction_history" and
             status == "success" and args.get("cursor") is None), {})
-        ids = tuple(item["prediction_id"] for item in history.get("items", [])
+        return tuple(item["prediction_id"] for item in history.get("items", [])
                     if isinstance(item, dict) and
                     isinstance(item.get("prediction_id"), str))
+
+    def _target_ids(self, goal: BoundGoal) -> tuple[str, ...]:
+        if goal.target.prediction_ids:
+            return goal.target.prediction_ids
+        ids = self.history_head_prediction_ids
         if goal.target.kind == TargetKind.PREVIOUS_PREDICTION:
             return ids[1:2]
         if goal.target.kind == TargetKind.LATEST_TWO_PREDICTIONS:
@@ -107,8 +112,17 @@ class ExecutionState:
         }
 
     def finalization_context(self, original_request: str) -> dict:
+        # A later head-history read may bind relative targets after comparison.
+        # Refresh from raw facts, never reverse an already projected delta twice.
+        evidence = [
+            {"tool": entry["tool"], "data": project_tool_result(
+                name, content, self.intent,
+                history_head_prediction_ids=self.history_head_prediction_ids)}
+            if name == "compare_predictions" and status == "success" else entry
+            for entry, (name, _, content, status) in zip(self.evidence, self._facts)
+        ]
         return finalization_context(self.intent, original_request,
-                                    self.completed_goal_indexes, self.evidence)
+                                    self.completed_goal_indexes, evidence)
 
 
 def finalization_context(intent: ValidatedIntent, original_request: str,
