@@ -823,6 +823,48 @@ class EvaluationTest(unittest.TestCase):
             {goal.intent.value for goal in route.frame.goals},
             {"comparison", "explanation"})
 
+    def test_structured_execution_failure_report_keeps_partial_progress(self):
+        module, _ = self.load_module("treesem_agent_partial_progress")
+        case = module.Case(
+            "partial", "composite_response", "patient", "读取摘要并列出历史",
+            ["get_prediction", "get_prediction_history"], "prediction", None,
+            False, structured_goals=(
+                {"intent": "summary", "target": "current_prediction"},
+                {"intent": "history", "target": "session_history"},
+            ))
+        client = module.ScriptedLlmClient([
+            module.LlmTurn(tool_calls=[module.LlmToolCall(
+                id="first", name="get_prediction",
+                arguments={"prediction_id": module.PRED_A})]),
+            *[module.LlmTurn(tool_calls=[module.LlmToolCall(
+                id=f"blocked_{index}", name="get_explanation",
+                arguments={"prediction_id": module.PRED_A})])
+              for index in range(4)],
+        ])
+
+        result = asyncio.run(module.run_case(
+            case, client, structured_router=module.FixtureStructuredRouter(case),
+            routing_mode="structured_llm"))
+
+        progress = result.get("execution_progress")
+        self.assertIsNotNone(progress)
+        self.assertEqual(progress["llm_call_count"], 5)
+        self.assertEqual(progress["completed_goal_indexes"], [0])
+        self.assertEqual(progress["pending_goal_indexes"], [1])
+        self.assertEqual(result["tools"][0], "get_prediction")
+
+    def test_frozen_composite_heldout_covers_six_read_only_slices(self):
+        module, path = self.load_module("treesem_agent_frozen_composite_heldout")
+        scenarios, _ = module.load_cases(path.with_name("composite_heldout_cases.json"))
+
+        self.assertEqual(len(scenarios), 36)
+        self.assertEqual(len({s.category for s in scenarios}), 6)
+        self.assertEqual({s.actor_role for s in scenarios}, {"patient", "doctor"})
+        self.assertTrue(all(len(s.turns[0].answer_contract.subgoals) == 2
+                            for s in scenarios))
+        self.assertFalse(any("predict_sample" in s.turns[0].tools
+                             for s in scenarios))
+
 
 if __name__ == "__main__":
     unittest.main()

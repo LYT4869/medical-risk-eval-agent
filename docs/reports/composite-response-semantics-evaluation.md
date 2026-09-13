@@ -169,3 +169,9 @@ python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py \
 - 使用合成 Tool Fixture，不测 C++ Gateway 的真实 RBAC 和跨患者隔离。
 - 本轮固定 Oracle Frame，不测真实 Router 准确率。
 - 真实模型仍有随机性；需要全新 Heldout 集验证后，才能作为 Schema 升级依据。
+
+## 后续执行治理
+
+2026-09-13 在不扩 Schema 的前提下，试验复用只读组合依赖、请求级执行事实、无 Tool Finalizer
+和一次最终响应修复，另冻结 36 条组合请求。首轮和揭晓后回归分别留存，
+详见[执行收敛与最终回答协议试验](agent-execution-finalization-trial.md)。

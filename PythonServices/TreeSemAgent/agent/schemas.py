@@ -128,6 +128,8 @@ class LlmTurn(StrictModel):
     grounding_prediction_ids: list[str] = Field(default_factory=list)
     grounding_source_ids: list[str] = Field(default_factory=list)
     usage: LlmUsage | None = None
+    final_response_error: Literal["invalid_final_response"] | None = None
+    final_response_is_structured: bool = False
 
 
 class ToolOutputModel(BaseModel):

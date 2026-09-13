@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from .intent_frame import KnowledgeScope
+from .execution_state import ExecutionState
 from .intent_validation import ValidatedIntent
 from .reference_extractor import extract_references
 from .schemas import KnowledgeCitation, ToolUse
@@ -28,6 +29,7 @@ class WorkflowExecution:
     knowledge_index_version: str | None = None
     active_skill: SkillActivation | None = None
     failure_code: str | None = None
+    completed_goal_indexes: tuple[int, ...] = ()
 
 
 class _InsufficientHistory(RuntimeError):
@@ -138,7 +140,8 @@ class DeterministicWorkflowExecutor:
             prediction_ids: set[str],
             citations: dict[str, KnowledgeCitation],
             index_version: str | None, active_skill: SkillActivation | None,
-            failure_code: str | None = None) -> WorkflowExecution:
+            failure_code: str | None = None,
+            state: ExecutionState | None = None) -> WorkflowExecution:
         return WorkflowExecution(
             completed=completed,
             tool_results=tuple(results),
@@ -148,11 +151,13 @@ class DeterministicWorkflowExecutor:
             knowledge_index_version=index_version,
             active_skill=active_skill,
             failure_code=failure_code,
+            completed_goal_indexes=tuple(state.completed_goal_indexes) if state else (),
         )
 
     async def execute(
             self, recipe: WorkflowRecipe, intent: ValidatedIntent,
-            context: ToolContext, message: str) -> WorkflowExecution:
+            context: ToolContext, message: str,
+            max_tool_calls: int | None = None) -> WorkflowExecution:
         results: list[dict] = []
         llm_results: list[dict] = []
         usages: list[ToolUse] = []
@@ -160,20 +165,30 @@ class DeterministicWorkflowExecutor:
         citations: dict[str, KnowledgeCitation] = {}
         index_version: str | None = None
         active_skill: SkillActivation | None = None
+        domain_calls = 0
+        state = ExecutionState(intent, 0, max_tool_calls or len(recipe.stages))
         for stage in recipe.stages:
+            if stage.tool_name != "activate_skill":
+                if max_tool_calls is not None and domain_calls >= max_tool_calls:
+                    return self._result(
+                        False, llm_results, usages, prediction_ids, citations,
+                        index_version, active_skill, "tool_call_limit", state=state)
+                domain_calls += 1
             try:
                 arguments = self._arguments(
                     stage, recipe, intent, results, message)
             except _InsufficientHistory:
                 return self._result(
                     False, llm_results, usages, prediction_ids, citations,
-                    index_version, active_skill, "insufficient_history")
+                    index_version, active_skill, "insufficient_history", state=state)
             except ValueError:
                 return self._result(
                     False, llm_results, usages, prediction_ids, citations,
-                    index_version, active_skill, "workflow_binding_failed")
+                    index_version, active_skill, "workflow_binding_failed", state=state)
             result = await self._tools.execute(
                 stage.tool_name, arguments, context, active_skill)
+            state.record(stage.tool_name, arguments, result.content,
+                         result.usage, {})
             results.append(result.content)
             llm_results.append(project_tool_result(
                 stage.tool_name, result.content, intent))
@@ -189,7 +204,7 @@ class DeterministicWorkflowExecutor:
                     False, llm_results, usages, prediction_ids, citations,
                     index_version, active_skill,
                     str(result.content.get(
-                        "error", "tool_execution_failed")))
+                        "error", "tool_execution_failed")), state=state)
         return self._result(
             True, llm_results, usages, prediction_ids, citations,
-            index_version, active_skill)
+            index_version, active_skill, state=state)

@@ -52,6 +52,16 @@ class ObservabilityTest(unittest.TestCase):
                 "treesem_agent_intent_dispatch_total",
                 dispatch="private user sentence")
 
+    def test_final_repair_metrics_accept_only_fixed_result_labels(self):
+        registry = Metrics()
+        for result in ("attempted", "success", "failed"):
+            registry.increment("treesem_agent_final_repairs_total", result=result)
+        with self.assertRaises(ValueError):
+            registry.increment("treesem_agent_final_repairs_total", result="patient text")
+        with self.assertRaises(ValueError):
+            registry.increment("treesem_agent_final_repairs_total", result="success",
+                               request_id="req_" + "a" * 32)
+
 
 if __name__ == "__main__":
     unittest.main()

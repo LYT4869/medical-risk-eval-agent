@@ -179,7 +179,6 @@
       "actor_role": "patient",
       "critical": false,
       "fixture": {
-        "structured_open_agent": true,
         "scripted_answer": "模型事实：当前重要特征包含Age_of_Woman。资料边界：重要特征反映模型关联，不等于病因，也不能作为诊断；综合来看应把模型解释与医学结论区分开。"
       },
       "turns": [{
@@ -210,7 +209,6 @@
       "actor_role": "doctor",
       "critical": false,
       "fixture": {
-        "structured_open_agent": true,
         "scripted_answer": "比较结果显示阳性概率差为0.18且路径发生变化。资料说明AUC衡量排序能力，不能用于解释单个患者的这次差异。综合而言，前者是业务记录比较，后者是模型总体指标边界。"
       },
       "turns": [{

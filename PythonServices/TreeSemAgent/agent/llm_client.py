@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # Unit tests using ScriptedLlmClient need no HTTP s
     httpx = None  # type: ignore[assignment]
 
 from .schemas import LlmToolCall, LlmTurn, LlmUsage
+from .final_response import parse_final_response
 
 
 class LlmError(RuntimeError):
@@ -181,18 +182,15 @@ class OpenAiCompatibleClient:
                 content = message.get("content")
                 grounding = []
                 source_grounding = []
-                if content:
-                    try:
-                        candidate = content.strip()
-                        if candidate.startswith("```json") and candidate.endswith("```"):
-                            candidate = candidate[7:-3].strip()
-                        structured = json.loads(candidate)
-                        content = structured.get("answer", content)
-                        grounding = structured.get("grounding_prediction_ids", [])
-                        source_grounding = structured.get(
-                            "grounding_source_ids", [])
-                    except (ValueError, TypeError):
-                        pass
+                final_error = None
+                final_structured = False
+                if not calls:
+                    parsed = parse_final_response(content)
+                    final_structured = (not parsed.error and parsed.answer != content)
+                    content = parsed.answer
+                    grounding = list(parsed.prediction_ids)
+                    source_grounding = list(parsed.source_ids)
+                    final_error = parsed.error
                 usage = body.get("usage")
                 parsed_usage = None if usage is None else LlmUsage(
                     prompt_tokens=usage["prompt_tokens"],
@@ -208,7 +206,8 @@ class OpenAiCompatibleClient:
                     content=content, tool_calls=calls,
                     grounding_prediction_ids=grounding,
                     grounding_source_ids=source_grounding,
-                    usage=parsed_usage)
+                    usage=parsed_usage, final_response_error=final_error,
+                    final_response_is_structured=final_structured)
             except LlmError as exc:
                 last_error = exc
                 if (exc.retryable and

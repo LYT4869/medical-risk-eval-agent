@@ -118,6 +118,7 @@ def request(message="private explanation words") -> AgentRunRequest:
 
 def final_turn(total_tokens=30) -> LlmTurn:
     return LlmTurn(
+        final_response_is_structured=True,
         content="safe answer",
         grounding_prediction_ids=[PREDICTION_ID],
         usage=LlmUsage(

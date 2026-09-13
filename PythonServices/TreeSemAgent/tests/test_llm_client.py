@@ -217,6 +217,48 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
         self.assertTrue(caught.exception.retryable)
         self.assertEqual(len(fake.requests), 1)
 
+    def test_mixed_final_envelope_is_flagged_without_exposing_raw_content(self):
+        fake = _FakeAsyncClient(_FakeResponse({
+            "choices": [{"message": {"content": (
+                '说明先写在外面。\n```json\n{"answer":"done",'
+                '"grounding_prediction_ids":[],"grounding_source_ids":[]}\n```'
+            )}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                      "total_tokens": 15},
+        }))
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                base_url="https://example.invalid/v1", model="model"))
+
+        turn = asyncio.run(client.complete([], [], 5.0, LlmToolPolicy.none()))
+
+        self.assertEqual(getattr(turn, "final_response_error", None),
+                         "invalid_final_response")
+        self.assertIsNone(turn.content)
+        self.assertEqual(turn.grounding_prediction_ids, [])
+        self.assertEqual(client.usage_snapshot()["total_tokens"], 15)
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_invalid_final_schema_and_duplicate_fields_are_not_plain_text(self):
+        for content in (
+            '{"answer":"done","grounding_prediction_ids":[]}',
+            '{"answer":null,"grounding_prediction_ids":[],"grounding_source_ids":[]}',
+            '{"answer":"done","grounding_prediction_ids":[],"grounding_source_ids":[],"extra":1}',
+            '{"answer":"first","answer":"second","grounding_prediction_ids":[],"grounding_source_ids":[]}',
+            '{"answer":"done","grounding_prediction_ids":[1],"grounding_source_ids":[]}',
+        ):
+            with self.subTest(content=content):
+                fake = _FakeAsyncClient(_FakeResponse({
+                    "choices": [{"message": {"content": content}}],
+                }))
+                with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+                    client = OpenAiCompatibleClient(OpenAiCompatibleConfig(
+                        base_url="https://example.invalid/v1", model="model"))
+                turn = asyncio.run(client.complete([], [], 5.0))
+                self.assertEqual(getattr(turn, "final_response_error", None),
+                                 "invalid_final_response")
+                self.assertIsNone(turn.content)
+
     def test_default_client_retries_one_retryable_status(self):
         first = _FakeResponse({})
         first.status_code = 500

@@ -628,7 +628,9 @@ def scripted_client(case: Case) -> ScriptedLlmClient:
             "Grounded treeSem evaluation answer."))
     if source_ids:
         answer += f" Evidence: {CITATION}."
-    turns.append(LlmTurn(content=answer,
+    turns.append(LlmTurn(content=json.dumps({
+                         "answer": answer, "grounding_prediction_ids": prediction_ids,
+                         "grounding_source_ids": source_ids}),
                          grounding_prediction_ids=prediction_ids,
                          grounding_source_ids=source_ids))
     return ScriptedLlmClient(turns)
@@ -648,7 +650,9 @@ def structured_final_client(case: Case) -> ScriptedLlmClient:
     if source_ids:
         answer += f" Evidence: {CITATION}."
     return ScriptedLlmClient([LlmTurn(
-        content=answer,
+        content=json.dumps({"answer": answer,
+                            "grounding_prediction_ids": prediction_ids,
+                            "grounding_source_ids": source_ids}),
         grounding_prediction_ids=prediction_ids,
         grounding_source_ids=source_ids)])
 
@@ -849,6 +853,7 @@ async def run_case(case: Case, llm,
                 "answer": response.answer,
                 "latency_ms": (time.monotonic() - started) * 1000}
     except AgentExecutionError as exc:
+        progress = getattr(exc, "execution_progress", None)
         failed_semantic = (
             assess_semantic_answer(case.answer_contract, [], "")
             if case.answer_contract is not None else None)
@@ -905,6 +910,11 @@ async def run_case(case: Case, llm,
                 "knowledge_result_count": knowledge.returned_result_count,
                 "graceful_response": False,
                 "semantic_assessment": failed_semantic,
+                "execution_progress": progress,
+                "tools": ([] if progress is None else
+                          [item["name"] for item in progress["tool_calls"]]),
+                "steps": (0 if progress is None else
+                          progress["llm_call_count"]),
                 "latency_ms": (time.monotonic() - started) * 1000}
 
 
@@ -979,6 +989,9 @@ async def run_scenario(scenario: Scenario, real_client=None, *,
         "execution_error_code": next((
             item["execution_error_code"] for item in turn_results
             if item.get("execution_error_code") is not None), None),
+        "execution_progress": next((
+            item["execution_progress"] for item in turn_results
+            if item.get("execution_progress") is not None), None),
         "graceful_response": every("graceful_response"),
         "blocked_tool_attempt_count": sum(
             int(item.get("blocked_tool_attempt_count", 0))

@@ -65,6 +65,9 @@ class Metrics:
     _bounds = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
                1.0, 2.5, 5.0, 10.0, 30.0)
     _structured_labels = {
+        "treesem_agent_final_repairs_total": {
+            "result": frozenset({"attempted", "success", "failed"}),
+        },
         "treesem_agent_intent_router_requests_total": {
             "result": frozenset({
                 "success", "intent_router_unavailable",

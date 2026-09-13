@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 
 from agent.intent_frame import IntentFrame
@@ -82,9 +83,38 @@ class FakeStructuredRouter:
             self.outcome, usage=None, attempt_count=1, repaired=False)
 
 
+class FakeKnowledge:
+    def __init__(self):
+        self.calls = []
+
+    async def search(self, token, query, scope, top_k, trace=None):
+        self.calls.append((scope, top_k))
+        return {"index_version": "test-index", "retrieval_mode": "hybrid",
+                "results": [{
+                    "citation_id": "cite_" + "e" * 20,
+                    "source_id": "src_test", "title": "Model boundaries",
+                    "section": "Metrics", "page": 1,
+                    "excerpt": "AUC measures ranking, not individual changes.",
+                    "publisher": "Synthetic test", "published_at": "2026-09-13",
+                    "url": "https://example.invalid/metrics",
+                    "content_sha256": "e" * 64, "score": 1.0,
+                }]}
+
+
 class RecordingLlm(ScriptedLlmClient):
     def __init__(self, turns):
-        super().__init__(turns)
+        # This fixture represents an upstream model obeying the final envelope.
+        normalized = []
+        for turn in turns:
+            if (turn.content and not turn.tool_calls and not turn.final_response_error
+                    and not turn.content.lstrip().startswith("{")):
+                turn = turn.model_copy(update={"content": json.dumps({
+                    "answer": turn.content,
+                    "grounding_prediction_ids": turn.grounding_prediction_ids,
+                    "grounding_source_ids": turn.grounding_source_ids,
+                }, ensure_ascii=False)})
+            normalized.append(turn)
+        super().__init__(normalized)
         self.tool_name_sets = []
 
     async def complete(self, messages, tools, timeout,
@@ -197,14 +227,16 @@ class StructuredAgentLoopTest(unittest.TestCase):
 
         final_context = next(
             item["content"] for item in llm.requests[0]
-            if item["role"] == "system" and
-            item["content"].startswith(
-                "Trusted deterministic workflow results"))
+            if item["role"] == "user" and
+            item["content"].startswith("Finalization context:"))
         self.assertIn('"decision_path":[{"node_id":7}]', final_context)
         self.assertIn('"prediction_id":"' + CURRENT + '"', final_context)
         self.assertIn('"model_version":"v1"', final_context)
         self.assertNotIn("important_features", final_context)
         self.assertNotIn("explanation_metadata", final_context)
+        self.assertFalse(any("node_id" in item.get("content", "")
+                             for item in llm.requests[0]
+                             if item["role"] == "system"))
 
     def test_structured_open_agent_projects_tool_messages_before_reuse(self):
         user_request = request("列出历史并只解释当前决策路径")
@@ -333,6 +365,387 @@ class StructuredAgentLoopTest(unittest.TestCase):
         self.assertIn("急救", result.answer)
         self.assertEqual(router.contexts, [])
         self.assertEqual(backend.calls, [])
+
+
+    def test_finalization_failure_preserves_safe_partial_execution_summary(self):
+        user_request = request("读取当前摘要并列出历史；不要泄露 capability")
+        router_frame = frame([
+            goal("summary", "current_prediction", ["当前摘要"]),
+            goal("history", "session_history", ["列出历史"]),
+        ])
+        backend = FakeBackend()
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="first", name="get_prediction",
+                arguments={"prediction_id": CURRENT})]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="second", name="get_prediction_history",
+                arguments={"limit": 2})]),
+            LlmTurn(final_response_error="invalid_final_response"),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend), max_steps=3,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(loop.run(user_request))
+
+        progress = getattr(caught.exception, "execution_progress", None)
+        self.assertIsNotNone(progress)
+        self.assertEqual(progress["llm_call_count"], 3)
+        self.assertEqual(progress["tool_calls"], [
+            {"name": "get_prediction", "status": "success"},
+            {"name": "get_prediction_history", "status": "success"},
+        ])
+        self.assertEqual(progress["completed_goal_indexes"], [0, 1])
+        self.assertEqual(progress["pending_goal_indexes"], [])
+        self.assertEqual(progress["llm_step_kinds"],
+                         ["tool_call", "tool_call", "final_answer"])
+        self.assertNotIn(CURRENT, str(progress))
+        self.assertNotIn("capability", str(progress))
+        self.assertNotIn("arguments", str(progress))
+
+    def test_comparison_and_knowledge_reuse_bound_recipes_without_llm_planning(self):
+        user_request = request("比较最近两次预测并查询AUC资料")
+        user_request.knowledge_capability_token = "knowledge-capability"
+        knowledge_goal = goal("knowledge", "general_knowledge", ["AUC资料"],
+                              ["knowledge_overview"])
+        knowledge_goal["knowledge_scope"] = "model"
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"],
+                 ["comparison_changes"]), knowledge_goal,
+        ])
+        backend, knowledge = FakeBackend(), FakeKnowledge()
+        citation = "cite_" + "e" * 20
+        llm = RecordingLlm([LlmTurn(
+            content="比较与AUC资料说明。" + citation,
+            grounding_prediction_ids=[LATEST, PREVIOUS],
+            grounding_source_ids=[citation])])
+        loop = AgentLoop(llm, ToolRegistry(backend, knowledge),
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        result = asyncio.run(loop.run(user_request))
+
+        self.assertEqual(backend.calls, [
+            ("get_prediction_history", 2, None),
+            ("compare_predictions", LATEST, PREVIOUS),
+        ])
+        self.assertEqual(knowledge.calls, [("model", 5)])
+        self.assertEqual(llm.tool_name_sets, [frozenset()])
+        self.assertEqual(result.knowledge_index_version, "test-index")
+
+    def test_final_protocol_repair_runs_once_without_reexecuting_tools(self):
+        user_request = request("只看当前决策路径")
+        router_frame = frame([
+            goal("explanation", "current_prediction", ["决策路径"],
+                 ["decision_path"]),
+        ])
+        result, backend, llm, _ = self.execute(
+            user_request, router_frame, [
+                LlmTurn(final_response_error="invalid_final_response"),
+                LlmTurn(content="这是当前路径。", grounding_prediction_ids=[CURRENT]),
+            ])
+
+        self.assertEqual(backend.calls, [("get_explanation", CURRENT)])
+        self.assertEqual(result.answer, "这是当前路径。")
+        self.assertEqual([p.mode for p in llm.tool_policies], ["none", "none"])
+        self.assertEqual(len(llm.requests), 2)
+
+    def test_failed_final_protocol_repair_does_not_expose_envelope(self):
+        user_request = request("只看当前决策路径")
+        router_frame = frame([
+            goal("explanation", "current_prediction", ["决策路径"],
+                 ["decision_path"]),
+        ])
+        result, backend, llm, _ = self.execute(
+            user_request, router_frame, [
+                LlmTurn(final_response_error="invalid_final_response"),
+                LlmTurn(final_response_error="invalid_final_response"),
+                LlmTurn(content="不应该调用第三次"),
+            ])
+
+        self.assertIn("自然语言说明暂时不可用", result.answer)
+        self.assertEqual(backend.calls, [("get_explanation", CURRENT)])
+        self.assertEqual(len(llm.requests), 2)
+        self.assertNotIn("grounding_prediction_ids", result.answer)
+
+    def test_completed_open_goals_force_finalization_with_original_request(self):
+        user_request = request("先列出历史，再用通俗语言概括当前结果")
+        router_frame = frame([
+            goal("history", "session_history", ["列出历史"]),
+            goal("summary", "current_prediction", ["当前结果"]),
+        ])
+        result, backend, llm, _ = self.execute(
+            user_request, router_frame, [
+                LlmTurn(tool_calls=[LlmToolCall(
+                    id="h", name="get_prediction_history", arguments={"limit": 2})]),
+                LlmTurn(tool_calls=[LlmToolCall(
+                    id="p", name="get_prediction", arguments={"prediction_id": CURRENT})]),
+                LlmTurn(content="历史与当前结果。", grounding_prediction_ids=[CURRENT]),
+            ])
+
+        self.assertEqual(result.answer, "历史与当前结果。")
+        self.assertEqual(llm.tool_policies[-1].mode, "none")
+        final = next(m["content"] for m in llm.requests[-1]
+                     if m["role"] == "user" and
+                     m["content"].startswith("Finalization context:"))
+        payload = json.loads(final.split("\n", 1)[1])
+        self.assertEqual(payload["original_request"], user_request.message)
+        self.assertEqual([g["status"] for g in payload["subgoals"]],
+                         ["completed", "completed"])
+        self.assertEqual([e["tool"] for e in payload["current_evidence"]],
+                         ["get_prediction_history", "get_prediction"])
+
+    def test_last_open_step_is_reserved_for_answer_not_another_tool(self):
+        user_request = request("读取摘要并列出历史")
+        router_frame = frame([
+            goal("summary", "current_prediction", ["摘要"]),
+            goal("history", "session_history", ["历史"]),
+        ])
+        backend = FakeBackend()
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="p", name="get_prediction", arguments={"prediction_id": CURRENT})]),
+            LlmTurn(content="已读取当前结果，但未取得历史。", grounding_prediction_ids=[CURRENT]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend), max_steps=2,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        result = asyncio.run(loop.run(user_request))
+
+        self.assertEqual(backend.calls, [("get_prediction", CURRENT)])
+        self.assertEqual(llm.tool_name_sets[-1], frozenset())
+        self.assertEqual(llm.tool_policies[-1].mode, "none")
+        self.assertIn("未取得历史", result.answer)
+
+    def test_total_deadline_cancels_deterministic_tool_execution(self):
+        class SlowBackend(FakeBackend):
+            async def get_explanation(self, context, prediction_id):
+                await asyncio.sleep(1)
+                return await super().get_explanation(context, prediction_id)
+
+        user_request = request("解释当前决策路径")
+        router_frame = frame([
+            goal("explanation", "current_prediction", ["决策路径"]),
+        ])
+        backend, llm = SlowBackend(), RecordingLlm([])
+        loop = AgentLoop(llm, ToolRegistry(backend), total_timeout_seconds=0.02,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(asyncio.wait_for(loop.run(user_request), 0.2))
+
+        self.assertEqual(caught.exception.code, "agent_timeout")
+        self.assertEqual(backend.calls, [])
+        self.assertEqual(llm.requests, [])
+
+    def test_total_deadline_cancels_open_agent_tool_execution(self):
+        class SlowBackend(FakeBackend):
+            async def get_history(self, context, limit, cursor):
+                await asyncio.sleep(1)
+                return await super().get_history(context, limit, cursor)
+
+        user_request = request("列出历史并概括当前预测")
+        router_frame = frame([
+            goal("history", "session_history", ["历史"]),
+            goal("summary", "current_prediction", ["当前预测"]),
+        ])
+        backend = SlowBackend()
+        llm = RecordingLlm([LlmTurn(tool_calls=[LlmToolCall(
+            id="h", name="get_prediction_history", arguments={"limit": 2})])])
+        loop = AgentLoop(llm, ToolRegistry(backend), total_timeout_seconds=0.02,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(asyncio.wait_for(loop.run(user_request), 0.2))
+
+        self.assertEqual(caught.exception.code, "agent_timeout")
+        self.assertEqual(caught.exception.execution_progress["llm_call_count"], 1)
+        self.assertEqual(caught.exception.execution_progress["tool_calls"], [
+            {"name": "get_prediction_history", "status": "error"}])
+        self.assertEqual(backend.calls, [])
+
+    def test_unknown_tool_names_are_not_copied_into_execution_logs(self):
+        user_request = request("列出历史并概括当前预测")
+        router_frame = frame([
+            goal("history", "session_history", ["历史"]),
+            goal("summary", "current_prediction", ["当前预测"]),
+        ])
+        secret_name = "sk-sensitive-provider-data"
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="unknown", name=secret_name, arguments={})]),
+            LlmTurn(final_response_error="invalid_final_response"),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(FakeBackend()), max_steps=2,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        with self.assertRaises(AgentExecutionError) as caught:
+            asyncio.run(loop.run(user_request))
+
+        progress = caught.exception.execution_progress
+        self.assertNotIn(secret_name, str(progress))
+        self.assertEqual(progress["tool_calls"], [
+            {"name": "unknown_tool", "status": "error"}])
+
+    def test_tool_budget_exhaustion_enters_finalizer_without_extra_tool(self):
+        user_request = request("读取摘要并列出历史")
+        router_frame = frame([
+            goal("summary", "current_prediction", ["摘要"]),
+            goal("history", "session_history", ["历史"]),
+        ])
+        backend = FakeBackend()
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="p", name="get_prediction", arguments={"prediction_id": CURRENT})]),
+            LlmTurn(content="当前结果已读取，历史尚未取得。", grounding_prediction_ids=[CURRENT]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend), max_tool_calls=1,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+
+        asyncio.run(loop.run(user_request))
+
+        self.assertEqual(backend.calls, [("get_prediction", CURRENT)])
+        self.assertEqual(llm.tool_policies[-1].mode, "none")
+        self.assertEqual(llm.tool_name_sets[-1], frozenset())
+
+    def test_batch_exhausting_tool_budget_finalizes_without_executing_excess(self):
+        user_request = request("读取摘要并列出历史")
+        router_frame = frame([
+            goal("summary", "current_prediction", ["摘要"]),
+            goal("history", "session_history", ["历史"]),
+        ])
+        backend = FakeBackend()
+        llm = RecordingLlm([
+            LlmTurn(tool_calls=[
+                LlmToolCall(id="p", name="get_prediction",
+                            arguments={"prediction_id": CURRENT}),
+                LlmToolCall(id="h", name="get_prediction_history",
+                            arguments={"limit": 2}),
+            ]),
+            LlmTurn(content="已取得当前摘要，但历史尚未取得。",
+                    grounding_prediction_ids=[CURRENT]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend), max_tool_calls=1,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        result = asyncio.run(loop.run(user_request))
+        self.assertEqual(backend.calls, [("get_prediction", CURRENT)])
+        self.assertIn("尚未取得", result.answer)
+        self.assertEqual(llm.tool_policies[-1].mode, "none")
+
+    def test_composed_workflow_cannot_exceed_domain_tool_budget(self):
+        user_request = request("比较最近两次预测并查询AUC资料")
+        user_request.knowledge_capability_token = "knowledge-capability"
+        knowledge_goal = goal("knowledge", "general_knowledge", ["AUC资料"])
+        knowledge_goal["knowledge_scope"] = "model"
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"]),
+            knowledge_goal,
+        ])
+        backend, knowledge = FakeBackend(), FakeKnowledge()
+        llm = RecordingLlm([LlmTurn(
+            content="已取得历史；比较与资料尚未取得。",
+            grounding_prediction_ids=[LATEST, PREVIOUS])])
+        loop = AgentLoop(llm, ToolRegistry(backend, knowledge),
+                         max_tool_calls=1,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        result = asyncio.run(loop.run(user_request))
+        self.assertEqual(backend.calls, [("get_prediction_history", 2, None)])
+        self.assertEqual(knowledge.calls, [])
+        self.assertEqual(len(result.tools_used), 1)
+        self.assertIn("尚未取得", result.answer)
+        self.assertEqual(llm.tool_policies[-1].mode, "none")
+        payload = json.loads(next(m["content"].split("\n", 1)[1]
+            for m in llm.requests[-1] if m["role"] == "user" and
+            m["content"].startswith("Finalization context:")))
+        self.assertEqual([g["status"] for g in payload["subgoals"]],
+                         ["pending", "pending"])
+
+    def test_finalizer_repairs_plain_prose_once_without_rerunning_tools(self):
+        backend = FakeBackend()
+        llm = ScriptedLlmClient([
+            LlmTurn(content="plain text without required envelope",
+                    grounding_prediction_ids=[CURRENT]),
+            LlmTurn(content=json.dumps({
+                "answer": "决策路径已取得。", "grounding_prediction_ids": [CURRENT],
+                "grounding_source_ids": []})),
+        ])
+        router_frame = frame([
+            goal("explanation", "current_prediction", ["决策路径"], ["decision_path"]),
+        ])
+        loop = AgentLoop(llm, ToolRegistry(backend),
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        result = asyncio.run(loop.run(request("只看当前决策路径")))
+        self.assertEqual(result.answer, "决策路径已取得。")
+        self.assertEqual(len(llm.requests), 2)
+        self.assertEqual(backend.calls, [("get_explanation", CURRENT)])
+
+    def test_decoded_valid_envelope_answer_is_not_parsed_as_another_envelope(self):
+        loop = AgentLoop(RecordingLlm([]), ToolRegistry(FakeBackend()))
+        for answer in ('[1] 已取得路径。', '{"result":"已取得路径"}'):
+            with self.subTest(answer=answer):
+                turn = LlmTurn(content=answer, final_response_is_structured=True,
+                               grounding_prediction_ids=[CURRENT])
+                checked, _ = loop._check_final(turn, {CURRENT}, set(),
+                                               require_envelope=True)
+                self.assertEqual(checked, answer)
+
+    def test_partial_workflow_bad_final_does_not_claim_comparison_was_completed(self):
+        user_request = request("比较最近两次预测并查询AUC资料")
+        knowledge_goal = goal("knowledge", "general_knowledge", ["AUC资料"])
+        knowledge_goal["knowledge_scope"] = "model"
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"]),
+            knowledge_goal,
+        ])
+        llm = RecordingLlm([LlmTurn(final_response_error="invalid_final_response")]*2)
+        loop = AgentLoop(llm, ToolRegistry(FakeBackend(), FakeKnowledge()),
+                         max_tool_calls=1,
+                         structured_router=FakeStructuredRouter(router_frame),
+                         routing_mode="structured_llm")
+        result = asyncio.run(loop.run(user_request))
+        self.assertNotIn("比较数据已经取得", result.answer)
+        self.assertIn("未完整执行", result.answer)
+
+    def test_finalizer_requires_body_citation_even_when_array_is_valid(self):
+        loop = AgentLoop(RecordingLlm([]), ToolRegistry(FakeBackend()))
+        citation = "cite_" + "e" * 20
+        turn = LlmTurn(content="AUC说明。", final_response_is_structured=True,
+                       grounding_source_ids=[citation])
+        from agent.policy import PolicyViolation
+        with self.assertRaises(PolicyViolation) as caught:
+            loop._check_final(turn, set(), {citation}, require_envelope=True)
+        self.assertEqual(caught.exception.code, "missing_knowledge_citation")
+
+    def test_finalization_context_names_comparison_facts_to_cover(self):
+        user_request = request("比较最近两次结果并解释两条路径")
+        router_frame = frame([
+            goal("comparison", "latest_two_predictions", ["比较最近两次"]),
+            goal("explanation", "latest_two_predictions", ["两条路径"],
+                 ["decision_path"]),
+        ])
+        _, _, llm, _ = self.execute(
+            user_request, router_frame, [LlmTurn(
+                content="比较和路径已取得。", grounding_prediction_ids=[LATEST, PREVIOUS])])
+        final = next(m["content"] for m in llm.requests[0]
+                     if m["role"] == "user" and
+                     m["content"].startswith("Finalization context:"))
+        payload = json.loads(final.split("\n", 1)[1])
+
+        self.assertEqual(payload["subgoals"][0].get("evidence_fields_to_cover"), [
+            "positive_probability_delta", "label_changed",
+            "model_version_changed", "path_changed"])
+        self.assertEqual(payload["subgoals"][1].get("evidence_fields_to_cover"),
+                         ["decision_path"])
 
 
 if __name__ == "__main__":
