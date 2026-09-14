@@ -108,6 +108,7 @@ class OpenAiCompatibleClient:
         self._usage_lock = threading.Lock()
         self._usage = {
             "request_count": 0,
+            "unknown_usage_request_count": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
@@ -158,6 +159,11 @@ class OpenAiCompatibleClient:
         last_error: Exception | None = None
         for attempt in range(self._config.maximum_attempts):
             try:
+                # Count transport admission, including retries and cancellation.
+                # Unknown usage is NOT zero cost; provider billing is authoritative.
+                with self._usage_lock:
+                    self._usage["request_count"] += 1
+                    self._usage["unknown_usage_request_count"] += 1
                 response = await self._client.post(
                     "/chat/completions", json=payload, headers=headers,
                     timeout=min(timeout, self._config.request_timeout_seconds),
@@ -172,6 +178,17 @@ class OpenAiCompatibleClient:
                         code="upstream_rejected", retryable=False)
                 response.raise_for_status()
                 body = response.json()
+                usage = body.get("usage")
+                parsed_usage = None if usage is None else LlmUsage(
+                    prompt_tokens=usage["prompt_tokens"],
+                    completion_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"])
+                if parsed_usage is not None:
+                    with self._usage_lock:
+                        self._usage["unknown_usage_request_count"] -= 1
+                        self._usage["prompt_tokens"] += parsed_usage.prompt_tokens
+                        self._usage["completion_tokens"] += parsed_usage.completion_tokens
+                        self._usage["total_tokens"] += parsed_usage.total_tokens
                 message = body["choices"][0]["message"]
                 calls = []
                 for raw in message.get("tool_calls", []):
@@ -191,17 +208,6 @@ class OpenAiCompatibleClient:
                     grounding = list(parsed.prediction_ids)
                     source_grounding = list(parsed.source_ids)
                     final_error = parsed.error
-                usage = body.get("usage")
-                parsed_usage = None if usage is None else LlmUsage(
-                    prompt_tokens=usage["prompt_tokens"],
-                    completion_tokens=usage["completion_tokens"],
-                    total_tokens=usage["total_tokens"])
-                with self._usage_lock:
-                    self._usage["request_count"] += 1
-                    if parsed_usage is not None:
-                        self._usage["prompt_tokens"] += parsed_usage.prompt_tokens
-                        self._usage["completion_tokens"] += parsed_usage.completion_tokens
-                        self._usage["total_tokens"] += parsed_usage.total_tokens
                 return LlmTurn(
                     content=content, tool_calls=calls,
                     grounding_prediction_ids=grounding,

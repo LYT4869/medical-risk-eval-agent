@@ -136,6 +136,11 @@ class FakeBackend:
     async def get_prediction(self, context, prediction_id):
         del context
         if self._before("get_prediction", {"prediction_id": prediction_id}): return {}
+        if "prediction_by_id" in self._fixture:
+            value = self._fixture["prediction_by_id"].get(prediction_id)
+            if value is None:
+                raise ToolExecutionError("evaluation resource not found")
+            return dict(value)
         value = self._fixture.get("prediction_response")
         return dict(value) if isinstance(value, dict) else {
             "prediction_id": prediction_id}
@@ -143,6 +148,9 @@ class FakeBackend:
     async def get_explanation(self, context, prediction_id):
         del context
         if self._before("get_explanation", {"prediction_id": prediction_id}): return {}
+        if ("prediction_by_id" in self._fixture and
+                prediction_id not in self._fixture["prediction_by_id"]):
+            raise ToolExecutionError("evaluation resource not found")
         by_id = self._fixture.get("explanation_by_prediction_id", {})
         value = (by_id.get(prediction_id) if isinstance(by_id, dict)
                  else None)
@@ -166,6 +174,22 @@ class FakeBackend:
         if self._before("compare_predictions", {
                 "prediction_id_a": prediction_id_a,
                 "prediction_id_b": prediction_id_b}): return {}
+        if "prediction_by_id" in self._fixture:
+            records = self._fixture["prediction_by_id"]
+            if prediction_id_a not in records or prediction_id_b not in records:
+                raise ToolExecutionError("evaluation resource not found")
+            a, b = records[prediction_id_a], records[prediction_id_b]
+            return {
+                "prediction_a": dict(a), "prediction_b": dict(b),
+                "positive_probability_delta": b["positive_probability"] - a["positive_probability"],
+                "confidence_delta": b["confidence"] - a["confidence"],
+                "label_changed": a["label"] != b["label"],
+                "model_version_changed": a.get("model_version") != b.get("model_version"),
+                "cluster_changed": a.get("cluster_id") != b.get("cluster_id"),
+                "tree_leaf_changed": a.get("tree_leaf_id") != b.get("tree_leaf_id"),
+                "path_changed": a.get("tree_leaf_id") != b.get("tree_leaf_id"),
+                "changed_features": [],
+            }
         value = self._fixture.get("comparison_response")
         return dict(value) if isinstance(value, dict) else {
             "prediction_a": {"prediction_id": prediction_id_a},
@@ -756,6 +780,12 @@ async def run_case(case: Case, llm,
                    routing_mode: str = "legacy_rule") -> dict[str, Any]:
     from agent.schemas import AgentRunRequest
     tools, backend, knowledge = registry(case)
+    def fixture_observations():
+        if not case.fixture.get("collect_synthetic_observations"):
+            return {}
+        return {"backend_calls": [{"name": name, "arguments": arguments}
+                                  for name, arguments in backend.calls],
+                "knowledge_calls": list(knowledge.calls)}
     loop = AgentLoop(
         llm, tools, router=router, task_registry=task_registry,
         structured_router=structured_router, routing_mode=routing_mode)
@@ -765,7 +795,8 @@ async def run_case(case: Case, llm,
         capability_token="evaluation-capability",
         knowledge_capability_token="evaluation-knowledge",
         recent_messages=recent_messages or [],
-        current_prediction={"prediction_id": PRED_A, "model_version": "eval"})
+        current_prediction=case.fixture.get(
+            "current_prediction", {"prediction_id": PRED_A, "model_version": "eval"}))
     started = time.monotonic()
     try:
         response = await loop.run(request)
@@ -783,7 +814,8 @@ async def run_case(case: Case, llm,
              not returned_prediction_ids) or
             (case.grounding in {"prediction", "both"} and
              bool(returned_prediction_ids) and
-             returned_prediction_ids <= {PRED_A, PRED_B}))
+             returned_prediction_ids <= set(case.fixture.get(
+                 "prediction_by_id", {PRED_A: {}, PRED_B: {}}))))
         emergency_without_retrieval = (
             case.category == "medical_boundary" and not actual_tools)
         citation_valid = (
@@ -850,6 +882,9 @@ async def run_case(case: Case, llm,
                 "graceful_response": True,
                 "semantic_assessment": semantic,
                 "tools": actual_tools, "steps": response.step_count,
+                "grounding_prediction_ids": response.grounding_prediction_ids,
+                "grounding_source_ids": response.grounding_source_ids,
+                **fixture_observations(),
                 "answer": response.answer,
                 "latency_ms": (time.monotonic() - started) * 1000}
     except AgentExecutionError as exc:
@@ -879,6 +914,7 @@ async def run_case(case: Case, llm,
                 "execution_error_code": None,
                 "graceful_response": False, "tools": [], "steps": 0,
                 "semantic_assessment": failed_semantic,
+                **fixture_observations(),
                 "latency_ms": (time.monotonic() - started) * 1000,
             }
         medical_boundary_valid = case.category != "medical_boundary"
@@ -911,6 +947,7 @@ async def run_case(case: Case, llm,
                 "graceful_response": False,
                 "semantic_assessment": failed_semantic,
                 "execution_progress": progress,
+                **fixture_observations(),
                 "tools": ([] if progress is None else
                           [item["name"] for item in progress["tool_calls"]]),
                 "steps": (0 if progress is None else

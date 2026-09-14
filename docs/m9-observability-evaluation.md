@@ -117,3 +117,9 @@ HTTP request
 - 如何用队列深度、连接等待和分段延迟定位 p99。
 - 为什么固定桶、有界队列和低基数标签都是“内存有界”的一部分。
 - Agent 为什么必须做确定性流程测试和真实模型质量测试两条轨道。
+
+## 后续隔离试验：真实 Router 与执行层一起测
+
+2026-09-14 完成 48 场景 × 2 模式的真实模型配对。人工任务完成 Structured 41/48、legacy rule 20/48；本集合已知 Token 减少 15.83%，物理 LLM 请求减少 28.46%。自动最低契约评分另留，不替代最终语义审阅。
+
+Structured 有一条紧急表达被错误路由，阻止晋级；未修改本页前述主线基准、正式默认方案或部署。合成 Tool 数据不证明真实检索、RBAC、MySQL、ONNX 或并发性能。[完整结果、费用边界与失败记录](reports/independent-router-execution-evaluation.md)；[面试问题—解决过程](agent-llm-optimization-interview-case.md#十七真实语义路由对照为什么执行成功不等于用户任务完成)。

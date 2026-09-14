@@ -221,3 +221,7 @@ PYTHONPATH=PythonServices/TreeSemAgent TREESEM_TRACE_STDOUT=false \
 ```
 
 真实运行需要本地未提交的 LLM 配置；不将 Key、完整临床数据或上游非法响应放入文档。
+
+## 后续证据：真实 Router 配对
+
+以上历史指标保留原口径。2026-09-14 的新增试验让 Router 本身调用真实模型，完成 48 条 × 2 模式，补上此前标准答案 Router 不能验证的语义层。人工任务完成率 Structured 41/48、legacy rule 20/48；Structured 的紧急表达失败阻止晋级。详细分层指标、计量局限与后续最小修复见[真实 Router 独立对照](independent-router-execution-evaluation.md)。本轮仍未合并到主目录或切换正式部署。

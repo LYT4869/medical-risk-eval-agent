@@ -194,6 +194,7 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
         self.assertEqual(turn.usage.total_tokens, 120)
         self.assertEqual(client.usage_snapshot(), {
             "request_count": 1,
+            "unknown_usage_request_count": 0,
             "prompt_tokens": 100,
             "completion_tokens": 20,
             "total_tokens": 120,
@@ -216,6 +217,46 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
 
         self.assertTrue(caught.exception.retryable)
         self.assertEqual(len(fake.requests), 1)
+
+    def test_usage_counts_failed_attempt_before_retry(self):
+        rejected = _FakeResponse({})
+        rejected.status_code = 429
+        good = _FakeResponse({"choices": [{"message": {"content": "ok"}}],
+                              "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}})
+        fake = _SequenceAsyncClient([rejected, good])
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig("https://example.invalid", "model"))
+        asyncio.run(client.complete([], [], 5))
+        usage = client.usage_snapshot()
+        self.assertEqual(usage["request_count"], 2)
+        self.assertEqual(usage["unknown_usage_request_count"], 1)
+        self.assertEqual(usage["total_tokens"], 12)
+
+    def test_malformed_tool_arguments_do_not_erase_observed_usage(self):
+        fake = _FakeAsyncClient(_FakeResponse({
+            "choices": [{"message": {"tool_calls": [{"id": "bad", "function": {
+                "name": "get_prediction", "arguments": "not JSON"}}]}}],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 4, "total_tokens": 34}}))
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig("https://example.invalid", "model"))
+        with self.assertRaises(LlmError):
+            asyncio.run(client.complete([], [], 5))
+        self.assertEqual(client.usage_snapshot()["total_tokens"], 34)
+        self.assertEqual(client.usage_snapshot()["request_count"], 1)
+
+    def test_cancelled_request_still_counts_as_attempt_with_unknown_usage(self):
+        class SlowClient(_FakeAsyncClient):
+            async def post(self, path, **kwargs):
+                await asyncio.sleep(10)
+        fake = SlowClient(_FakeResponse({}))
+        with patch("agent.llm_client.httpx", self.fake_httpx(fake)):
+            client = OpenAiCompatibleClient(OpenAiCompatibleConfig("https://example.invalid", "model"))
+        async def run():
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(client.complete([], [], 5), .01)
+        asyncio.run(run())
+        self.assertEqual(client.usage_snapshot()["request_count"], 1)
+        self.assertEqual(client.usage_snapshot()["unknown_usage_request_count"], 1)
 
     def test_mixed_final_envelope_is_flagged_without_exposing_raw_content(self):
         fake = _FakeAsyncClient(_FakeResponse({
