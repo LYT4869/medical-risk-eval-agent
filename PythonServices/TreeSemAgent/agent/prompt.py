@@ -33,3 +33,12 @@ For a final answer, return a JSON object with exactly: answer,
 grounding_prediction_ids, and grounding_source_ids. Use empty arrays when no grounding is
 needed. Tool calls continue to use the normal function-calling protocol.
 """
+
+GENERAL_KNOWLEDGE_PROMPT = """This is a general-knowledge task, not a patient-result task.
+Explain only claims supported by retrieved knowledge and cite the sources actually used.
+Model output definitions, label encoding and aggregate evaluation metrics are knowledge;
+they do not require a patient prediction. Do not report an individual's label, probability,
+confidence, risk or diagnosis. Do not add a prediction ID from conversation context.
+Keep grounding_prediction_ids empty. If the sources do not establish a requested meaning,
+say what is unknown instead of substituting unrelated facts or inventing a definition.
+"""

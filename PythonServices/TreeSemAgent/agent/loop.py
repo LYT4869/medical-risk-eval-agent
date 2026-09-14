@@ -16,11 +16,12 @@ from .intent_validation import (
     ValidatedIntent,
     validate_and_bind_intent,
 )
+from .knowledge_context import knowledge_topic_hint
 from .policy import (SAFE_EMERGENCY_RESPONSE, SAFE_MEDICAL_REFUSAL,
                      SAFE_POLICY_FALLBACK,
                      SAFE_SECURITY_REFUSAL,
                      PolicyViolation, ResponsePolicy)
-from .prompt import SYSTEM_PROMPT
+from .prompt import GENERAL_KNOWLEDGE_PROMPT, SYSTEM_PROMPT
 from .observability import TraceState, metrics, trace_event
 from .routing import AgentRouter, RuleOnlyRouter, SafetyGate
 from .routing_types import RequestScope, RoutingDecision, RoutingSource
@@ -235,11 +236,11 @@ class AgentLoop:
         plan = WorkflowPlanner.for_request(
             request.message, guard, self._task_registry)
         stage_index = 0
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend({"role": item.role, "content": item.content} for item in request.recent_messages)
-        if request.current_prediction:
-            messages.append({"role": "system", "content": "Current prediction context: " + request.current_prediction.model_dump_json()})
-        messages.append({"role": "user", "content": request.message})
+        knowledge_only = (routing.scope == RequestScope.KNOWLEDGE or
+                          plan.expected_skill_id == "pph_evidence_education")
+        if knowledge_only and knowledge_topic_hint(request)[1]:
+            return self._knowledge_clarification(1)
+        messages = self._base_messages(request, knowledge_only=knowledge_only)
         context = ToolContext(request.session_id, request.capability_token,
                               request.knowledge_capability_token,
                               request.actor_role, trace)
@@ -320,7 +321,8 @@ class AgentLoop:
                     prediction_grounding, source_grounding = self._policy.validate(
                         answer, turn.grounding_prediction_ids, available_ids,
                         turn.grounding_source_ids, set(available_citations),
-                        require_prediction_grounding=bool(available_ids))
+                        require_prediction_grounding=bool(available_ids),
+                        knowledge_only=knowledge_only)
                 except PolicyViolation as exc:
                     trace_event(
                         trace.child(), "agent.response_policy", policy_started,
@@ -736,6 +738,11 @@ class AgentLoop:
             request.session_id, request.capability_token,
             request.knowledge_capability_token,
             request.actor_role, trace)
+        knowledge_topic = None
+        if dispatch.validated_intent.knowledge_only:
+            knowledge_topic, needs_clarification = knowledge_topic_hint(request)
+            if needs_clarification:
+                return self._knowledge_clarification(route.attempt_count)
         if dispatch.kind in {
                 DispatchKind.WORKFLOW,
                 DispatchKind.COMPOSITE_WORKFLOW}:
@@ -743,7 +750,8 @@ class AgentLoop:
                 execution = await asyncio.wait_for(
                     self._workflow_executor.execute(
                         dispatch.recipe, dispatch.validated_intent,
-                        tool_context, request.message,
+                        tool_context, ((knowledge_topic + "\n" + request.message)
+                                       if knowledge_topic else request.message),
                         max_tool_calls=self._max_tool_calls),
                     timeout=max(0, deadline - time.monotonic()))
             except asyncio.TimeoutError as exc:
@@ -796,12 +804,29 @@ class AgentLoop:
         )
 
     @staticmethod
-    def _base_messages(request: AgentRunRequest) -> list[dict]:
+    def _knowledge_clarification(route_attempts: int) -> AgentRunResponse:
+        return AgentRunResponse(
+            answer="请明确你希望查询的知识主题或术语，当前上下文不足以唯一确定你指的内容。",
+            step_count=max(1, route_attempts), tools_used=[],
+            grounding_prediction_ids=[], grounding_source_ids=[], citations=[])
+
+    @staticmethod
+    def _base_messages(request: AgentRunRequest, *,
+                       knowledge_only: bool = False) -> list[dict]:
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(
-            {"role": item.role, "content": item.content}
-            for item in request.recent_messages)
-        if request.current_prediction:
+        if knowledge_only:
+            # Old clinical dialogue is not evidence for a general-knowledge
+            # answer. Router context remains unchanged for semantic binding.
+            messages.append({"role": "system", "content": GENERAL_KNOWLEDGE_PROMPT})
+            topic, _ = knowledge_topic_hint(request)
+            if topic:
+                messages.append({"role": "system", "content": (
+                    "Public knowledge topic hint (name only, not patient facts): " + topic)})
+        else:
+            messages.extend(
+                {"role": item.role, "content": item.content}
+                for item in request.recent_messages)
+        if request.current_prediction and not knowledge_only:
             messages.append({
                 "role": "system",
                 "content": (
@@ -824,12 +849,13 @@ class AgentLoop:
             [{"tool": usage.name, "data": data} for usage, data in zip(
                 execution.tool_usages, execution.tool_results)])
         messages = self._finalization_messages(request, payload,
-                                                execution.active_skill)
+                                                execution.active_skill,
+                                                knowledge_only=intent.knowledge_only)
         calls_before = accounting.llm_calls
         try:
             answer, prediction_grounding, source_grounding = await self._complete_final(
                 messages, deadline, accounting, set(execution.prediction_ids),
-                set(execution.citations))
+                set(execution.citations), knowledge_only=intent.knowledge_only)
             return AgentRunResponse(
                 answer=answer,
                 step_count=max(1, route_attempts + accounting.llm_calls - calls_before),
@@ -860,8 +886,9 @@ class AgentLoop:
             catalog_version=active_skill.catalog_version)
 
     def _finalization_messages(self, request: AgentRunRequest, payload: dict,
-                               active_skill: SkillActivation | None) -> list[dict]:
-        messages = self._base_messages(request)[:-1]
+                               active_skill: SkillActivation | None, *,
+                               knowledge_only: bool = False) -> list[dict]:
+        messages = self._base_messages(request, knowledge_only=knowledge_only)[:-1]
         if active_skill is not None:
             messages.append({
                 "role": "system",
@@ -884,6 +911,10 @@ class AgentLoop:
                 "category meanings, normal/abnormal status or patient symptoms "
                 "from feature names or tree thresholds without authoritative "
                 "metadata. Describe model associations, not clinical causation. "
+                "A tree split or path value is not feature importance and does not "
+                "establish why neural-network probability changed. When important "
+                "features are excluded, do not reconstruct a main-feature "
+                "explanation from path values. "
                 "Use comparison_order, from_prediction, to_prediction and the "
                 "program-provided delta/direction without recalculating them. "
                 "For previous_to_latest, describe previous then latest; for "
@@ -909,7 +940,8 @@ class AgentLoop:
         return messages
 
     def _check_final(self, turn, prediction_ids: set[str], source_ids: set[str],
-                     *, require_envelope: bool = False):
+                     *, require_envelope: bool = False,
+                     knowledge_only: bool = False):
         # The HTTP adapter has already validated and removed the outer envelope.
         # Its answer may legitimately start with '[' or contain JSON examples.
         parsed = None if turn.final_response_is_structured else parse_final_response(turn.content)
@@ -926,7 +958,8 @@ class AgentLoop:
             list(parsed.prediction_ids) if structured else turn.grounding_prediction_ids,
             prediction_ids,
             list(parsed.source_ids) if structured else turn.grounding_source_ids,
-            source_ids, require_prediction_grounding=bool(prediction_ids))
+            source_ids, require_prediction_grounding=bool(prediction_ids),
+            knowledge_only=knowledge_only)
         if require_envelope and source_ids and not source_ids.intersection(
                 self._policy._citation_id.findall(answer)):
             raise PolicyViolation("missing_knowledge_citation",
@@ -937,7 +970,8 @@ class AgentLoop:
                               accounting: _StructuredRunAccounting,
                               prediction_ids: set[str], source_ids: set[str],
                               *, max_attempts: int = 2,
-                              state: ExecutionState | None = None):
+                              state: ExecutionState | None = None,
+                              knowledge_only: bool = False):
         for attempt in range(max_attempts):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -958,7 +992,8 @@ class AgentLoop:
             accounting.add_calls(1, time.monotonic() - llm_started, turn.usage)
             try:
                 answer, (predictions, sources) = self._check_final(
-                    turn, prediction_ids, source_ids, require_envelope=True)
+                    turn, prediction_ids, source_ids, require_envelope=True,
+                    knowledge_only=knowledge_only)
                 if attempt:
                     metrics.increment("treesem_agent_final_repairs_total", result="success")
                 return answer, predictions, sources
@@ -1006,7 +1041,7 @@ class AgentLoop:
             guard: AgentRunGuard, deadline: float, route_attempts: int,
             accounting: _StructuredRunAccounting,
             intent: ValidatedIntent, state: ExecutionState) -> AgentRunResponse:
-        messages = self._base_messages(request)
+        messages = self._base_messages(request, knowledge_only=intent.knowledge_only)
         usages: list[ToolUse] = []
         available_ids: set[str] = set()
         available_citations = {}
@@ -1050,7 +1085,8 @@ class AgentLoop:
             if not turn.tool_calls:
                 try:
                     answer, (predictions, sources) = self._check_final(
-                        turn, available_ids, set(available_citations))
+                        turn, available_ids, set(available_citations),
+                        knowledge_only=intent.knowledge_only)
                 except (AgentExecutionError, PolicyViolation) as exc:
                     if (exc.code in {"invalid_final_response", "missing_knowledge_citation"}
                             and state.llm_calls < self._max_steps):
@@ -1163,12 +1199,13 @@ class AgentLoop:
                                    deadline, route_attempts, accounting,
                                    max_attempts=2):
         messages = self._finalization_messages(
-            request, state.finalization_context(request.message), active_skill)
+            request, state.finalization_context(request.message), active_skill,
+            knowledge_only=state.intent.knowledge_only)
         try:
             answer, predictions, sources = await self._complete_final(
                 messages, deadline, accounting, prediction_ids, set(citations),
                 max_attempts=min(max_attempts, self._max_steps - state.llm_calls),
-                state=state)
+                state=state, knowledge_only=state.intent.knowledge_only)
         except asyncio.TimeoutError as exc:
             raise AgentTimeout("agent deadline exceeded") from exc
         except LlmError as exc:

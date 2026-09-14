@@ -58,6 +58,11 @@ class ValidatedIntent:
     excluded_aspects: frozenset[RequestedAspect]
     requested_skill: RequestedSkill | None
 
+    @property
+    def knowledge_only(self) -> bool:
+        return bool(self.goals) and all(
+            goal.intent == IntentKind.KNOWLEDGE for goal in self.goals)
+
 
 @dataclass(frozen=True)
 class IntentValidationResult:
