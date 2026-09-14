@@ -9,6 +9,9 @@ from typing import Awaitable, Callable
 from pydantic import ValidationError
 
 from .intent_frame import IntentFrame
+from .intent_validation import (
+    IntentFrameViolation, contract_repair_guidance, validate_frame_contract,
+)
 from .intent_router_prompt import (
     ROUTER_SYSTEM_PROMPT,
     ROUTER_TOOL_NAME,
@@ -83,6 +86,7 @@ class StructuredRoute:
 class _RepairHint:
     reason: str
     paths: tuple[str, ...] = ()
+    contract: dict | None = None
 
 
 class _RouterFrameError(ValueError):
@@ -201,12 +205,13 @@ class StructuredIntentRouter:
             safe_feedback = json.dumps({
                 "reason": repair.reason,
                 "paths": list(repair.paths),
+                **({"allowed_contract": repair.contract} if repair.contract else {}),
             }, separators=(",", ":"))
             messages.append({
                 "role": "system",
                 "content": (
                     "FORMAT REPAIR: the previous response violated the required "
-                    "function or IntentFrame schema. Safe validation feedback: " +
+                    "function, IntentFrame schema or cross-field contract. Safe validation feedback: " +
                     safe_feedback + ". Re-read the same Router input "
                     "and call route_user_request once with strictly valid arguments. "
                     "Do not add prose or new facts."),
@@ -220,9 +225,15 @@ class StructuredIntentRouter:
         if turn.tool_calls[0].name != ROUTER_TOOL_NAME:
             raise _RouterFrameError(_RepairHint("wrong_tool_name"))
         try:
-            return IntentFrame.model_validate(turn.tool_calls[0].arguments)
+            frame = IntentFrame.model_validate(turn.tool_calls[0].arguments)
         except ValidationError as exc:
             raise _RouterFrameError(_validation_hint(exc)) from exc
+        try:
+            validate_frame_contract(frame)
+        except IntentFrameViolation as exc:
+            raise _RouterFrameError(_RepairHint(
+                exc.code, ("goals",), contract_repair_guidance(frame))) from exc
+        return frame
 
     async def route(self, context: RouterContext) -> StructuredRoute:
         deadline = self._monotonic() + self._config.total_deadline_seconds

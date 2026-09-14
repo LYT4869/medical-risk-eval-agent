@@ -127,6 +127,11 @@ class ExecutionState:
 
 def finalization_context(intent: ValidatedIntent, original_request: str,
                          completed: list[int], evidence: list[dict]) -> dict:
+    searches = [entry["data"] for entry in evidence
+                if entry["tool"] == "search_medical_knowledge" and
+                "error" not in entry["data"]]
+    availability = ("retrieved" if any(item.get("results") for item in searches)
+                    else "not_found" if searches else "unavailable")
     return {
             "original_request": original_request,
             "subgoals": [{
@@ -144,6 +149,10 @@ def finalization_context(intent: ValidatedIntent, original_request: str,
                 "preserve_original_request_constraints": True,
             },
             "current_evidence": list(evidence),
+            # Shared retrieval facts are not a per-goal relevance judgment.
+            **({"knowledge_evidence": {"availability": availability,
+                                       "answer_coverage": "not_verified"}}
+               if any(g.intent == IntentKind.KNOWLEDGE for g in intent.goals) else {}),
         }
 
 

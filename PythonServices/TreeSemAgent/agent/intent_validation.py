@@ -74,6 +74,7 @@ _TARGETS = {
     IntentKind.PREDICTION: {TargetKind.DEMO_SAMPLE},
     IntentKind.SUMMARY: {
         TargetKind.CURRENT_PREDICTION,
+        TargetKind.PREVIOUS_PREDICTION,
         TargetKind.EXPLICIT_PREDICTION,
     },
     IntentKind.EXPLANATION: {
@@ -230,6 +231,51 @@ def _bind_target(goal, references: ReferenceExtraction,
     return BoundTarget(target.type)
 
 
+def _validated_aspects(goal) -> tuple[RequestedAspect, ...]:
+    """One pure cross-field contract, shared by parsing and business binding."""
+    if goal.target.type not in _TARGETS[goal.intent]:
+        raise IntentFrameViolation("incompatible_target")
+    aspects = tuple(goal.requested_aspects)
+    if (goal.intent == IntentKind.COMPARISON and aspects and
+            set(aspects) <= _COMPARISON_DETAIL_ASPECTS):
+        aspects = (RequestedAspect.COMPARISON_CHANGES,)
+    if not set(aspects) <= _ASPECTS[goal.intent]:
+        raise IntentFrameViolation("incompatible_aspect")
+    if ((goal.intent == IntentKind.KNOWLEDGE and goal.knowledge_scope is None) or
+            (goal.intent != IntentKind.KNOWLEDGE and goal.knowledge_scope is not None)):
+        raise IntentFrameViolation("invalid_knowledge_scope")
+    return aspects
+
+
+def _source_resolves_missing(frame: IntentFrame) -> bool:
+    return (set(frame.unresolved_references) == {UnresolvedReference.MISSING_PREDICTION_TARGET}
+            and len(frame.goals) == 1
+            and frame.goals[0].target.type == TargetKind.EXPLICIT_PREDICTION)
+
+
+def validate_frame_contract(frame: IntentFrame) -> None:
+    """Validate repairable structure only; never resolve IDs or query resources."""
+    if frame.needs_clarification != bool(frame.unresolved_references):
+        raise IntentFrameViolation("invalid_clarification_state")
+    if frame.unresolved_references and not _source_resolves_missing(frame):
+        return
+    if any(goal.intent in frame.constraints.excluded_intents or
+           set(goal.requested_aspects).intersection(frame.constraints.excluded_aspects)
+           for goal in frame.goals):
+        return  # Existing business validator asks for clarification on conflict.
+    for goal in frame.goals:
+        _validated_aspects(goal)
+
+
+def contract_repair_guidance(frame: IntentFrame) -> dict:
+    """Enum-only feedback derived from the authoritative contract, not Tool data."""
+    return {intent.value: {
+        "targets": sorted(t.value for t in _TARGETS[intent]),
+        "aspects": sorted(a.value for a in _ASPECTS[intent]),
+        "knowledge_scope": "model|clinical|all" if intent == IntentKind.KNOWLEDGE else None,
+    } for intent in dict.fromkeys(goal.intent for goal in frame.goals)}
+
+
 def validate_and_bind_intent(
         frame: IntentFrame, references: ReferenceExtraction,
         request: AgentRunRequest) -> IntentValidationResult:
@@ -253,10 +299,7 @@ def validate_and_bind_intent(
 
     # A source-backed explicit candidate can resolve only the narrow "missing
     # target" claim. It cannot establish record existence or override ambiguity.
-    source_resolves_missing = (
-        set(frame.unresolved_references) == {UnresolvedReference.MISSING_PREDICTION_TARGET}
-        and len(frame.goals) == 1
-        and frame.goals[0].target.type == TargetKind.EXPLICIT_PREDICTION)
+    source_resolves_missing = _source_resolves_missing(frame)
     if source_resolves_missing:
         _bind_target(frame.goals[0], references, request)
     if has_unresolved and not source_resolves_missing:
@@ -266,19 +309,7 @@ def validate_and_bind_intent(
 
     bound_goals: list[BoundGoal] = []
     for goal in frame.goals:
-        if goal.target.type not in _TARGETS[goal.intent]:
-            raise IntentFrameViolation("incompatible_target")
-        requested_aspects = tuple(goal.requested_aspects)
-        if (goal.intent == IntentKind.COMPARISON and requested_aspects and
-                set(requested_aspects) <= _COMPARISON_DETAIL_ASPECTS):
-            requested_aspects = (RequestedAspect.COMPARISON_CHANGES,)
-        if not set(requested_aspects) <= _ASPECTS[goal.intent]:
-            raise IntentFrameViolation("incompatible_aspect")
-        if ((goal.intent == IntentKind.KNOWLEDGE and
-             goal.knowledge_scope is None) or
-                (goal.intent != IntentKind.KNOWLEDGE
-                 and goal.knowledge_scope is not None)):
-            raise IntentFrameViolation("invalid_knowledge_scope")
+        requested_aspects = _validated_aspects(goal)
         bound = _bind_target(goal, references, request)
         if isinstance(bound, str):
             return IntentValidationResult(clarification_code=bound)

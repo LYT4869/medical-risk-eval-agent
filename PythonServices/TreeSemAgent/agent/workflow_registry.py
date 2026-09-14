@@ -212,6 +212,14 @@ def default_workflow_registry() -> WorkflowRegistry:
             (_stage("get_prediction", ArgumentSource.BOUND_PREDICTION),),
             RendererKind.PREDICTION_DATA_AVAILABLE),
         WorkflowRecipe(
+            "read_previous_prediction",
+            (_pattern(IntentKind.SUMMARY, TargetKind.PREVIOUS_PREDICTION),),
+            (
+                _stage("get_prediction_history", ArgumentSource.LATEST_TWO_HISTORY),
+                _stage("get_prediction", ArgumentSource.PREVIOUS_FROM_HISTORY),
+            ),
+            RendererKind.PREDICTION_DATA_AVAILABLE),
+        WorkflowRecipe(
             "explain_current_or_explicit_prediction",
             (_pattern(IntentKind.EXPLANATION, *current_or_explicit),),
             (_stage("get_explanation", ArgumentSource.BOUND_PREDICTION),),

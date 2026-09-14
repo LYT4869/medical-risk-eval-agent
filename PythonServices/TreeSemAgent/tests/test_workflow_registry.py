@@ -21,6 +21,7 @@ class WorkflowRegistryTest(unittest.TestCase):
         self.assertEqual({item.recipe_id for item in registry.recipes}, {
             "predict_demo_sample",
             "read_current_or_explicit_prediction",
+            "read_previous_prediction",
             "explain_current_or_explicit_prediction",
             "explain_previous_prediction",
             "list_session_history",

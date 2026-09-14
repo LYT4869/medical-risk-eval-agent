@@ -219,9 +219,9 @@ class IndependentScoringTest(unittest.TestCase):
         from agent.structured_router import StructuredIntentRouter
         from agent.schemas import AgentRunRequest, LlmToolCall
         frame = {"schema_version": 2, "goals": [{"intent": "summary",
-            "target": {"type": "previous_prediction"},
+            "target": {"type": "current_prediction"},
             "requested_aspects": ["label", "probability"], "knowledge_scope": None,
-            "evidence": ["上一份"]}], "constraints": {"excluded_intents": [], "excluded_aspects": []},
+            "evidence": ["不存在的原文片段"]}], "constraints": {"excluded_intents": [], "excluded_aspects": []},
             "unresolved_references": [], "needs_clarification": False, "requested_skill": None}
         client = ScriptedLlmClient([LlmTurn(tool_calls=[LlmToolCall(
             id="route", name="route_user_request", arguments=frame)])])
