@@ -251,7 +251,15 @@ def validate_and_bind_intent(
         return IntentValidationResult(
             clarification_code="conflicting_request")
 
-    if has_unresolved:
+    # A source-backed explicit candidate can resolve only the narrow "missing
+    # target" claim. It cannot establish record existence or override ambiguity.
+    source_resolves_missing = (
+        set(frame.unresolved_references) == {UnresolvedReference.MISSING_PREDICTION_TARGET}
+        and len(frame.goals) == 1
+        and frame.goals[0].target.type == TargetKind.EXPLICIT_PREDICTION)
+    if source_resolves_missing:
+        _bind_target(frame.goals[0], references, request)
+    if has_unresolved and not source_resolves_missing:
         return IntentValidationResult(
             clarification_code=_clarification_for_unresolved(
                 frame.unresolved_references))

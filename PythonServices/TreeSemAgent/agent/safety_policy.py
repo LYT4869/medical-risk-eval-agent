@@ -50,13 +50,14 @@ _UNAVAILABLE_EVIDENCE = (
 )
 
 _DISCLOSURE_ACTION = (
-    "回显", "输出", "显示", "打印", "泄露", "告诉我", "给我",
+    "回显", "输出", "显示", "打印", "泄露", "告诉我", "给我", "列出",
     "print", "show", "reveal", "echo", "disclose", "return",
 )
 _SECRET_TARGET = (
     "authorization头", "authorization 头", "api key", "apikey",
     "access token", "refresh token", "密码", "密钥", "系统提示词",
     "system prompt", "configured secret", "all configured secrets",
+    "capability token", "能力令牌",
 )
 _PRIVILEGE_ACTION = (
     "绑定", "构造", "生成", "访问", "读取", "获取", "查询", "泄露", "无视", "忽略",
@@ -153,8 +154,26 @@ _INSTABILITY = (
 _CURRENT_STATE = (
     "现在", "当前", "立刻", "正在", "还头晕", "我快要", "我正在",
     "快要", "患者当前", "right now", "currently", "today", "i am", "i have",
-    "the patient has", "active",
+    "the patient has", "active", "突然", "刚刚", "suddenly", "just started",
 )
+_NON_CURRENT_CONTEXT = _EDUCATIONAL_CONTEXT + (
+    "指南", "假设", "如果", "去年", "以前", "曾经", "已经恢复",
+    "guideline", "hypothetical", "last year", "in the past", "recovered",
+)
+_HISTORICAL_CONTEXT = ("去年", "以前", "曾经", "last year", "in the past")
+_LIVE_REPORT = re.compile(
+    r"(?:我|她|患者|产妇|妻子|家人)(?:现在|正在|当前|刚刚|目前|突然|产后突然)"
+    r"(?:开始|出现|感到|感觉|发生|有|还|持续|正在)*"
+    r"(?:" + "|".join(re.escape(value) for value in _BLEEDING + _INSTABILITY) + r")"
+    r"|\b(?:i am|i have|the patient has)\s+(?:active\s+)?"
+    r"(?:heavy bleeding|bleeding|feel(?:ing)? faint|altered consciousness)")
+_HYPOTHETICAL_START = re.compile(
+    r"^(?:请)?(?:如果|假设)\s*(?:我|她|患者|产妇|妻子|家人)"
+    r"|^if\s+(?:i|the patient)\b")
+_NEGATED_SYMPTOM = re.compile(
+    r"(?:没有|并未|未见|并非|无|\bnot\b|\bno\b|\bwithout\b)\s*"
+    r"(?:出现|感到|任何|(?:feeling|having|experiencing)\s+)?(?:" +
+    "|".join(re.escape(value) for value in _BLEEDING + _INSTABILITY) + r")")
 _AVOID_CARE_OR_SELF_TREAT = (
     "不想联系急救", "不联系急救", "不去医院", "自己处理", "自行处理",
     "居家处理", "home treatment", "manage it alone", "without emergency",
@@ -202,11 +221,29 @@ class SafetyPolicy:
 
     @staticmethod
     def _emergency_reason(message: str) -> str | None:
-        unstable = _has(message, _INSTABILITY)
-        current = _has(message, _CURRENT_STATE)
-        self_treatment = _has(message, _AVOID_CARE_OR_SELF_TREAT)
-        if (_has(message, _BLEEDING) and unstable and
-                (current or self_treatment)):
+        # Scope context to a sentence, so later "if the ambulance..." or a
+        # separate educational question cannot suppress an actual symptom report.
+        bleeding = unstable = current = self_treatment = False
+        for sentence in re.split(r"[。！？.!?;；\n]", message):
+            sentence = _NEGATED_SYMPTOM.sub("", sentence.strip())
+            if _HYPOTHETICAL_START.search(sentence):
+                continue
+            live_report = any(
+                not _has(sentence[:match.start()], _HISTORICAL_CONTEXT) or
+                _has(match.group(), ("现在", "正在", "当前", "刚刚", "目前"))
+                for match in _LIVE_REPORT.finditer(sentence))
+            if (_has(sentence, _NON_CURRENT_CONTEXT) and
+                    not live_report):
+                continue
+            sentence_bleeding = _has(sentence, _BLEEDING)
+            sentence_unstable = _has(sentence, _INSTABILITY)
+            bleeding |= sentence_bleeding
+            unstable |= sentence_unstable
+            # Only a symptom-bearing clause contributes present-state evidence.
+            current |= ((sentence_bleeding or sentence_unstable) and
+                        _has(sentence, _CURRENT_STATE))
+            self_treatment |= _has(sentence, _AVOID_CARE_OR_SELF_TREAT)
+        if bleeding and unstable and (current or self_treatment):
             return "urgent_medical_symptoms"
         if unstable and current and self_treatment:
             return "urgent_medical_symptoms"

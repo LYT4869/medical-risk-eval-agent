@@ -153,3 +153,5 @@ PYTHONPATH=PythonServices/TreeSemAgent TREESEM_TRACE_STDOUT=false python -m eval
 正式报告 SHA256：`529681a06df61895602bafb8fef8ac3e84c274a9fbb3f28d2dfe7a30091c9a56`。Agent 源码 SHA256：`74e208669cdea34a1a0c74cee0943d30fd1425cc711d09660f9ae4e034dab337`。
 
 [执行计划](../plans/2026-09-13-independent-router-execution-evaluation.md)；[此前执行收敛试验](agent-execution-finalization-trial.md)。
+
+后续：[可靠性修复与 6 条定向回归](agent-reliability-targeted-regression.md)。原表格、首轮评分及报告 SHA 保持不变；定向通过不替换整体成绩。

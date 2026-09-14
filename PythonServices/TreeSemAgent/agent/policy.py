@@ -35,6 +35,8 @@ class ResponsePolicy:
     _prediction_id = re.compile(r"pred_[0-9a-f]{32}")
     _citation_id = re.compile(r"cite_[0-9a-f]{20}")
     _numeric_fact = re.compile(r"(?:\d+(?:\.\d+)?\s*%|probability|概率|置信度|标签|label)", re.I)
+    _visible_reference = re.compile(r"(?<![A-Za-z0-9_])(?:pred|cite)_[A-Za-z0-9_-]+")
+    _protocol_line = re.compile(r'''(?<![A-Za-z0-9_])["']?grounding_(?:prediction|source)_ids["']?\s*:\s*\[''')
 
     def validate(self, answer: str, cited: list[str], available: set[str],
                  cited_sources: list[str] | None = None,
@@ -43,6 +45,13 @@ class ResponsePolicy:
                  ) -> tuple[list[str], list[str]]:
         if not answer.strip():
             raise PolicyViolation("empty_answer", "empty final answer")
+        if self._protocol_line.search(answer):
+            raise PolicyViolation("invalid_final_response", "answer contains protocol fields")
+        for ident in self._visible_reference.findall(answer):
+            syntax = self._prediction_id if ident.startswith("pred_") else self._citation_id
+            if syntax.fullmatch(ident) is None:
+                # Do not guess which complete ID a truncated reference meant.
+                raise PolicyViolation("invalid_body_reference", "answer contains an invalid reference")
         if not set(cited).issubset(available):
             raise PolicyViolation(
                 "unavailable_prediction", "response cited an unavailable prediction")

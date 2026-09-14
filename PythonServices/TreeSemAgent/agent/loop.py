@@ -757,7 +757,7 @@ class AgentLoop:
                 recipe_class=recipe_class)
             if not execution.completed and execution.failure_code != "tool_call_limit":
                 return self._workflow_failure_response(
-                    execution, route.attempt_count)
+                    execution, route.attempt_count, dispatch.validated_intent)
             return await self._finalize_structured_workflow(
                 request, execution, dispatch.recipe.renderer,
                 deadline, route.attempt_count, accounting,
@@ -771,16 +771,25 @@ class AgentLoop:
     @staticmethod
     def _workflow_failure_response(
             execution: WorkflowExecution,
-            route_attempts: int) -> AgentRunResponse:
+            route_attempts: int, intent: ValidatedIntent) -> AgentRunResponse:
         if execution.failure_code == "insufficient_history":
-            answer = "当前会话中不足两条预测记录，暂时无法完成这次比较。"
+            needs_prior = any(goal.target.kind.value == "previous_prediction"
+                              for goal in intent.goals)
+            answer = ("当前会话还没有可定位的上一次预测，暂时无法解释上一次结果。"
+                      if needs_prior else
+                      "当前会话中不足两条预测记录，暂时无法完成这次比较或两次结果解释。")
+        elif any(goal.target.kind.value in {"explicit_prediction", "explicit_prediction_pair"}
+                 for goal in intent.goals):
+            answer = "无法取得指定预测记录，请核对预测 ID 是否属于当前会话，或稍后重试。"
         else:
             answer = "暂时无法取得完成该请求所需的可信业务数据。"
         return AgentRunResponse(
             answer=answer,
             step_count=max(1, route_attempts),
             tools_used=list(execution.tool_usages),
-            grounding_prediction_ids=sorted(execution.prediction_ids),
+            # Dependency lookups do not justify presenting their records as the
+            # requested target when the Workflow never reached that target.
+            grounding_prediction_ids=[],
             grounding_source_ids=[],
             citations=[],
             knowledge_index_version=execution.knowledge_index_version,
@@ -948,7 +957,7 @@ class AgentLoop:
                 return answer, predictions, sources
             except (AgentExecutionError, PolicyViolation) as exc:
                 reason = exc.code
-                if reason not in {"invalid_final_response", "missing_knowledge_citation"}:
+                if reason not in {"invalid_final_response", "missing_knowledge_citation", "invalid_body_reference"}:
                     raise
                 if attempt + 1 >= max_attempts:
                     metrics.increment("treesem_agent_final_repairs_total", result="failed")
@@ -958,7 +967,9 @@ class AgentLoop:
                     "FINAL FORMAT REPAIR (once): " + reason + ". Return only the "
                     "required JSON object using existing evidence. No Tool calls, "
                     "no prose outside JSON. Include used citation IDs literally "
-                    "in answer and grounding_source_ids. Allowed prediction IDs: " +
+                    "in answer and grounding_source_ids. Copy complete reference IDs "
+                    "exactly, never abbreviate or append suffixes. Do not put grounding "
+                    "protocol fields inside answer. Allowed prediction IDs: " +
                     json.dumps(sorted(prediction_ids)) + "; allowed citation IDs: " +
                     json.dumps(sorted(source_ids)))})
 

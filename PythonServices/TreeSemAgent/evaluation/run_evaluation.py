@@ -652,9 +652,9 @@ def scripted_client(case: Case) -> ScriptedLlmClient:
             "Grounded treeSem evaluation answer."))
     if source_ids:
         answer += f" Evidence: {CITATION}."
-    turns.append(LlmTurn(content=json.dumps({
-                         "answer": answer, "grounding_prediction_ids": prediction_ids,
-                         "grounding_source_ids": source_ids}),
+    # Mirror the production HTTP client's already-decoded final envelope, not
+    # JSON protocol fields presented as the user-visible answer in legacy mode.
+    turns.append(LlmTurn(content=answer, final_response_is_structured=True,
                          grounding_prediction_ids=prediction_ids,
                          grounding_source_ids=source_ids))
     return ScriptedLlmClient(turns)

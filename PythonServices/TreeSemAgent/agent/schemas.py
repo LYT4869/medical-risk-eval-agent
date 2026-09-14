@@ -62,6 +62,8 @@ class AgentRunResponse(StrictModel):
         "missing_prediction_grounding",
         "unavailable_knowledge",
         "missing_knowledge_citation",
+        "invalid_body_reference",
+        "invalid_final_response",
     ] | None = Field(default=None, exclude=True)
 
 
