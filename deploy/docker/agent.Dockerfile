@@ -1,5 +1,6 @@
 FROM python:3.10-slim-bookworm
-RUN groupadd --system treesem && useradd --system --gid treesem --home /app treesem
+RUN groupadd --system treesem && \
+    useradd --system --gid treesem --home /app treesem
 WORKDIR /app
 COPY PythonServices/TreeSemAgent/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

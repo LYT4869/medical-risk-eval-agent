@@ -1,0 +1,21 @@
+{
+  "calibration": {
+    "compositional_fallback_recall": 0.95,
+    "fallback_recall": 0.95,
+    "false_deterministic": 2,
+    "known_accuracy": 0.3,
+    "unknown_recall": 0.95
+  },
+  "corpus_sha256": "02aa8a89bb4265586034e995008aa7045a66c2ece3fcdf109567a18db370ca4b",
+  "fallback_target": 0.95,
+  "fallback_target_met": true,
+  "model": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "rule_known_accuracy": 0.15,
+  "schema_version": 1,
+  "thresholds": {
+    "min_margin": 0.005699,
+    "min_similarity": 0.876893,
+    "secondary_intent_similarity": 0.875226
+  }
+}

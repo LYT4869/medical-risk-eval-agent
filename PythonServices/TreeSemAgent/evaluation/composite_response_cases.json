@@ -1,0 +1,394 @@
+{
+  "dataset_version": 2,
+  "dataset_kind": "targeted",
+  "description": "Synthetic diagnostic cases for subgoal completion, response constraints, and integrated answer quality",
+  "default_fixture": {
+    "prediction_response": {
+      "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "model": "treeSem",
+      "model_version": "eval-v2",
+      "prediction": {
+        "label": 1,
+        "positive_probability": 0.82,
+        "confidence": 0.82
+      }
+    },
+    "history_response": {
+      "items": [
+        {
+          "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "label": 1,
+          "positive_probability": 0.82,
+          "model_version": "eval-v2"
+        },
+        {
+          "prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "label": 0,
+          "positive_probability": 0.64,
+          "model_version": "eval-v2"
+        }
+      ],
+      "next_cursor": null
+    },
+    "comparison_response": {
+      "prediction_a": {"prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "prediction_b": {"prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "label_changed": true,
+      "model_version_changed": false,
+      "positive_probability_delta": 0.18,
+      "confidence_delta": 0.18,
+      "cluster_changed": false,
+      "tree_leaf_changed": true,
+      "path_changed": true,
+      "changed_features": [
+        {"name": "Intrapartum_Bleeding", "original_delta": 120.0}
+      ]
+    },
+    "explanation_by_prediction_id": {
+      "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "model_version": "eval-v2",
+        "important_features": [
+          {"name": "Age_of_Woman", "display_name": "Age of Woman", "original_value": 31}
+        ],
+        "decision_path": [
+          {"feature_name": "Intrapartum_Bleeding", "operator": ">", "threshold_original": 80.0}
+        ]
+      },
+      "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+        "prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "model_version": "eval-v2",
+        "important_features": [
+          {"name": "Gestational_Age", "display_name": "Gestational Age", "original_value": 39}
+        ],
+        "decision_path": [
+          {"feature_name": "Placenta_Previa", "operator": "<=", "threshold_original": 0.5}
+        ]
+      }
+    },
+    "knowledge_results": [
+      {
+        "citation_id": "cite_cccccccccccccccccccc",
+        "source_id": "src_treesem_eval",
+        "title": "Curated treeSem model boundaries",
+        "section": "Interpretation",
+        "page": 1,
+        "excerpt": "AUC describes ranking ability. Model associations and important features do not establish causes, diagnoses, patient deterioration, or treatment decisions.",
+        "publisher": "treeSem evaluation",
+        "published_at": "2026-09-11",
+        "url": "https://example.invalid/treesem-eval",
+        "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "score": 1.0
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "composite_compare_explain_plain_zh",
+      "category": "composite_response",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "结论：两次预测的标签与路径发生变化，阳性概率相差0.18。结合两条路径，当前记录涉及Intrapartum_Bleeding，上一次涉及Placenta_Previa。简单来说，这只是模型结果差异，不代表病情恶化。"
+      },
+      "turns": [{
+        "message": "比较最近两次预测，然后结合两条决策路径解释差异；先给结论，再用患者容易理解的话总结，不要把变化说成病情恶化。",
+        "tools": ["get_prediction_history", "compare_predictions", "get_explanation", "get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "comparison", "target": "latest_two_predictions", "requested_aspects": ["comparison_changes"], "knowledge_scope": null},
+          {"intent": "explanation", "target": "latest_two_predictions", "requested_aspects": ["decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "comparison", "required_tools": ["get_prediction_history", "compare_predictions"], "answer_evidence": [{"id": "prediction_difference", "any_of": ["0.18", "18个百分点", "预测结果存在差异", "标签发生变化", "label changed"]}]},
+            {"id": "explain_both_paths", "required_tools": ["get_explanation", "get_explanation"], "answer_evidence": [{"id": "current_path", "any_of": ["Intrapartum_Bleeding", "产时出血"]}, {"id": "previous_path", "any_of": ["Placenta_Previa", "前置胎盘"]}]}
+          ],
+          "response_constraints": {
+            "required": [{"id": "non_deterioration", "any_of": ["不代表病情恶化", "不能说明病情恶化", "不直接等同于病情恶化", "不直接等同于病情的恶化", "does not mean the condition worsened"]}, {"id": "plain_summary", "any_of": ["简单来说", "通俗地说", "通俗解释", "患者易懂总结"]}],
+            "prefix": [{"id": "conclusion_first", "any_of": ["结论", "总体"]}],
+            "prefix_chars": 60,
+            "max_chars": 700
+          },
+          "integration_evidence": [{"id": "comparison_explanation_synthesis", "any_of": ["结合", "综合", "判断依据发生了改变"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "composite_compare_path_only_zh",
+      "category": "composite_response",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "总体看，两次预测的路径不同，概率差为0.18。结合路径看，当前记录经过Intrapartum_Bleeding节点，上一次经过Placenta_Previa节点；这里只说明模型路径变化。"
+      },
+      "turns": [{
+        "message": "比较最近两次结果并解释路径为什么不同，只谈概率差和决策路径，不要展开重要特征列表。",
+        "tools": ["get_prediction_history", "compare_predictions", "get_explanation", "get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "comparison", "target": "latest_two_predictions", "requested_aspects": ["comparison_changes"], "knowledge_scope": null},
+          {"intent": "explanation", "target": "latest_two_predictions", "requested_aspects": ["decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "probability_comparison", "required_tools": ["compare_predictions"], "answer_evidence": [{"id": "delta", "any_of": ["0.18", "18个百分点"]}]},
+            {"id": "path_comparison", "required_tools": ["get_explanation", "get_explanation"], "answer_evidence": [{"id": "path_a", "any_of": ["Intrapartum_Bleeding", "产时出血"]}, {"id": "path_b", "any_of": ["Placenta_Previa", "前置胎盘"]}]}
+          ],
+          "response_constraints": {
+            "forbidden": [{"id": "hidden_feature_list", "any_of": ["Age_of_Woman", "Gestational_Age"]}],
+            "max_chars": 600
+          },
+          "integration_evidence": [{"id": "joined_reasoning", "any_of": ["结合", "路径不同", "路径变化", "路径变更", "原因是", "从而"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "composite_compare_explain_english",
+      "category": "composite_response",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "Overall, the label and tree path changed with a probability delta of 0.18. Taken together, the current path includes Intrapartum_Bleeding and the prior path includes Placenta_Previa. This comparison does not establish clinical deterioration or causality."
+      },
+      "turns": [{
+        "message": "Compare the latest two predictions, explain both tree paths, and give the conclusion first. Do not present the difference as clinical deterioration or causality.",
+        "tools": ["get_prediction_history", "compare_predictions", "get_explanation", "get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "comparison", "target": "latest_two_predictions", "requested_aspects": ["comparison_changes"], "knowledge_scope": null},
+          {"intent": "explanation", "target": "latest_two_predictions", "requested_aspects": ["decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "comparison", "required_tools": ["compare_predictions"], "answer_evidence": [{"id": "delta", "any_of": ["0.18"]}]},
+            {"id": "two_path_explanation", "required_tools": ["get_explanation", "get_explanation"], "answer_evidence": [{"id": "path_a", "any_of": ["Intrapartum_Bleeding"]}, {"id": "path_b", "any_of": ["Placenta_Previa"]}]}
+          ],
+          "response_constraints": {
+            "required": [{"id": "boundary", "any_of": ["does not establish clinical deterioration", "does not mean clinical deterioration", "not evidence of clinical deterioration", "not clinical deterioration or causality", "no clinical deterioration or causality is implied"]}],
+            "prefix": [{"id": "conclusion_first", "any_of": ["overall", "conclusion"]}],
+            "prefix_chars": 80
+          },
+          "integration_evidence": [{"id": "synthesis", "any_of": ["taken together", "combined", "overall", "comparison reflects", "driven by changes"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "composite_explanation_model_boundary_zh",
+      "category": "composite_response",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "模型事实：当前重要特征包含Age_of_Woman。资料边界：重要特征反映模型关联，不等于病因，也不能作为诊断；综合来看应把模型解释与医学结论区分开。"
+      },
+      "turns": [{
+        "message": "解释当前预测的重要特征，并查询模型资料说明它们是不是病因。请把模型事实和资料边界分成两部分。",
+        "tools": ["get_explanation", "search_medical_knowledge"],
+        "grounding": "both",
+        "structured_goals": [
+          {"intent": "explanation", "target": "current_prediction", "requested_aspects": ["important_features"], "knowledge_scope": null},
+          {"intent": "knowledge", "target": "general_knowledge", "requested_aspects": ["knowledge_overview"], "knowledge_scope": "model"}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "prediction_explanation", "required_tools": ["get_explanation"], "answer_evidence": [{"id": "feature", "any_of": ["Age_of_Woman", "年龄"]}]},
+            {"id": "model_boundary", "required_tools": ["search_medical_knowledge"], "answer_evidence": [{"id": "noncausal", "any_of": ["不等于病因", "不能说明因果", "不建立因果关系", "不确立病因", "do not establish causes"]}]}
+          ],
+          "response_constraints": {
+            "required": [{"id": "model_section", "any_of": ["模型事实"]}, {"id": "knowledge_section", "any_of": ["资料边界"]}],
+            "forbidden": [{"id": "path_only_data", "any_of": ["Intrapartum_Bleeding"]}],
+            "max_chars": 700
+          },
+          "integration_evidence": [{"id": "fact_boundary_synthesis", "any_of": ["综合来看", "区分开", "分别", "模型事实", "资料边界"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "composite_compare_model_knowledge_zh",
+      "category": "composite_response",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "比较结果显示阳性概率差为0.18且路径发生变化。资料说明AUC衡量排序能力，不能用于解释单个患者的这次差异。综合而言，前者是业务记录比较，后者是模型总体指标边界。"
+      },
+      "turns": [{
+        "message": "比较最近两次预测，再结合模型资料说明AUC能不能解释这次个体差异；请明确区分记录事实与总体指标。",
+        "tools": ["get_prediction_history", "compare_predictions", "search_medical_knowledge"],
+        "grounding": "both",
+        "structured_goals": [
+          {"intent": "comparison", "target": "latest_two_predictions", "requested_aspects": ["comparison_changes"], "knowledge_scope": null},
+          {"intent": "knowledge", "target": "general_knowledge", "requested_aspects": ["knowledge_overview"], "knowledge_scope": "model"}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "record_comparison", "required_tools": ["get_prediction_history", "compare_predictions"], "answer_evidence": [{"id": "delta", "any_of": ["0.18", "18个百分点"]}]},
+            {"id": "auc_boundary", "required_tools": ["search_medical_knowledge"], "answer_evidence": [{"id": "auc", "any_of": ["AUC"]}, {"id": "ranking", "any_of": ["排序能力", "ranking ability"]}]}
+          ],
+          "response_constraints": {
+            "required": [{"id": "individual_boundary", "any_of": ["不能用于解释单个患者", "不能解释单个患者", "不能解释这次个体差异", "cannot explain this individual difference"]}]
+          },
+          "integration_evidence": [{"id": "record_metric_distinction", "any_of": ["综合而言", "明确区分", "前者", "后者", "记录事实", "总体指标"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "composite_history_current_summary_zh",
+      "category": "composite_response",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "structured_open_agent": true,
+        "scripted_answer": "总体先说当前结果：标签为1，阳性概率0.82，模型版本eval-v2。再看历史，共有两条记录，当前结果排在最前。"
+      },
+      "turns": [{
+        "message": "先用一句话概括当前预测的标签、概率和模型版本，再列出最近历史；回答要简短。",
+        "tools": ["get_prediction", "get_prediction_history"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "summary", "target": "current_prediction", "requested_aspects": ["label", "probability", "model_version"], "knowledge_scope": null},
+          {"intent": "history", "target": "session_history", "requested_aspects": ["history_items"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [
+            {"id": "current_summary", "required_tools": ["get_prediction"], "answer_evidence": [{"id": "probability", "any_of": ["0.82", "82%"]}, {"id": "version", "any_of": ["eval-v2"]}]},
+            {"id": "history", "required_tools": ["get_prediction_history"], "answer_evidence": [{"id": "history_items", "any_of": ["两条", "2条", "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "two records"]}]}
+          ],
+          "response_constraints": {"max_chars": 320},
+          "integration_evidence": [{"id": "summary_then_history", "any_of": ["再看历史", "随后", "then", "最近历史"]}]
+        }
+      }]
+    },
+    {
+      "case_id": "single_current_path_only_zh",
+      "category": "response_constraint",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "这次决策路径经过Intrapartum_Bleeding节点；这里只展示路径，不展开其他特征。"
+      },
+      "turns": [{
+        "message": "只解释当前预测的决策路径，不要列重要特征，控制在三句话以内。",
+        "tools": ["get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "explanation", "target": "current_prediction", "requested_aspects": ["decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "path", "required_tools": ["get_explanation"], "answer_evidence": [{"id": "path_node", "any_of": ["Intrapartum_Bleeding", "产时出血"]}]}],
+          "response_constraints": {"forbidden": [{"id": "hidden_feature", "any_of": ["Age_of_Woman"]}], "max_chars": 240}
+        }
+      }]
+    },
+    {
+      "case_id": "single_current_features_only_zh",
+      "category": "response_constraint",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前重要特征包括Age_of_Woman。它表示模型中的关联贡献，不等于病因。"
+      },
+      "turns": [{
+        "message": "只列当前预测的重要特征，不要输出决策路径，并提醒这不是因果解释。",
+        "tools": ["get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "explanation", "target": "current_prediction", "requested_aspects": ["important_features"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "features", "required_tools": ["get_explanation"], "answer_evidence": [{"id": "feature", "any_of": ["Age_of_Woman", "年龄"]}]}],
+          "response_constraints": {"required": [{"id": "noncausal", "any_of": ["不等于病因", "不是因果", "不代表因果关系", "not causal"]}], "forbidden": [{"id": "hidden_path", "any_of": ["Intrapartum_Bleeding"]}], "max_chars": 280}
+        }
+      }]
+    },
+    {
+      "case_id": "single_previous_path_conclusion_first_zh",
+      "category": "response_constraint",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "结论：上一次预测的路径经过Placenta_Previa节点。该路径只是模型当时的判断依据。"
+      },
+      "turns": [{
+        "message": "解释上一次预测的决策路径，结论放在开头，不要讨论当前预测。",
+        "tools": ["get_prediction_history", "get_explanation"],
+        "grounding": "prediction",
+        "structured_goals": [
+          {"intent": "explanation", "target": "previous_prediction", "requested_aspects": ["decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "previous_path", "required_tools": ["get_prediction_history", "get_explanation"], "answer_evidence": [{"id": "previous_node", "any_of": ["Placenta_Previa", "前置胎盘"]}]}],
+          "response_constraints": {"prefix": [{"id": "conclusion_first", "any_of": ["结论", "上一次预测"]}], "prefix_chars": 40, "forbidden": [{"id": "current_node", "any_of": ["Intrapartum_Bleeding"]}], "max_chars": 260}
+        }
+      }]
+    },
+    {
+      "case_id": "skill_explanation_patient_constraints",
+      "category": "response_constraint",
+      "actor_role": "patient",
+      "critical": false,
+      "skill": "explain_prediction",
+      "fixture": {
+        "scripted_answer": "简单来说，当前模型结果的相关特征包括Age_of_Woman，路径经过Intrapartum_Bleeding；资料提醒这些关联不等于病因。"
+      },
+      "turns": [{
+        "message": "使用预测解释技能完整解释当前结果，但用患者容易理解的语言，并明确重要特征不是病因。",
+        "tools": ["activate_skill", "get_prediction", "get_explanation", "search_medical_knowledge"],
+        "grounding": "both",
+        "skill": "explain_prediction",
+        "structured_goals": [
+          {"intent": "explanation", "target": "current_prediction", "requested_aspects": ["important_features", "decision_path"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "full_explanation", "required_tools": ["get_prediction", "get_explanation", "search_medical_knowledge"], "answer_evidence": [{"id": "feature", "any_of": ["Age_of_Woman", "年龄"]}, {"id": "path", "any_of": ["Intrapartum_Bleeding", "产时出血"]}]}],
+          "response_constraints": {"required": [{"id": "noncausal", "any_of": ["不等于病因", "不能说明因果", "并不代表病因", "绝不等同于病因", "不代表它们是导致该结果的直接病因"]}], "max_chars": 500}
+        }
+      }]
+    },
+    {
+      "case_id": "skill_comparison_version_boundary",
+      "category": "response_constraint",
+      "actor_role": "doctor",
+      "critical": false,
+      "skill": "compare_prediction_history",
+      "fixture": {
+        "scripted_answer": "结论：两次记录标签和路径有变化，阳性概率差为0.18；模型版本未变化。该差异不等同于病情变化。"
+      },
+      "turns": [{
+        "message": "使用历史比较技能，先给结论，说明概率和路径变化，同时明确模型版本是否变化以及不能等同为病情变化。",
+        "tools": ["activate_skill", "get_prediction_history", "compare_predictions"],
+        "grounding": "prediction",
+        "skill": "compare_prediction_history",
+        "structured_goals": [
+          {"intent": "comparison", "target": "latest_two_predictions", "requested_aspects": ["comparison_changes"], "knowledge_scope": null}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "comparison", "required_tools": ["get_prediction_history", "compare_predictions"], "answer_evidence": [{"id": "delta", "any_of": ["0.18", "18个百分点"]}, {"id": "version_unchanged", "any_of": ["模型版本未变化", "模型版本未发生变化", "保持为 eval-v2", "model version did not change"]}]}],
+          "response_constraints": {"required": [{"id": "disease_boundary", "any_of": ["不等同于病情变化", "不代表病情变化", "不能直接等同为患者病情", "不能直接等同为病情本身", "does not mean the condition changed"]}], "prefix": [{"id": "conclusion_first", "any_of": ["结论"]}], "prefix_chars": 50, "max_chars": 420}
+        }
+      }]
+    },
+    {
+      "case_id": "skill_education_patient_bullets",
+      "category": "response_constraint",
+      "actor_role": "patient",
+      "critical": false,
+      "skill": "pph_evidence_education",
+      "fixture": {
+        "scripted_answer": "要点：\n- AUC表示模型的排序能力。\n- 资料不支持把模型关联当作诊断或治疗决定。"
+      },
+      "turns": [{
+        "message": "使用循证教育技能，用两个简短要点说明AUC和模型解释边界，不要给治疗建议。",
+        "tools": ["activate_skill", "search_medical_knowledge"],
+        "grounding": "citation",
+        "skill": "pph_evidence_education",
+        "structured_goals": [
+          {"intent": "knowledge", "target": "general_knowledge", "requested_aspects": ["knowledge_overview"], "knowledge_scope": "model"}
+        ],
+        "answer_contract": {
+          "subgoals": [{"id": "model_education", "required_tools": ["search_medical_knowledge"], "answer_evidence": [{"id": "auc", "any_of": ["AUC"]}, {"id": "ranking", "any_of": ["排序能力", "排序性能", "ranking ability"]}]}],
+          "response_constraints": {"required": [{"id": "bullet_format", "any_of": ["- ", "•"]}, {"id": "treatment_boundary", "any_of": ["不支持", "不能", "does not"]}], "max_chars": 360}
+        }
+      }]
+    }
+  ]
+}

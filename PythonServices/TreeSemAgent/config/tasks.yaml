@@ -1,0 +1,141 @@
+schema_version: 1
+tasks:
+  - scope: prediction
+    mode: deterministic
+    rule_terms:
+      - 演示样本
+      - 预测演示样本
+      - demo sample
+      - demonstration sample
+      - predict sample
+      - 运行第
+      - 预测样本
+      - 新预测
+      - 运行样本
+      - 预测一个样本
+      - run sample
+      - new prediction
+      - predict a demo case
+    intent_examples:
+      - 预测演示样本 0
+      - 请运行第 3 个演示样本
+      - 帮我对 demo sample 5 做预测
+      - 运行一个演示样本看看结果
+      - predict sample 12
+    allowed_tools:
+      - predict_sample
+    workflow_stages:
+      - predict_sample
+
+  - scope: summary
+    mode: deterministic
+    rule_terms:
+      - 标签
+      - 概率
+      - 置信度
+      - 模型版本
+      - label
+      - probability
+      - confidence
+      - model version
+    intent_examples:
+      - 查看刚才结果的标签
+      - 读取当前预测概率
+      - 当前结果的置信度是多少
+      - 给我刚才预测的模型版本
+      - 查看记录里的标签和概率
+    allowed_tools:
+      - get_prediction
+    workflow_stages:
+      - get_prediction
+
+  - scope: explanation
+    mode: deterministic
+    rule_terms:
+      - 解释
+      - explain
+      - important feature
+      - 重要特征
+      - 决策路径
+      - decision path
+    intent_examples:
+      - 解释刚才的预测结果
+      - 查看当前预测的重要特征
+      - 给我展示决策路径
+      - 为什么模型得出刚才的标签
+      - 解释上一次结果并给出概率
+    allowed_tools:
+      - get_explanation
+    workflow_stages:
+      - get_explanation
+
+  - scope: history
+    mode: deterministic
+    rule_terms:
+      - 历史
+      - history
+      - recent prediction
+      - 最近预测
+    intent_examples:
+      - 查看我的预测历史
+      - 列出最近预测
+      - 给我最近的风险评估记录
+      - 读取这个会话的历史
+      - 我之前做过哪些预测
+    allowed_tools:
+      - get_prediction_history
+    workflow_stages:
+      - get_prediction_history
+
+  - scope: comparison
+    mode: deterministic
+    rule_terms:
+      - 比较
+      - compare
+      - difference
+      - 差异
+      - 变化
+      - 对比
+      - comparing
+    intent_examples:
+      - 比较最近两次预测
+      - 这次和上次有什么差异
+      - 对比两个结果的概率变化
+      - 比较前后两条预测记录
+      - 标签有没有发生变化
+    allowed_tools:
+      - get_prediction_history
+      - compare_predictions
+    workflow_stages:
+      - get_prediction_history
+      - compare_predictions
+
+  - scope: knowledge
+    mode: deterministic
+    rule_terms:
+      - 资料
+      - 指南
+      - 知识
+      - 引用
+      - 什么是
+      - 介绍
+      - evidence
+      - guideline
+      - documentation
+      - documented
+      - cite
+      - material
+      - source
+      - what is
+      - overview
+      - knowledge
+    intent_examples:
+      - 什么是产后出血
+      - 查找产后出血指南
+      - 给我相关医学资料和引用
+      - 介绍模型的重要特征含义
+      - 这个模型有哪些已知限制
+    allowed_tools:
+      - search_medical_knowledge
+    workflow_stages:
+      - search_medical_knowledge
