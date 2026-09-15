@@ -152,11 +152,16 @@ class ToolRegistry:
             elif name == "get_prediction_history":
                 args = HistoryArgs.model_validate(arguments)
                 body = await self._backend.get_history(context, args.limit, args.cursor)
-                body = HistoryToolOutput.model_validate(body).model_dump()
+                parsed = HistoryToolOutput.model_validate(body)
+                body = parsed.model_dump(exclude_none=True)
+                # Keep the existing pagination contract while omitting only
+                # unavailable optional summary facts from older backends.
+                body["next_cursor"] = parsed.next_cursor
             elif name == "compare_predictions":
                 args = CompareArgs.model_validate(arguments)
                 body = await self._backend.compare(context, args.prediction_id_a, args.prediction_id_b)
-                body = ComparisonToolOutput.model_validate(body).model_dump()
+                body = ComparisonToolOutput.model_validate(body).model_dump(
+                    exclude_none=True)
             elif name == "search_medical_knowledge":
                 if self._knowledge is None or not context.knowledge_capability_token:
                     raise ToolExecutionError("knowledge tool is unavailable")

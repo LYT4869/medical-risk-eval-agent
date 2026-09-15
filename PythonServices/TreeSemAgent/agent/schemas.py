@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -150,6 +150,20 @@ class ExplanationToolOutput(PredictionToolOutput):
 
 class PredictionSummaryOutput(ToolOutputModel):
     prediction_id: str = Field(pattern=r"^pred_[0-9a-f]{32}$")
+    label: Literal[0, 1] | None = None
+    positive_probability: float | None = Field(
+        default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+    confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+
+    @field_validator("label", "positive_probability", "confidence", mode="before")
+    @classmethod
+    def present_summary_value_is_not_null(cls, value: Any) -> Any:
+        # Missing optional fields support older summary responses. An explicit
+        # null is malformed evidence and must not enter semantic projection.
+        if value is None:
+            raise ValueError("present prediction summary values must not be null")
+        return value
 
 
 class HistoryToolOutput(ToolOutputModel):
@@ -162,12 +176,25 @@ class ComparisonToolOutput(ToolOutputModel):
     prediction_b: PredictionSummaryOutput
     label_changed: bool
     model_version_changed: bool
-    positive_probability_delta: float
-    confidence_delta: float
+    positive_probability_delta: float = Field(
+        ge=-1.0, le=1.0, allow_inf_nan=False)
+    confidence_delta: float = Field(ge=-1.0, le=1.0, allow_inf_nan=False)
     cluster_changed: bool
     tree_leaf_changed: bool
     path_changed: bool
     changed_features: list[dict[str, Any]]
+
+    @model_validator(mode="after")
+    def score_deltas_match_endpoints(self) -> "ComparisonToolOutput":
+        for field in ("positive_probability", "confidence"):
+            before = getattr(self.prediction_a, field)
+            after = getattr(self.prediction_b, field)
+            if before is None or after is None:
+                continue
+            delta = getattr(self, field + "_delta")
+            if abs(delta - (after - before)) > 1e-9:
+                raise ValueError(field + " delta does not match prediction_b - prediction_a")
+        return self
 
 
 class KnowledgeResult(StrictModel):

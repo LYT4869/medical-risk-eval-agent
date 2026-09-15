@@ -1,8 +1,11 @@
 from copy import deepcopy
 import unittest
 
+from pydantic import ValidationError
+
 from agent.intent_frame import IntentKind, TargetKind
 from agent.intent_validation import BoundGoal, BoundTarget, ValidatedIntent
+from agent.schemas import ComparisonToolOutput
 from agent.tool_result_projection import project_tool_result
 
 
@@ -54,6 +57,44 @@ class ComparisonPresentationTest(unittest.TestCase):
         self.assertNotIn("prediction_b", evidence)
         self.assertEqual(raw, before)
 
+    def test_probability_change_has_unambiguous_value_and_unit_semantics(self):
+        change = self.project(comparison())["positive_probability_change"]
+        self.assertEqual(change, {
+            "metric": "positive_class_probability",
+            "from": {"value": 0.34, "display_value": 34.0,
+                     "display_unit": "percent"},
+            "to": {"value": 0.82, "display_value": 82.0,
+                   "display_unit": "percent"},
+            "absolute_delta": {"value": 0.48, "display_value": 48.0,
+                               "display_unit": "percentage_points"},
+            "direction": "increase",
+            "relative_change": "not_computed",
+        })
+        confidence = self.project(comparison())["confidence_change"]
+        self.assertEqual(confidence["metric"], "predicted_class_confidence")
+        self.assertEqual(confidence["from"], {
+            "value": 0.66, "display_value": 66.0, "display_unit": "percent"})
+        self.assertEqual(confidence["to"], {
+            "value": 0.82, "display_value": 82.0, "display_unit": "percent"})
+        self.assertEqual(confidence["absolute_delta"], {
+            "value": 0.16, "display_value": 16.0,
+            "display_unit": "percentage_points"})
+
+    def test_comparison_marks_model_semantics_without_clinical_inference(self):
+        evidence = self.project(comparison())
+        self.assertEqual(evidence["model_class_change"], {
+            "changed": True,
+            "from": {"code": 0, "name": "model_negative_class"},
+            "to": {"code": 1, "name": "model_positive_class"},
+        })
+        self.assertEqual(evidence["interpretation_scope"], {
+            "probability": "model_positive_class_probability",
+            "class_labels": "model_encoding_only",
+            "clinical_interpretation_supported": False,
+            "feature_threshold_is_clinical_reference_range": False,
+            "causal_attribution_supported": False,
+        })
+
     def test_feature_direction_and_values_follow_same_time_order(self):
         feature = self.project(comparison())["changed_features"][0]
         self.assertEqual(feature["original_value_from"], 80)
@@ -85,6 +126,33 @@ class ComparisonPresentationTest(unittest.TestCase):
                 evidence = self.project(raw)
                 self.assertEqual(evidence["positive_probability_delta"], expected_delta)
                 self.assertEqual(evidence["positive_probability_direction"], direction)
+                change = evidence["positive_probability_change"]
+                self.assertEqual(change["absolute_delta"]["value"],
+                                 abs(expected_delta))
+                self.assertEqual(change["absolute_delta"]["display_value"],
+                                 abs(expected_delta) * 100)
+
+    def test_comparison_contract_rejects_invalid_optional_score_values(self):
+        for invalid in (None, "0.82", float("nan"), -0.1, 1.1):
+            with self.subTest(invalid=invalid):
+                raw = comparison()
+                raw["prediction_a"]["positive_probability"] = invalid
+                with self.assertRaises(ValidationError):
+                    ComparisonToolOutput.model_validate(raw)
+
+    def test_comparison_contract_rejects_invalid_or_inconsistent_deltas(self):
+        for field in ("positive_probability_delta", "confidence_delta"):
+            for invalid in (float("nan"), float("inf"), -1.1, 1.1):
+                with self.subTest(field=field, invalid=invalid):
+                    raw = comparison()
+                    raw[field] = invalid
+                    with self.assertRaises(ValidationError):
+                        ComparisonToolOutput.model_validate(raw)
+
+        raw = comparison()
+        raw["positive_probability_delta"] = -0.47
+        with self.assertRaises(ValidationError):
+            ComparisonToolOutput.model_validate(raw)
 
     def test_explicit_pair_does_not_acquire_unrequested_time_semantics(self):
         evidence = self.project(comparison(), TargetKind.EXPLICIT_PREDICTION_PAIR)

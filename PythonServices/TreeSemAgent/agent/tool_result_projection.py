@@ -54,6 +54,32 @@ def _direction(delta: float) -> str:
     return "increase" if delta > 0 else "decrease" if delta < 0 else "unchanged"
 
 
+def _metric_change(metric: str, before: float, after: float,
+                   delta: float) -> dict[str, Any]:
+    """Describe a [0, 1] model score without turning it into prose."""
+    display = lambda value: round(100 * value, 10)
+    return {
+        "metric": metric,
+        "from": {"value": before, "display_value": display(before),
+                 "display_unit": "percent"},
+        "to": {"value": after, "display_value": display(after),
+               "display_unit": "percent"},
+        "absolute_delta": {"value": abs(delta),
+                           "display_value": display(abs(delta)),
+                           "display_unit": "percentage_points"},
+        "direction": _direction(delta),
+        # Relative change has a different denominator and is deliberately not
+        # inferred when the business comparison API did not request it.
+        "relative_change": "not_computed",
+    }
+
+
+def _model_class(code: Any) -> dict[str, Any]:
+    name = {0: "model_negative_class", 1: "model_positive_class"}.get(
+        code, "model_class_" + str(code))
+    return {"code": code, "name": name}
+
+
 def _project_comparison(content: dict[str, Any], intent: ValidatedIntent,
                         head: tuple[str, ...]) -> dict[str, Any]:
     """Normalize only the LLM evidence copy, never the backend business result."""
@@ -80,6 +106,29 @@ def _project_comparison(content: dict[str, Any], intent: ValidatedIntent,
         result[field.removesuffix("_delta") + "_direction"] = _direction(delta)
     result["positive_probability_delta_percentage_points"] = (
         100 * result["positive_probability_delta"])
+    for field, metric in (
+            ("positive_probability", "positive_class_probability"),
+            ("confidence", "predicted_class_confidence")):
+        if (result["from_prediction"].get(field) is not None and
+                result["to_prediction"].get(field) is not None):
+            result[field + "_change"] = _metric_change(
+                metric, result["from_prediction"][field],
+                result["to_prediction"][field], result[field + "_delta"])
+    from_label = result["from_prediction"].get("label")
+    to_label = result["to_prediction"].get("label")
+    if from_label is not None and to_label is not None:
+        result["model_class_change"] = {
+            "changed": from_label != to_label,
+            "from": _model_class(from_label),
+            "to": _model_class(to_label),
+        }
+    result["interpretation_scope"] = {
+        "probability": "model_positive_class_probability",
+        "class_labels": "model_encoding_only",
+        "clinical_interpretation_supported": False,
+        "feature_threshold_is_clinical_reference_range": False,
+        "causal_attribution_supported": False,
+    }
 
     features = []
     for original in content.get("changed_features", []):

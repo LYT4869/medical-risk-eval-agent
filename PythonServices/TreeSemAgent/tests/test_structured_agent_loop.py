@@ -202,7 +202,7 @@ class StructuredAgentLoopTest(unittest.TestCase):
                  ["decision_path"]),
         ], excluded_aspects=["prediction_summary"])
 
-        result, backend, _, _ = self.execute(
+        result, backend, llm, _ = self.execute(
             user_request, router_frame,
             [LlmTurn(content="这是上一条记录的决策路径。",
                      grounding_prediction_ids=[PREVIOUS])])
@@ -212,6 +212,12 @@ class StructuredAgentLoopTest(unittest.TestCase):
             ("get_explanation", PREVIOUS),
         ])
         self.assertEqual(result.grounding_prediction_ids, [PREVIOUS])
+        final_context = next(
+            item["content"] for item in llm.requests[0]
+            if item["role"] == "user" and
+            item["content"].startswith("Finalization context:"))
+        self.assertNotIn('"positive_probability":null', final_context)
+        self.assertIn('"next_cursor":null', final_context)
 
     def test_deterministic_workflow_projects_only_requested_explanation_data(self):
         user_request = request("只看当前结果的决策路径")
@@ -805,6 +811,12 @@ class StructuredAgentLoopTest(unittest.TestCase):
             "model_version_changed", "path_changed"])
         self.assertEqual(payload["subgoals"][1].get("evidence_fields_to_cover"),
                          ["decision_path"])
+        comparison_data = next(
+            item["data"] for item in payload["current_evidence"]
+            if item["tool"] == "compare_predictions")
+        self.assertNotIn("positive_probability", comparison_data["from_prediction"])
+        self.assertNotIn("confidence", comparison_data["from_prediction"])
+        self.assertNotIn("label", comparison_data["from_prediction"])
 
 
 if __name__ == "__main__":
