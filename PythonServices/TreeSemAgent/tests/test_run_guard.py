@@ -171,14 +171,81 @@ class AgentRunGuardTest(unittest.TestCase):
         self.assertIsNotNone(rejection)
         self.assertEqual(rejection.code, "knowledge_attempt_limit")
 
-    def test_successful_history_and_comparison_cannot_repeat(self):
+    def test_successful_read_tool_can_run_for_a_different_target(self):
+        guard = AgentRunGuard.for_allowed_tools({"get_explanation"})
+        first = {"prediction_id": "pred_" + "a" * 32}
+        second = {"prediction_id": "pred_" + "b" * 32}
+
+        self.assertIsNone(guard.before_tool("get_explanation", first))
+        guard.record_tool("get_explanation", "success", arguments=first)
+
+        self.assertIn("get_explanation", guard.allowed_tools())
+        self.assertIsNone(guard.before_tool("get_explanation", second))
+
+    def test_successful_read_action_cannot_repeat_with_the_same_arguments(self):
+        guard = AgentRunGuard.for_allowed_tools({"compare_predictions"})
+        first = "pred_" + "a" * 32
+        second = "pred_" + "b" * 32
+        arguments = {
+            "prediction_id_a": first,
+            "prediction_id_b": second,
+        }
+
+        guard.record_tool(
+            "compare_predictions", "success", arguments=arguments)
+
+        rejection = guard.before_tool(
+            "compare_predictions",
+            {"prediction_id_b": second, "prediction_id_a": first},
+        )
+
+        self.assertIsNotNone(rejection)
+        self.assertEqual(rejection.code, "repeated_tool_call")
+
+    def test_action_key_treats_omitted_and_explicit_defaults_as_equal(self):
+        guard = AgentRunGuard.for_allowed_tools({"get_prediction_history"})
+        guard.record_tool(
+            "get_prediction_history", "success", arguments={"limit": 5})
+
+        rejection = guard.before_tool(
+            "get_prediction_history", {"limit": 5, "cursor": None})
+
+        self.assertIsNotNone(rejection)
+        self.assertEqual(rejection.code, "repeated_tool_call")
+
+    def test_read_action_with_unusable_arguments_is_rejected_safely(self):
+        guard = AgentRunGuard.for_allowed_tools({"get_explanation"})
+
+        for arguments in (
+                {"prediction_id": float("nan")},
+                {"prediction_id": {"not", "json"}},
+        ):
+            with self.subTest(arguments=arguments):
+                rejection = guard.before_tool("get_explanation", arguments)
+                self.assertIsNotNone(rejection)
+                self.assertEqual(rejection.code, "invalid_tool_arguments")
+
+    def test_successful_history_and_comparison_actions_cannot_repeat(self):
         guard = AgentRunGuard.for_request("比较最近两次预测")
 
         guard.record_tool("get_prediction_history", "success")
-        self.assertEqual(guard.allowed_tools(), {"compare_predictions"})
+        self.assertEqual(guard.allowed_tools(), {
+            "get_prediction_history", "compare_predictions"})
+        history_rejection = guard.before_tool("get_prediction_history")
+        self.assertIsNotNone(history_rejection)
+        self.assertEqual(history_rejection.code, "repeated_tool_call")
 
-        guard.record_tool("compare_predictions", "success")
-        self.assertEqual(guard.allowed_tools(), set())
+        comparison_arguments = {
+            "prediction_id_a": "pred_" + "a" * 32,
+            "prediction_id_b": "pred_" + "b" * 32,
+        }
+        guard.record_tool(
+            "compare_predictions", "success",
+            arguments=comparison_arguments)
+        comparison_rejection = guard.before_tool(
+            "compare_predictions", comparison_arguments)
+        self.assertIsNotNone(comparison_rejection)
+        self.assertEqual(comparison_rejection.code, "repeated_tool_call")
 
     def test_skill_activation_replaces_activation_with_declared_intersection(self):
         guard = AgentRunGuard.for_request("使用预测解释技能")

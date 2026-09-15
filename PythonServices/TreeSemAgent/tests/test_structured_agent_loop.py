@@ -219,6 +219,38 @@ class StructuredAgentLoopTest(unittest.TestCase):
         self.assertNotIn('"positive_probability":null', final_context)
         self.assertIn('"next_cursor":null', final_context)
 
+    def test_open_agent_reuses_read_tool_for_two_explicit_targets(self):
+        user_request = request(
+            f"请分别解释 {LATEST} 和 {PREVIOUS} 的决策路径")
+        explanation = goal(
+            "explanation", "explicit_prediction_pair", ["分别解释"],
+            ["decision_path"])
+        explanation["target"].update({
+            "explicit_reference_index": 0,
+            "second_explicit_reference_index": 1,
+        })
+        router_frame = frame([explanation])
+
+        result, backend, _, _ = self.execute(
+            user_request, router_frame, [
+                LlmTurn(tool_calls=[LlmToolCall(
+                    id="explain-a", name="get_explanation",
+                    arguments={"prediction_id": LATEST})]),
+                LlmTurn(tool_calls=[LlmToolCall(
+                    id="explain-b", name="get_explanation",
+                    arguments={"prediction_id": PREVIOUS})]),
+                LlmTurn(
+                    content="两条预测的决策路径均已取得。",
+                    grounding_prediction_ids=[LATEST, PREVIOUS]),
+            ])
+
+        self.assertEqual(backend.calls, [
+            ("get_explanation", LATEST),
+            ("get_explanation", PREVIOUS),
+        ])
+        self.assertEqual(
+            result.grounding_prediction_ids, [LATEST, PREVIOUS])
+
     def test_deterministic_workflow_projects_only_requested_explanation_data(self):
         user_request = request("只看当前结果的决策路径")
         router_frame = frame([

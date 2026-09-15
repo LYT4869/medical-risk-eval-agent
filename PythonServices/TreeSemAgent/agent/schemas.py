@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -116,6 +117,16 @@ class LlmToolCall(StrictModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=64)
     arguments: dict[str, Any]
+
+    @field_validator("arguments")
+    @classmethod
+    def finite_json_arguments(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            json.dumps(value, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "tool arguments must contain only finite JSON values") from exc
+        return value
 
 
 class LlmUsage(StrictModel):

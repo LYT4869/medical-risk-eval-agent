@@ -8,6 +8,7 @@ from unittest.mock import patch
 from agent.llm_client import (LlmError, LlmToolPolicy, OpenAiCompatibleClient,
                               OpenAiCompatibleConfig,
                               optional_boolean_environment)
+from agent.schemas import LlmToolCall
 
 
 class _FakeResponse:
@@ -59,6 +60,18 @@ class OpenAiCompatibleClientTest(unittest.TestCase):
     def test_llm_error_rejects_unknown_error_code(self):
         with self.assertRaisesRegex(ValueError, "unknown LLM error code"):
             LlmError("unsafe upstream detail", code="provider_account_123")
+
+    def test_tool_call_arguments_must_be_finite_json_values(self):
+        for arguments in (
+                {"prediction_id": float("nan")},
+                {"prediction_id": {"not", "json"}},
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaisesRegex(
+                        ValueError, "finite JSON values"):
+                    LlmToolCall(
+                        id="call", name="get_explanation",
+                        arguments=arguments)
 
     def test_real_request_has_deterministic_output_limits(self):
         fake = _FakeAsyncClient(_FakeResponse({

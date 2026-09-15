@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from typing import Any
 
 from .routing_types import RequestScope
+from .schemas import CompareArgs, HistoryArgs, PredictionIdArgs
 from .task_registry import BUSINESS_SCOPES, TaskRegistry, load_default_registry
 
 
@@ -20,6 +23,12 @@ _READ_ONLY_NATIVE_TOOLS = {
 }
 _REGISTERED_DOMAIN_TOOLS = _READ_ONLY_NATIVE_TOOLS | {
     "predict_sample", "search_medical_knowledge",
+}
+_READ_ACTION_SCHEMAS = {
+    "get_prediction": PredictionIdArgs,
+    "get_explanation": PredictionIdArgs,
+    "get_prediction_history": HistoryArgs,
+    "compare_predictions": CompareArgs,
 }
 
 _SPECIAL_INITIAL_TOOLS = {
@@ -51,7 +60,8 @@ class AgentRunGuard:
             self._initial_tools.add("get_prediction")
         self._active_skill_tools: set[str] | None = None
         self._attempts: dict[str, int] = {}
-        self._successful: set[str] = set()
+        self._successful_tools: set[str] = set()
+        self._successful_read_actions: set[tuple[str, str]] = set()
         self._knowledge_satisfied = False
 
     @classmethod
@@ -87,7 +97,7 @@ class AgentRunGuard:
             self._active_skill_tools
             if self._active_skill_tools is not None
             else self._initial_tools)
-        allowed.difference_update(self._successful)
+        allowed.difference_update(self._successful_tools)
         if self._attempts.get("predict_sample", 0) > 0:
             allowed.discard("predict_sample")
         if (self._knowledge_satisfied or
@@ -95,24 +105,55 @@ class AgentRunGuard:
             allowed.discard("search_medical_knowledge")
         return allowed
 
-    def before_tool(self, name: str) -> GuardRejection | None:
+    @staticmethod
+    def _action_key(
+            name: str, arguments: dict[str, Any] | None
+            ) -> tuple[str, str] | None:
+        try:
+            schema = _READ_ACTION_SCHEMAS[name]
+            canonical_arguments = schema.model_validate(
+                arguments or {}).model_dump(mode="json")
+            normalized = json.dumps(
+                canonical_arguments, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False)
+        except (KeyError, TypeError, ValueError):
+            return None
+        return name, normalized
+
+    def before_tool(
+            self, name: str,
+            arguments: dict[str, Any] | None = None) -> GuardRejection | None:
         if (name == "search_medical_knowledge" and
                 self._attempts.get(name, 0) >= 2):
             return GuardRejection(
                 "knowledge_attempt_limit", "knowledge attempt limit reached")
         if name not in self.allowed_tools():
             return GuardRejection("tool_not_allowed", "tool is not allowed")
+        if name in _READ_ONLY_NATIVE_TOOLS:
+            action_key = self._action_key(name, arguments)
+            if action_key is None:
+                return GuardRejection(
+                    "invalid_tool_arguments", "tool arguments are invalid")
+            if action_key in self._successful_read_actions:
+                return GuardRejection(
+                    "repeated_tool_call", "successful action already completed")
         return None
 
     def record_tool(self, name: str, status: str,
-                    citation_count: int = 0) -> None:
+                    citation_count: int = 0,
+                    arguments: dict[str, Any] | None = None) -> None:
         self._attempts[name] = self._attempts.get(name, 0) + 1
         if name == "search_medical_knowledge":
             self._knowledge_satisfied = (
                 self._knowledge_satisfied or
                 (status == "success" and citation_count > 0))
-        if status == "success" and name != "search_medical_knowledge":
-            self._successful.add(name)
+        if status != "success" or name == "search_medical_knowledge":
+            return
+        action_key = self._action_key(name, arguments)
+        if name in _READ_ONLY_NATIVE_TOOLS and action_key is not None:
+            self._successful_read_actions.add(action_key)
+        elif name not in _READ_ONLY_NATIVE_TOOLS:
+            self._successful_tools.add(name)
 
     def record_skill_activation(self, required_tools: set[str]) -> None:
         self._active_skill_tools = (

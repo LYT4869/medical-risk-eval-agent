@@ -504,7 +504,7 @@ class AgentLoop:
                             }),
                         })
                         continue
-                rejection = guard.before_tool(call.name)
+                rejection = guard.before_tool(call.name, call.arguments)
                 if rejection is not None:
                     usage = ToolUse(
                         name=call.name, status="error", duration_ms=0)
@@ -531,7 +531,8 @@ class AgentLoop:
                     knowledge_index_version = result.index_version
                 guard.record_tool(
                     call.name, result.usage.status,
-                    citation_count=len(result.citations))
+                    citation_count=len(result.citations),
+                    arguments=call.arguments)
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result.content, ensure_ascii=False)})
                 if result.skill_activation is not None:
                     if (plan.expected_skill_id is not None and
@@ -1149,7 +1150,7 @@ class AgentLoop:
                         deadline, route_attempts, accounting)
                 calls += 1
                 state.tool_attempts += 1
-                rejection = guard.before_tool(call.name)
+                rejection = guard.before_tool(call.name, call.arguments)
                 if rejection is not None:
                     state.record(
                         call.name, {}, {"error": rejection.code},
@@ -1184,7 +1185,8 @@ class AgentLoop:
                     knowledge_index_version = result.index_version
                 guard.record_tool(
                     call.name, result.usage.status,
-                    citation_count=len(result.citations))
+                    citation_count=len(result.citations),
+                    arguments=call.arguments)
                 if result.skill_activation is not None:
                     active_skill = result.skill_activation
                     guard.record_skill_activation(active_skill.required_tools)

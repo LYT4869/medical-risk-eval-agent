@@ -512,6 +512,35 @@ class AgentLoopTest(unittest.TestCase):
                     "message": "帮我看看这个情况"})))
         self.assertEqual(caught.exception.code, "repeated_tool_call")
 
+    def test_legacy_open_agent_reuses_read_tool_for_different_targets(self):
+        prediction_a = "pred_" + "a" * 32
+        prediction_b = "pred_" + "b" * 32
+        llm = ScriptedLlmClient([
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="c1", name="get_explanation",
+                arguments={"prediction_id": prediction_a})]),
+            LlmTurn(tool_calls=[LlmToolCall(
+                id="c2", name="get_explanation",
+                arguments={"prediction_id": prediction_b})]),
+            LlmTurn(
+                content=f"Compared {prediction_a} with {prediction_b}.",
+                grounding_prediction_ids=[prediction_a, prediction_b]),
+        ])
+        backend = FakeBackend()
+        router = FakeRouter(RoutingDecision(
+            RequestScope.UNKNOWN, RoutingSource.RULE))
+
+        result = asyncio.run(AgentLoop(
+            llm, ToolRegistry(backend), router=router).run(
+                request().model_copy(update={"message": "处理这两条记录"})))
+
+        self.assertEqual(backend.calls, [
+            ("get_explanation", prediction_a),
+            ("get_explanation", prediction_b),
+        ])
+        self.assertEqual(
+            result.grounding_prediction_ids, [prediction_a, prediction_b])
+
     def test_llm_failure_has_stable_code(self):
         class FailingLlmClient:
             async def complete(
