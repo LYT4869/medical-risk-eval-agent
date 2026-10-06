@@ -414,7 +414,7 @@ Tool Node
 → primarily produces trusted facts
 → records them in ExecutionState
 
-Policy / Check Node
+Policy Node
 → reads trusted facts
 → derives finite Workflow control state
 → writes WorkflowState
@@ -442,7 +442,228 @@ This keeps business reasoning out of the generic Graph Executor.
 
 ---
 
-## 9. Tool error routing
+## 9. Node model
+
+### 9.1 Decision
+
+V1 uses a **single declarative `WorkflowNode` model with a small `NodeKind` enum**, rather than a large inheritance hierarchy or arbitrary Python callbacks.
+
+Executable node kinds in V1:
+
+```text
+TOOL
+POLICY
+```
+
+Graph termination is represented by terminal outcomes such as:
+
+```text
+END_SUCCESS
+END_DEGRADED
+END_FAILURE
+```
+
+Terminals are not ordinary executable business nodes.
+
+### 9.2 Tool Node
+
+A Tool Node invokes one registered Tool and produces trusted execution facts.
+
+Examples:
+
+```text
+prediction
+explanation
+knowledge_search
+```
+
+Conceptual behavior:
+
+```text
+resolve arguments
+    ↓
+ToolRegistry.execute(...)
+    ↓
+Tool Result
+    ↓
+ExecutionState.record(...)
+```
+
+A Tool Node must **not** decide which node runs next. It executes and records facts only; graph routing belongs to Edges.
+
+Tool Nodes should preserve the existing explicit argument-binding mechanism where possible, including `tool_name` and `ArgumentSource`.
+
+Conceptual definition:
+
+```text
+WorkflowNode
+    node_id = "fetch_explanation"
+    kind = TOOL
+    tool_name = "get_explanation"
+    argument_source = BOUND_PREDICTION
+```
+
+### 9.3 Policy Node
+
+A Policy Node reads trusted facts and derives finite deterministic Workflow control state. It does not call an external service or an LLM.
+
+Examples:
+
+```text
+risk_policy
+evidence_check
+```
+
+`risk_policy`:
+
+```text
+ExecutionState prediction facts
+    ↓
+label = 0 / 1
+    ↓
+WorkflowState.workflow_risk_band
+```
+
+`evidence_check`:
+
+```text
+ValidatedIntent + ExecutionState evidence
+    ↓
+WorkflowState.evidence_status
+```
+
+Do not create a separate `CHECK` node kind for V1. Evidence checks, validation-style derivations, and similar deterministic read-and-derive operations are all `POLICY` nodes.
+
+### 9.4 Why there is no separate Check / Transform / Decision node kind
+
+For V1, the following operations share the same essential contract:
+
+```text
+read trusted state
+    ↓
+perform deterministic program logic
+    ↓
+write a finite control value
+```
+
+Creating separate node kinds such as `CHECK`, `TRANSFORM`, or `DECISION` would add framework abstraction without solving a current business need.
+
+### 9.5 Node and Edge responsibilities must remain separate
+
+A Node defines:
+
+> What work is performed?
+
+An Edge defines:
+
+> Given the resulting control state, where may execution go next?
+
+Therefore a Node must not embed routing logic such as:
+
+```text
+execute
+if condition:
+    next = A
+else:
+    next = B
+```
+
+Instead:
+
+```text
+risk_policy Node
+    ↓
+workflow_risk_band
+    ↓
+Graph Edge
+    ├─ MODEL_POSITIVE → explanation
+    └─ MODEL_NEGATIVE → evidence_check
+```
+
+This prevents business routing from leaking back into Node handlers or the generic Graph Executor.
+
+### 9.6 Declarative model, not subclass hierarchy
+
+Do not introduce a class hierarchy such as:
+
+```text
+BaseNode
+ ├─ ToolNode
+ ├─ RiskPolicyNode
+ ├─ EvidenceCheckNode
+ └─ KnowledgeNode
+```
+
+Prefer one declarative model such as:
+
+```text
+WorkflowNode
+    node_id
+    kind
+    tool_name / argument_source      # TOOL
+    policy_handler                   # POLICY
+```
+
+Exact field names and validation rules will be finalized with the Graph Registry design.
+
+The reasons are:
+
+- easier static graph validation
+- easier graph version hashing
+- consistent with the existing declarative `WorkflowRegistry` style
+- fewer small framework classes
+- clearer separation between node metadata and handler implementation
+
+Arbitrary anonymous callbacks or lambdas should not be used as Node definitions because they weaken validation, introspection, versioning, and testability.
+
+### 9.7 Final response generation is outside the graph in V1
+
+Do not add `FinalGenerateNode`, generic LLM nodes, or response-rendering nodes to the V1 SubGraph.
+
+The graph is responsible for preparing the trusted facts and Evidence required to answer the request and then ending with a terminal outcome.
+
+```text
+Conditional Workflow
+       ↓
+trusted facts + Evidence ready
+       ↓
+END_SUCCESS / END_DEGRADED / END_FAILURE
+       ↓
+existing Final Response layer
+       ↓
+response to doctor
+```
+
+This limits the scope of the graph migration and preserves the existing response-policy / grounding layer.
+
+### 9.8 Initial V1 business nodes
+
+The first Conditional SubGraph is expected to use:
+
+```text
+TOOL
+────
+prediction
+explanation
+knowledge_search
+
+POLICY
+──────
+risk_policy
+evidence_check
+
+TERMINAL
+────────
+END_SUCCESS
+END_DEGRADED
+END_FAILURE
+```
+
+The same `evidence_check` Policy Node may be revisited after knowledge retrieval. The Graph Executor must therefore later define bounded node-attempt / cycle protection so the graph cannot loop indefinitely.
+
+---
+
+## 10. Tool error routing
 
 Tool outcomes should eventually become explicit graph-routing states rather than being handled only as an early return from the linear executor.
 
@@ -472,7 +693,7 @@ The exact error classifier and retry-edge representation are still open design q
 
 ---
 
-## 10. V1 scope
+## 11. V1 scope
 
 V1 should implement enough graph behavior to solve real business branching without becoming a general graph framework.
 
@@ -482,16 +703,17 @@ Required V1 capabilities:
 2. Explicit normal and conditional Edges.
 3. Runtime next-node resolution from `WorkflowState`.
 4. `WorkflowState` layered over existing `ExecutionState`.
-5. Risk Policy branch (`MODEL_NEGATIVE / MODEL_POSITIVE`).
-6. User-requested explanation branch.
-7. Evidence branch (`SUFFICIENT / CORE_EVIDENCE_MISSING / CLINICAL_EVIDENCE_MISSING`).
-8. RAG evidence-repair branch.
-9. Explicit success / retryable / fatal Tool outcome path, at least for the first SubGraph.
-10. Bounded execution protection such as node/tool-call limits and termination reason.
+5. `TOOL` and `POLICY` executable node kinds plus terminal outcomes.
+6. Risk Policy branch (`MODEL_NEGATIVE / MODEL_POSITIVE`).
+7. User-requested explanation branch.
+8. Evidence branch (`SUFFICIENT / CORE_EVIDENCE_MISSING / CLINICAL_EVIDENCE_MISSING`).
+9. RAG evidence-repair branch.
+10. Explicit success / retryable / fatal Tool outcome path, at least for the first SubGraph.
+11. Bounded execution protection such as node/tool-call limits and termination reason.
 
 ---
 
-## 11. Explicit non-goals for V1
+## 12. Explicit non-goals for V1
 
 Do not add these merely to make the system look more like LangGraph:
 
@@ -506,50 +728,50 @@ Do not add these merely to make the system look more like LangGraph:
 - low / medium / high clinical-risk thresholds without validation
 - replacing the top-level Router / Dispatcher architecture
 - migrating the entire project to LangGraph
+- a large Node subclass hierarchy
+- generic LLM / final-response nodes inside the Workflow graph
 
 ---
 
-## 12. Design principles agreed so far
+## 13. Design principles agreed so far
 
 1. **The graph is predefined; the runtime path is state-dependent.**
 2. **Deterministic facts stay in program-controlled state.**
 3. **LLM freedom is introduced only where semantic uncertainty requires it.**
 4. **ExecutionState is the fact layer; WorkflowState is the control layer.**
-5. **Nodes derive state; Edges route on finite state.**
-6. **RAG repairs missing knowledge evidence, not missing model facts.**
-7. **No artificial HITL for read-only doctor-facing analysis.**
-8. **Do not redesign the whole Agent around a graph framework.**
-9. **The upgrade must solve actual branching needs, not merely rename linear stages as nodes.**
+5. **Tool Nodes create trusted facts; Policy Nodes derive finite control state; Edges perform routing.**
+6. **Nodes never choose their own next node.**
+7. **RAG repairs missing knowledge evidence, not missing model facts.**
+8. **No artificial HITL for read-only doctor-facing analysis.**
+9. **Do not redesign the whole Agent around a graph framework.**
+10. **The upgrade must solve actual branching needs, not merely rename linear stages as nodes.**
+11. **Final natural-language generation remains outside the Workflow graph in V1.**
 
 ---
 
-## 13. Open design questions
+## 14. Open design questions
 
 The following must be resolved and recorded here before implementation:
 
-1. **Node model**
-   - Which Node types exist in V1?
-   - Tool Node vs Policy Node vs Evidence Check Node vs terminal/fallback behavior.
-
-2. **Edge model**
+1. **Edge model**
    - Exact normal-edge and conditional-edge representation.
    - Whether conditions are registered Python functions, enums/policies, or another constrained representation.
 
-3. **Argument binding**
+2. **Argument binding**
    - How much of the existing `ArgumentSource` mechanism remains.
    - How Nodes access results from `ExecutionState` without duplicating data.
 
-4. **Graph Executor**
+3. **Graph Executor**
    - Exact execution loop.
    - Node-attempt limits, cycle handling, deadline and tool-call budgets.
 
-5. **Backward compatibility**
+4. **Backward compatibility**
    - Whether current linear `WorkflowRecipe` definitions are migrated all at once or adapted into the new graph representation.
 
-6. **Error routing**
+5. **Error routing**
    - Exact retryable/fatal classification and bounded retry behavior.
 
-7. **Testing**
+6. **Testing**
    - Graph validation tests.
    - Branch-path tests.
    - Existing deterministic Workflow regression tests.
@@ -557,7 +779,7 @@ The following must be resolved and recorded here before implementation:
 
 ---
 
-## 14. Implementation gate
+## 15. Implementation gate
 
 No product-code implementation should begin until:
 
