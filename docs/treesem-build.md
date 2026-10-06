@@ -185,12 +185,19 @@ pip install -r PythonServices/TreeSemAgent/requirements.txt
 export PYTHONPATH="$PWD/PythonServices/TreeSemAgent"
 export TREESEM_AGENT_LLM_BASE_URL=http://127.0.0.1:8000/v1
 export TREESEM_AGENT_LLM_MODEL=your-openai-compatible-model
+export TREESEM_AGENT_LLM_TEMPERATURE=0
+export TREESEM_AGENT_LLM_MAX_OUTPUT_TOKENS=1024
 export TREESEM_AGENT_BACKEND_URL=http://127.0.0.1:18080
 export TREESEM_AGENT_SERVICE_SECRET='replace-with-a-distinct-32-byte-secret'
 uvicorn server:app --host 127.0.0.1 --port 8091
 ```
 
 Python `/ready` 只探测 C++ Tool Backend，不发起付费 LLM 请求。CI 使用 Fake LLM，不依赖外网。
+如果宿主机必须通过代理访问云端模型，还需把 `HTTP_PROXY`、`HTTPS_PROXY`
+传入 Agent 容器，并确保 `NO_PROXY` 至少包含
+`backend,knowledge,model-adapter,mysql,127.0.0.1,localhost`，避免内部 Tool 请求绕到外部代理。
+真实模型接入、限量评测和当前实测结果见
+[真实大模型接入与验证](real-llm-integration.md)。
 
 ## 10. required 认证模式
 

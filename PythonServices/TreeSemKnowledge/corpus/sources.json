@@ -2,6 +2,21 @@
   "schema_version": 1,
   "sources": [
     {
+      "source_id": "src_treesem_label_coding",
+      "title": "treeSem PPH 标签编码与推理机制 / Label coding and inference",
+      "publisher": "treeSem project",
+      "source_type": "project_documentation",
+      "audience": "both",
+      "knowledge_scope": "model_public",
+      "version": "encoding-contract-v1",
+      "published_at": "2026-09-14",
+      "original_url": "treesem://project/label-coding",
+      "local_path": "model/treesem-label-coding.md",
+      "license_note": "Project-owned documentation; numerical encoding, not a clinical data dictionary",
+      "sha256": "8b8670d9afbab0f7dbdd4529509cac8abcf764c182b53e81d4b85d771fae1070",
+      "ingested_at": "2026-09-14T00:00:00Z"
+    },
+    {
       "source_id": "src_treesem_serving",
       "title": "treeSem Serving Model",
       "publisher": "treeSem project",

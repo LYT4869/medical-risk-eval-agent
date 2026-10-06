@@ -9,3 +9,4 @@ __pycache__/
 .pytest_cache/
 /artifacts/
 /PythonServices/TreeSemKnowledge/corpus/raw/
+/.worktrees/

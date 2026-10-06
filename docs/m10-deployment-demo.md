@@ -45,11 +45,12 @@ make demo-observability
 - MySQL 重启前后 Prediction/Agent Run/Chat Message 计数均保持 `19/6/12`，Backend `/ready` 自动恢复为 200。
 - Prometheus 的 Backend、Agent、Knowledge 三个 Target 全部为 `up`，Grafana 11.5.2 health 为 `database=ok` 且 Dashboard 完成预置。
 - Backend 接收 SIGTERM 后 1 秒内以退出码 0 停止，随后能够正常恢复健康。
-- 本地 CTest `27/27` 通过；60 条确定性 Agent Evaluation 全部通过，引用、grounding、医疗边界和跨角色隔离硬指标均为 100%。
+- 本地 CTest `27/27` 通过；64 条独立 Agent 场景（79 轮）确定性评测全部通过，引用、grounding、医疗边界和故障恢复符合预期。真实跨角色隔离由 Gateway RBAC 集成测试验证，不从合成 Agent 评测推断。
+- 真实 `qwen3.7-plus-2026-05-26` 对同一 64 场景完成一次决策评测：任务成功、Prediction Grounding、Citation 与医疗安全指标为 100%，编排合规率 96.875%；该证据不替代真实 Gateway RBAC E2E。
 
 容器联调额外发现并修复了两个只在干净镜像中暴露的问题：旧版 MySQL Connector/C++ 读取 JSON 类型结果时需要显式 `CAST(... AS CHAR)`，并且相邻查询前应及时释放 ResultSet；私有只读 Artifact bind mount 则通过宿主 UID/GID 映射读取，不放宽患者派生数据的文件权限。
 
-Fast CI 运行无外部 Artifact 的 C++/Python 单元测试、60 条确定性 Agent 评测、Compose 配置、密钥/大文件检查。`verify-full` 用于具备 ONNX Bundle、知识索引、MySQL 和 Docker 的本地环境。
+Fast CI 运行无外部 Artifact 的 C++/Python 单元测试、64 条确定性 Agent 场景评测、Compose 配置、密钥/大文件检查。`verify-full` 用于具备 ONNX Bundle、知识索引、MySQL 和 Docker 的本地环境。
 
 ## 面试重点
 

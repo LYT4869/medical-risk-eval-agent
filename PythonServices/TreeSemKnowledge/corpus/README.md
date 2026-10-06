@@ -1,5 +1,7 @@
 # Curated knowledge corpus
 
+`model/treesem-label-coding.md` is a checksum-registered model-public reference for numerical label encoding and serving output provenance. It is not a clinical endpoint dictionary. Rebuild a separate candidate index after adding it; do not silently switch the deployed index or rewrite old missing-evidence evaluation fixtures.
+
 Only manually approved sources enter an index. `model/` contains project-owned, reviewable model documentation. `approved-external-sources.json` records authoritative external candidates, but a candidate is not indexable until a reviewer creates a local snapshot, records its exact SHA-256 in `sources.json`, and confirms the licence note.
 
 Raw external files belong under `corpus/raw/`; that directory and all generated indexes are Git-ignored. This prevents a URL changing silently and avoids committing third-party full text. The production source manifest must use the strict fields validated by `SourceRecord`, including `local_path`, `sha256`, and `ingested_at`.

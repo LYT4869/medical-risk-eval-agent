@@ -2,24 +2,79 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import threading
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 try:
     import httpx
 except ModuleNotFoundError:  # Unit tests using ScriptedLlmClient need no HTTP stack.
     httpx = None  # type: ignore[assignment]
 
-from .schemas import LlmToolCall, LlmTurn
+from .schemas import LlmToolCall, LlmTurn, LlmUsage
+from .final_response import parse_final_response
 
 
 class LlmError(RuntimeError):
-    pass
+    _CODES = frozenset({
+        "llm_failed",
+        "upstream_unavailable",
+        "upstream_rejected",
+        "transport_error",
+        "invalid_response",
+    })
+
+    def __init__(self, message: str, *, code: str = "llm_failed",
+                 retryable: bool = True):
+        if code not in self._CODES:
+            raise ValueError("unknown LLM error code")
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+
+
+@dataclass(frozen=True)
+class LlmToolPolicy:
+    mode: Literal["auto", "none", "required"]
+    required_tool: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.mode == "required") != (self.required_tool is not None):
+            raise ValueError(
+                "required Tool policy must name exactly one Tool")
+
+    @classmethod
+    def auto(cls) -> LlmToolPolicy:
+        return cls("auto")
+
+    @classmethod
+    def none(cls) -> LlmToolPolicy:
+        return cls("none")
+
+    @classmethod
+    def required(cls, name: str) -> LlmToolPolicy:
+        if not name:
+            raise ValueError("required Tool name must not be empty")
+        return cls("required", name)
+
+
+def optional_boolean_environment(name: str) -> bool | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    value = raw.strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError(f"{name} must be true or false")
+    return value == "true"
 
 
 class LlmClient(Protocol):
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn: ...
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn: ...
 
 
 @dataclass(frozen=True)
@@ -29,6 +84,14 @@ class OpenAiCompatibleConfig:
     api_key: str = ""
     connect_timeout_seconds: float = 1.0
     request_timeout_seconds: float = 20.0
+    temperature: float = 0.0
+    max_output_tokens: int = 1024
+    enable_thinking: bool | None = None
+    maximum_attempts: int = 2
+
+    def __post_init__(self) -> None:
+        if self.maximum_attempts not in {1, 2}:
+            raise ValueError("maximum_attempts must be 1 or 2")
 
 
 class OpenAiCompatibleClient:
@@ -41,26 +104,91 @@ class OpenAiCompatibleClient:
             timeout=httpx.Timeout(config.request_timeout_seconds, connect=config.connect_timeout_seconds),
             limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
         )
+        self._http_error_type = httpx.HTTPError
+        self._usage_lock = threading.Lock()
+        self._usage = {
+            "request_count": 0,
+            "unknown_usage_request_count": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    def usage_snapshot(self) -> dict[str, int]:
+        with self._usage_lock:
+            return dict(self._usage)
 
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn:
         headers = {"Content-Type": "application/json"}
         if self._config.api_key:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
-        payload = {"model": self._config.model, "messages": messages, "tools": tools, "tool_choice": "auto"}
+        payload = {
+            "model": self._config.model,
+            "messages": messages,
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_output_tokens,
+        }
+        if self._config.enable_thinking is not None:
+            payload["enable_thinking"] = self._config.enable_thinking
+        if tool_policy.mode == "required":
+            names = {item["function"]["name"] for item in tools}
+            if tool_policy.required_tool not in names:
+                raise ValueError("required Tool is not defined")
+            payload.update({
+                "tools": tools,
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": tool_policy.required_tool},
+                },
+                "parallel_tool_calls": False,
+            })
+        elif tool_policy.mode == "auto" and tools:
+            payload.update({
+                "tools": tools,
+                "tool_choice": "auto",
+                "parallel_tool_calls": False,
+            })
+        elif tool_policy.mode == "none":
+            payload["tool_choice"] = "none"
         last_error: Exception | None = None
-        for attempt in range(2):
+        for attempt in range(self._config.maximum_attempts):
             try:
+                # Count transport admission, including retries and cancellation.
+                # Unknown usage is NOT zero cost; provider billing is authoritative.
+                with self._usage_lock:
+                    self._usage["request_count"] += 1
+                    self._usage["unknown_usage_request_count"] += 1
                 response = await self._client.post(
                     "/chat/completions", json=payload, headers=headers,
                     timeout=min(timeout, self._config.request_timeout_seconds),
                 )
                 if response.status_code == 429 or response.status_code >= 500:
-                    raise LlmError(f"retryable upstream status {response.status_code}")
+                    raise LlmError(
+                        f"retryable upstream status {response.status_code}",
+                        code="upstream_unavailable", retryable=True)
+                if response.status_code >= 400:
+                    raise LlmError(
+                        f"non-retryable upstream status {response.status_code}",
+                        code="upstream_rejected", retryable=False)
                 response.raise_for_status()
                 body = response.json()
+                usage = body.get("usage")
+                parsed_usage = None if usage is None else LlmUsage(
+                    prompt_tokens=usage["prompt_tokens"],
+                    completion_tokens=usage["completion_tokens"],
+                    total_tokens=usage["total_tokens"])
+                if parsed_usage is not None:
+                    with self._usage_lock:
+                        self._usage["unknown_usage_request_count"] -= 1
+                        self._usage["prompt_tokens"] += parsed_usage.prompt_tokens
+                        self._usage["completion_tokens"] += parsed_usage.completion_tokens
+                        self._usage["total_tokens"] += parsed_usage.total_tokens
                 message = body["choices"][0]["message"]
                 calls = []
                 for raw in message.get("tool_calls", []):
@@ -71,23 +199,40 @@ class OpenAiCompatibleClient:
                 content = message.get("content")
                 grounding = []
                 source_grounding = []
-                if content and content.lstrip().startswith("{"):
-                    try:
-                        structured = json.loads(content)
-                        content = structured.get("answer", content)
-                        grounding = structured.get("grounding_prediction_ids", [])
-                        source_grounding = structured.get(
-                            "grounding_source_ids", [])
-                    except (ValueError, TypeError):
-                        pass
+                final_error = None
+                final_structured = False
+                if not calls:
+                    parsed = parse_final_response(content)
+                    final_structured = (not parsed.error and parsed.answer != content)
+                    content = parsed.answer
+                    grounding = list(parsed.prediction_ids)
+                    source_grounding = list(parsed.source_ids)
+                    final_error = parsed.error
                 return LlmTurn(
                     content=content, tool_calls=calls,
                     grounding_prediction_ids=grounding,
-                    grounding_source_ids=source_grounding)
-            except (httpx.HTTPError, ValueError, KeyError, TypeError, LlmError) as exc:
+                    grounding_source_ids=source_grounding,
+                    usage=parsed_usage, final_response_error=final_error,
+                    final_response_is_structured=final_structured)
+            except LlmError as exc:
                 last_error = exc
-                if attempt == 0:
+                if (exc.retryable and
+                        attempt + 1 < self._config.maximum_attempts):
                     await asyncio.sleep(0.05)
+                    continue
+                raise
+            except self._http_error_type as exc:
+                last_error = LlmError(
+                    "LLM transport failed", code="transport_error",
+                    retryable=True)
+                if attempt + 1 < self._config.maximum_attempts:
+                    await asyncio.sleep(0.05)
+                    continue
+                raise last_error from exc
+            except (ValueError, KeyError, TypeError) as exc:
+                raise LlmError(
+                    "LLM response was invalid", code="invalid_response",
+                    retryable=False) from exc
         raise LlmError("LLM request failed") from last_error
 
 
@@ -96,10 +241,15 @@ class ScriptedLlmClient:
     def __init__(self, turns: list[LlmTurn]):
         self.turns = list(turns)
         self.requests: list[list[dict[str, Any]]] = []
+        self.tool_policies: list[LlmToolPolicy] = []
 
-    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+    async def complete(
+            self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+            timeout: float,
+            tool_policy: LlmToolPolicy = LlmToolPolicy.auto()) -> LlmTurn:
         del tools, timeout
         self.requests.append(messages)
+        self.tool_policies.append(tool_policy)
         if not self.turns:
             raise LlmError("script exhausted")
         return self.turns.pop(0)
@@ -133,7 +283,10 @@ class ScriptedDemoClient:
         return None
 
     async def complete(self, messages: list[dict[str, Any]],
-                       tools: list[dict[str, Any]], timeout: float) -> LlmTurn:
+                       tools: list[dict[str, Any]], timeout: float,
+                       tool_policy: LlmToolPolicy = LlmToolPolicy.auto()
+                       ) -> LlmTurn:
+        del tool_policy
         del timeout
         user = next((str(item.get("content", "")) for item in reversed(messages)
                      if item.get("role") == "user"), "")
