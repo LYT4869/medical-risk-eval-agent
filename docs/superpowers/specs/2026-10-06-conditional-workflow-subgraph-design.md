@@ -108,19 +108,24 @@ Target behavior:
                     [2] Risk Policy Node
                     deterministic mapping
                               │
-                 ┌────────────┴────────────┐
-                 │                         │
-          MODEL_NEGATIVE              MODEL_POSITIVE
-                 │                         │
-                 │                         ▼
-                 │                 [3] Explanation Node
-                 │                         │
-                 │                 important_features
-                 │                   decision_path
-                 │                         │
-                 └────────────┐            │
-                              ▼            ▼
-                       [4] Evidence Check
+                              ▼
+                 [3] Explanation Requirement
+                       Conditional Edge
+                              │
+                     need_explanation?
+                    ┌─────────┴─────────┐
+                    │                   │
+                   YES                  NO
+                    │                   │
+                    ▼                   │
+             [4] Explanation Node       │
+                    │                   │
+             important_features        │
+               decision_path           │
+                    │                   │
+                    └─────────┬─────────┘
+                              ▼
+                       [5] Evidence Check
                               │
                  ┌────────────┼─────────────┐
                  │            │             │
@@ -128,7 +133,7 @@ Target behavior:
              MISSING          MISSING            │
                  │              │                 │
                  ▼              ▼                 │
-          Fallback / End   [5] Knowledge RAG    │
+           END_FAILURE    [6] Knowledge RAG     │
                                 │                 │
                                 ▼                 │
                          Evidence Recheck ────────┘
@@ -138,11 +143,11 @@ Target behavior:
                       SUFFICIENT    STILL MISSING
                          │             │
                          ▼             ▼
-                  Final Generate   Degraded Response
+                    END_SUCCESS    END_DEGRADED
                          │             │
                          └──────┬──────┘
                                 ▼
-                               END
+                       Final Response Layer
 ```
 
 ### 4.1 Explanation routing rule
@@ -160,6 +165,8 @@ Therefore:
 - `MODEL_POSITIVE` defaults to explanation.
 - `MODEL_NEGATIVE` can skip automatic explanation.
 - If the user explicitly requested explanation, `MODEL_NEGATIVE` still enters the Explanation Node.
+
+The graph must therefore **not** branch directly from `MODEL_NEGATIVE / MODEL_POSITIVE` to separate fixed paths. The conditional edge after `risk_policy` resolves the derived predicate `need_explanation`, which combines the model band with the validated user intent.
 
 `user_requested_explanation` must come from the already validated structured intent, not from a second free-form LLM judgment inside the Workflow.
 
@@ -263,6 +270,19 @@ Evidence Recheck
 ```
 
 If evidence is still insufficient, produce a degraded response that explicitly limits itself to supported model facts instead of inventing clinical claims.
+
+A degraded outcome means the workflow still has enough trusted evidence to answer **part** of the user's request safely, but not enough to satisfy the full request. It is different from a total failure.
+
+Examples:
+
+```text
+Prediction + Explanation available
+Clinical background evidence missing after RAG
+→ END_DEGRADED
+→ answer only the supported prediction/explanation portion and state the limitation
+```
+
+If the core fact needed for the user's primary goal is unavailable, use `END_FAILURE` rather than pretending a partial answer is sufficient. Goal-completion information in `ExecutionState` should be used when this distinction depends on whether the primary goal can still be partially satisfied.
 
 ### 6.3 Evidence sufficient
 
