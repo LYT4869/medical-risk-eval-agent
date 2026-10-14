@@ -64,20 +64,70 @@ def trace_event(trace: TraceState, operation: str, started: float,
 class Metrics:
     _bounds = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
                1.0, 2.5, 5.0, 10.0, 30.0)
+    _structured_labels = {
+        "treesem_agent_final_repairs_total": {
+            "result": frozenset({"attempted", "success", "failed"}),
+        },
+        "treesem_agent_intent_router_requests_total": {
+            "result": frozenset({
+                "success", "intent_router_unavailable",
+                "invalid_intent_frame"}),
+        },
+        "treesem_agent_intent_router_repairs_total": {
+            "result": frozenset({"success", "failed"}),
+        },
+        "treesem_agent_intent_router_duration_seconds": {
+            "result": frozenset({
+                "success", "intent_router_unavailable",
+                "invalid_intent_frame"}),
+        },
+        "treesem_agent_intent_dispatch_total": {
+            "dispatch": frozenset({
+                "workflow", "composite_workflow", "clarification",
+                "open_agent", "invalid"}),
+        },
+        "treesem_agent_intent_shadow_total": {
+            "result": frozenset({
+                "match", "mismatch", "router_failure", "invalid_frame"}),
+        },
+        "treesem_agent_workflow_executions_total": {
+            "result": frozenset({"success", "failure"}),
+            "recipe_class": frozenset({"single", "composite"}),
+        },
+        "treesem_agent_llm_calls_per_run": {},
+        "treesem_agent_llm_tokens_per_run": {
+            "kind": frozenset({"prompt", "completion", "total"}),
+        },
+        "treesem_agent_llm_duration_per_run_seconds": {},
+    }
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], int] = {}
         self._histograms: dict[tuple[str, tuple[tuple[str, str], ...]], _Histogram] = {}
 
-    @staticmethod
-    def _key(name: str, labels: dict[str, str]) -> tuple[str, tuple[tuple[str, str], ...]]:
+    @classmethod
+    def _key(cls, name: str, labels: dict[str, str]) -> tuple[str, tuple[tuple[str, str], ...]]:
+        contract = cls._structured_labels.get(name)
+        if contract is not None:
+            if set(labels) != set(contract):
+                raise ValueError(
+                    f"{name} labels do not match the fixed contract")
+            for key, value in labels.items():
+                if value not in contract[key]:
+                    raise ValueError(
+                        f"{name} has an invalid {key} label value")
         return name, tuple(sorted(labels.items()))
 
     def increment(self, name: str, **labels: str) -> None:
+        self.add(name, 1, **labels)
+
+    def add(self, name: str, amount: int, **labels: str) -> None:
+        if amount < 0:
+            raise ValueError("counter amount must be non-negative")
         with self._lock:
             key = self._key(name, labels)
-            self._counters[key] = self._counters.get(key, 0) + 1
+            self._counters[key] = self._counters.get(key, 0) + amount
 
     def observe(self, name: str, value: float, **labels: str) -> None:
         with self._lock:

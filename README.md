@@ -8,7 +8,9 @@ Browser -> C++ Gateway -> ONNX treeSem / MySQL
                                     \-> Knowledge MCP / RAG
 ```
 
-当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。60 条确定性 Agent 场景全部通过。完整证据不手工写死在代码中，由质量审计和评测脚本生成。
+当前可信 seed42 结果：Accuracy `0.963734`、Positive F1 `0.625`、AUC `0.928790`；1489 个样本 Python/C++ 最大概率差 `1.79e-7`。64 条独立 Agent 场景（79 轮）确定性评测全部通过；真实 `qwen3.7-plus-2026-05-26` 完整单次评测任务成功率、Prediction Grounding、Citation 与医疗安全指标均为 `100%`，编排合规率 `96.875%`。完整历史、口径和失败审计由评测脚本及报告保留。
+
+Agent 意图路由默认采用“确定性安全策略 + 高精度规则快路径 + 受限 Open Agent”。项目另实现了 Structured LLM Router：模型输出业务 Goal、Target、Aspect、Constraint 和可选 Skill 执行偏好，可信代码再做 Schema、证据、目标绑定和 Workflow 映射，C++ 最终执行资源授权。Schema v2 的真实 qwen3.7 60 条 Dev 评测达到 `96.67%` 任务成功和工作流映射、100% 安全与 Grounding；但 Schema `95.83%`、Target `91.67%` 未过预设晋级线，因此默认保持 `legacy_rule`，Structured Router 只通过配置显式启用，Validation/Heldout 未用于反向调参。
 
 ## 快速演示
 
@@ -41,6 +43,13 @@ make demo-flow
 - [M11 模型质量、Bundle v2 与发布治理](docs/m11-model-quality.md)
 - [RabbitMQ 选型 ADR](docs/adr/0001-rabbitmq-decision.md)
 - [treeSem 项目面试问题库（持续维护）](docs/treesem-interview-guide.md)
+- [真实大模型调优面试案例](docs/agent-llm-optimization-interview-case.md)
+- [Agent 混合路由评测与取舍](docs/reports/agent-routing-evaluation.md)
+- [Agent 路由与安全策略收口](docs/reports/agent-routing-safety-closure.md)
+- [Routing Quality Set 外部生成任务说明书](docs/routing-quality-set-generation-brief.md)
+- [Routing Quality Set 生成、审核与 Calibration 报告](docs/reports/routing-quality-set-review.md)
+- [Structured LLM Intent Router 首阶段评测](docs/reports/structured-intent-router-evaluation.md)
+- [Structured LLM Intent Router Schema v2 评测](docs/reports/structured-intent-router-v2-evaluation.md)
 
 新服务和接口统一使用 `treeSem`；历史训练包和可信模型产物中的 `trivae` 名称仅作为兼容边界保留。本项目应准确表述为基于现有 HTTP 框架进行二次开发。
 
@@ -53,9 +62,17 @@ make demo-flow
 ## 验证入口
 
 ```bash
-make verify       # C++ 注册测试 + 60 条确定性 Agent Evaluation
+make verify       # C++ 注册测试 + 64 条确定性 Agent Evaluation
 make verify-full  # 具备私有 Artifact 与 Docker 的本地完整门槛
+make routing-unit routing-evaluate routing-load-smoke
+make intent-router-evaluate intent-router-regression
+# 可选语义路由：显式导出后分别运行 parity 与资源基准
+make routing-export-fp32
+make routing-parity ROUTING_ARTIFACT_DIR=artifacts/agent-routing/<version> ROUTING_BACKEND=onnx_fp32
+make routing-benchmark ROUTING_ARTIFACT_DIR=artifacts/agent-routing/<version> ROUTING_BACKEND=onnx_fp32
 ```
+
+Structured Router 的三种运行模式为 `legacy_rule`、`structured_shadow` 和 `structured_llm`。当前默认是 `legacy_rule`；本地 `scripted_demo` 可在无云端凭据时显式试用结构化链路，真实模式复用 Agent 的 OpenAI-compatible 地址、模型和 API Key。
 
 2026-08-18 已完成真实 Docker 构建、完整离线 E2E、可选服务故障隔离、MySQL 重启恢复、Prometheus/Grafana 抓取和 SIGTERM 验收。详见 [M10 验证边界](docs/m10-deployment-demo.md)。
 

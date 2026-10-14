@@ -1,0 +1,3689 @@
+{
+  "dataset_version": 2,
+  "dataset_kind": "targeted",
+  "evaluation_split": "heldout",
+  "frozen_at": "2026-09-13",
+  "description": "36 synthetic frozen downstream cases; oracle semantic frames, not Router/RBAC evidence. Comparison delta is B-A, labels/probabilities are coherent, units unknown.",
+  "default_fixture": {
+    "prediction_response": {
+      "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "model": "treeSem",
+      "model_version": "eval-v2",
+      "prediction": {
+        "label": 1,
+        "positive_probability": 0.82,
+        "confidence": 0.82
+      }
+    },
+    "history_response": {
+      "items": [
+        {
+          "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "label": 1,
+          "positive_probability": 0.82,
+          "model_version": "eval-v2"
+        },
+        {
+          "prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "label": 0,
+          "positive_probability": 0.34,
+          "model_version": "eval-v2"
+        }
+      ],
+      "next_cursor": null
+    },
+    "comparison_response": {
+      "prediction_a": {
+        "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "label": 1,
+        "positive_probability": 0.82,
+        "confidence": 0.82,
+        "model_version": "eval-v2"
+      },
+      "prediction_b": {
+        "prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "label": 0,
+        "positive_probability": 0.34,
+        "confidence": 0.66,
+        "model_version": "eval-v2"
+      },
+      "label_changed": true,
+      "model_version_changed": false,
+      "positive_probability_delta": -0.48,
+      "confidence_delta": -0.16,
+      "cluster_changed": false,
+      "tree_leaf_changed": true,
+      "path_changed": true,
+      "changed_features": [
+        {
+          "name": "Intrapartum_Bleeding",
+          "original_delta": 120
+        }
+      ]
+    },
+    "explanation_by_prediction_id": {
+      "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "prediction_id": "pred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "model_version": "eval-v2",
+        "important_features": [
+          {
+            "name": "Age_of_Woman",
+            "display_name": "Age of Woman",
+            "original_value": 31,
+            "unit": null
+          }
+        ],
+        "decision_path": [
+          {
+            "feature_name": "Intrapartum_Bleeding",
+            "operator": ">",
+            "threshold_original": 80,
+            "unit": null
+          }
+        ]
+      },
+      "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+        "prediction_id": "pred_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "model_version": "eval-v2",
+        "important_features": [
+          {
+            "name": "Gestational_Age",
+            "display_name": "Gestational Age",
+            "original_value": 39,
+            "unit": null
+          }
+        ],
+        "decision_path": [
+          {
+            "feature_name": "Placenta_Previa",
+            "operator": "<=",
+            "threshold_original": 0.5,
+            "unit": null
+          }
+        ]
+      }
+    },
+    "knowledge_results": [
+      {
+        "citation_id": "cite_cccccccccccccccccccc",
+        "source_id": "src_treesem_eval",
+        "title": "Curated treeSem model boundaries",
+        "section": "Interpretation",
+        "page": 1,
+        "excerpt": "AUC measures ranking ability across samples, not the reason for one patient's prediction difference. Important features and tree paths describe model associations, not causes, diagnoses, deterioration or treatment decisions. Feature units and categorical meanings are unavailable; do not infer them from names.",
+        "publisher": "treeSem evaluation",
+        "published_at": "2026-09-11",
+        "url": "https://example.invalid/treesem-eval",
+        "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "score": 1
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "heldout_comparison_knowledge_1",
+      "category": "comparison_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "对比最新两次预测，再说明AUC为什么不能说明这次个体变化。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_knowledge_2",
+      "category": "comparison_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "先给两次预测的概率差，再结合资料区分AUC与患者自己的结果。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_knowledge_3",
+      "category": "comparison_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "我关心模型结果的变化，请比较两条记录并查一下AUC的含义。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_knowledge_4",
+      "category": "comparison_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "比较最新与前次记录，再根据模型资料解释总体AUC和个体风险是不是一回事。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_knowledge_5",
+      "category": "comparison_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "把最近两次概率差和AUC说明放在同一个回答里，不能把模型变化当成诊断。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_knowledge_6",
+      "category": "comparison_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "两次记录的后端B-A概率差为-0.48。AUC是总体排序指标，不能解释个体差异。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "Compare the latest two predictions and explain from model evidence why AUC is a population metric rather than an individual explanation.",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "get_prediction_history",
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_1",
+      "category": "explanation_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前路径包含Intrapartum_Bleeding。AUC描述排序能力，不是病因。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "只看当前路径，再查模型资料说说AUC和路径解释的区别。",
+          "tools": [
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "node",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_2",
+      "category": "explanation_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "重要特征包含Age_of_Woman，原始数值31，单位未知。AUC衡量排序。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "解释当前的重要特征，并根据模型资料谈谈AUC；不要猜测特征单位。",
+          "tools": [
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "important_features"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "feature",
+                    "any_of": [
+                      "Age_of_Woman",
+                      "Age of Woman",
+                      "年龄"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_3",
+      "category": "explanation_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前路径包含Intrapartum_Bleeding。AUC描述排序能力，不是病因。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "把当前模型的路径和AUC说明分开讲，不要推断病因。",
+          "tools": [
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "node",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_4",
+      "category": "explanation_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "上一次路径包含Placenta_Previa，不猜编码。AUC反映排序。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "请查上一次的决策路径，再说明资料中AUC这个指标的用途。",
+          "tools": [
+            "get_prediction_history",
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "previous_prediction",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_prediction_history",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "previous_node",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_5",
+      "category": "explanation_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "上一次路径包含Placenta_Previa，不猜编码。AUC反映排序。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "这次不要看当前记录，只看前次路径，顺便解释模型资料中的AUC。",
+          "tools": [
+            "get_prediction_history",
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "previous_prediction",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_prediction_history",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "previous_node",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_explanation_knowledge_6",
+      "category": "explanation_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "上一次路径包含Placenta_Previa，不猜编码。AUC反映排序。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "Explain the previous prediction's tree path and describe AUC using model evidence; do not infer clinical units.",
+          "tools": [
+            "get_prediction_history",
+            "get_explanation",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "explanation",
+              "target": "previous_prediction",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "explain",
+                "required_tools": [
+                  "get_prediction_history",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "previous_node",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_1",
+      "category": "summary_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "告诉我当前标签、概率和模型版本，然后说明资料里AUC是什么。",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_2",
+      "category": "summary_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "当前结果是多少？同时查资料解释AUC，别把指标混为单个人的结果。",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_3",
+      "category": "summary_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "我需要当前模型版本和风险概率，再给一段AUC知识说明。",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_4",
+      "category": "summary_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "先报告当前预测概率，再按模型资料说说AUC为什么是总体指标。",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_5",
+      "category": "summary_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "用一个简短回答给出当前概率和版本，并引用资料解释AUC。",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_summary_knowledge_6",
+      "category": "summary_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "当前概率0.82，版本eval-v2。AUC表示总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "Summarize the current probability and model version, then explain AUC with a verified citation.",
+          "tools": [
+            "get_prediction",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_1",
+      "category": "history_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "列出最近预测的概率，然后查模型资料解释AUC。",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_2",
+      "category": "history_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "我想看最近两条记录，同时想知道AUC的意思，请一起回答。",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_3",
+      "category": "history_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "把历史里的两次概率列出来，再引用资料谈AUC总体指标。",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_4",
+      "category": "history_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "请展示本会话预测历史，并附上来自模型资料的AUC说明。",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_5",
+      "category": "history_knowledge",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "我只要最近历史和一般模型知识：两次概率分别多少，AUC是什么？",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_history_knowledge_6",
+      "category": "history_knowledge",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史两条记录的概率为0.82和0.34。AUC说明模型的总体排序能力。cite_cccccccccccccccccccc"
+      },
+      "turns": [
+        {
+          "message": "List the probabilities in recent prediction history and explain AUC using retrieved model evidence.",
+          "tools": [
+            "get_prediction_history",
+            "search_medical_knowledge"
+          ],
+          "grounding": "both",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "knowledge",
+              "target": "general_knowledge",
+              "requested_aspects": [
+                "knowledge_overview"
+              ],
+              "knowledge_scope": "model"
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "auc",
+                "required_tools": [
+                  "search_medical_knowledge"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "auc",
+                    "any_of": [
+                      "AUC"
+                    ]
+                  },
+                  {
+                    "id": "citation",
+                    "any_of": [
+                      "cite_cccccccccccccccccccc"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_1",
+      "category": "comparison_paths",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "比较最近两条预测的概率差，并分别列出两条路径的节点。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_2",
+      "category": "comparison_paths",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "我要两次概率差及两条树路径，不要把节点编码解释成临床正常或异常。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_3",
+      "category": "comparison_paths",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "比较最新和前次结果，再逐条讲模型经过了什么路径，不要猜单位。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_4",
+      "category": "comparison_paths",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "把两条记录的概率差和决策节点整理在一起，不要当作病情判断。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_5",
+      "category": "comparison_paths",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "先对比概率，再解释两条路径，重要特征清单暂时不要展开。",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_comparison_paths_6",
+      "category": "comparison_paths",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "B-A概率差为-0.48。两条路径节点分别包括Intrapartum_Bleeding与Placenta_Previa。"
+      },
+      "turns": [
+        {
+          "message": "Compare the latest two predictions including the probability delta and explain both tree paths without clinical interpretation.",
+          "tools": [
+            "get_prediction_history",
+            "compare_predictions",
+            "get_explanation",
+            "get_explanation"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "comparison",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "comparison_changes"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "explanation",
+              "target": "latest_two_predictions",
+              "requested_aspects": [
+                "decision_path"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "compare",
+                "required_tools": [
+                  "compare_predictions"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "delta",
+                    "any_of": [
+                      "-0.48",
+                      "0.48",
+                      "48个百分点",
+                      "48 percentage"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "paths",
+                "required_tools": [
+                  "get_explanation",
+                  "get_explanation"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "Intrapartum_Bleeding",
+                      "产时出血"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "Placenta_Previa",
+                      "前置胎盘"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_1",
+      "category": "open_history_summary",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "列出最近两次概率，再概括当前概率和模型版本。",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_2",
+      "category": "open_history_summary",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "我既要历史列表，也要当前预测的概率和版本，请分开说。",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_3",
+      "category": "open_history_summary",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "先介绍当前概率和模型版本，再列出最近历史概率。",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_4",
+      "category": "open_history_summary",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "请在一个回答中给出当前模型版本和概率，然后展示两条历史。",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_5",
+      "category": "open_history_summary",
+      "actor_role": "patient",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "最近做过哪些预测？列出概率，并额外概括当前概率和模型版本。",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "heldout_open_history_summary_6",
+      "category": "open_history_summary",
+      "actor_role": "doctor",
+      "critical": false,
+      "fixture": {
+        "scripted_answer": "历史概率0.82和0.34。当前概率0.82，模型版本eval-v2。",
+        "structured_open_agent": true
+      },
+      "turns": [
+        {
+          "message": "List both recent probabilities and separately summarize the current probability and model version.",
+          "tools": [
+            "get_prediction_history",
+            "get_prediction"
+          ],
+          "grounding": "prediction",
+          "structured_goals": [
+            {
+              "intent": "history",
+              "target": "session_history",
+              "requested_aspects": [
+                "history_items"
+              ],
+              "knowledge_scope": null
+            },
+            {
+              "intent": "summary",
+              "target": "current_prediction",
+              "requested_aspects": [
+                "probability",
+                "model_version"
+              ],
+              "knowledge_scope": null
+            }
+          ],
+          "answer_contract": {
+            "subgoals": [
+              {
+                "id": "history",
+                "required_tools": [
+                  "get_prediction_history"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "a",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "b",
+                    "any_of": [
+                      "0.34",
+                      "34%"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "summary",
+                "required_tools": [
+                  "get_prediction"
+                ],
+                "answer_evidence": [
+                  {
+                    "id": "prob",
+                    "any_of": [
+                      "0.82",
+                      "82%"
+                    ]
+                  },
+                  {
+                    "id": "version",
+                    "any_of": [
+                      "eval-v2"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "response_constraints": {
+              "max_chars": 2000,
+              "forbidden": [
+                {
+                  "id": "fabricated_units",
+                  "any_of": [
+                    "31岁",
+                    "31 岁",
+                    "31 years old",
+                    "80毫升",
+                    "80 毫升",
+                    "80 mL"
+                  ]
+                }
+              ]
+            },
+            "integration_evidence": []
+          }
+        }
+      ]
+    }
+  ]
+}

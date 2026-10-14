@@ -23,6 +23,14 @@ C++ Gateway 仍是唯一外部入口和业务事实源。Python Agent 不连接 
 
 硬终止条件包括：最多 5 Step、8 次 Tool Call、25 秒总 deadline、连续重复 Tool Call，以及上游取消。GET Tool 的传输错误最多重试一次；有副作用的预测 Tool 不自动重试。LLM 的连接错误、429 和 5xx 也只能在总 deadline 内重试一次。
 
+### 意图与 Workflow 路由
+
+默认 `legacy_rule` 保留确定性安全、结构化规则快路径和受限 Open Agent。可选 Structured Router 使用独立短 Prompt 和同一 OpenAI-compatible 模型，强制 Function Calling 输出最多三个语义目标；它不能输出 Tool、权限、URL、SQL 或业务 ID。显式 Prediction ID 与样本索引先由程序提取并替换成占位符，Validator 只接受来源候选下标。
+
+稳定目标由版本化 Workflow Registry 直接执行 Tool，只有最终表达再调用 LLM；歧义引用进入无 Tool 的 clarification，未注册组合进入按目标收窄 Tool 的 Open Agent。Router 单次超时默认 3 秒、总 deadline 7 秒、最多两次尝试，且总预算必须覆盖两次单次超时和退避。
+
+真实 Dev 结果未满足默认晋级线，当前只保留 `structured_shadow`、`structured_llm` 显式模式。失败不会自动回退到更宽松的 Open Agent；需要恢复旧路径时由运维把服务级配置切回 `legacy_rule`。
+
 五个原生 Tool：
 
 | Tool | C++ Internal API |
@@ -60,6 +68,10 @@ Python 3.10 独立环境，固定 FastAPI、Uvicorn、HTTPX 和 Pydantic 版本�
 - `TREESEM_AGENT_BACKEND_URL`，默认 `http://127.0.0.1:8080`
 - `TREESEM_AGENT_MAX_STEPS=5`、`TREESEM_AGENT_MAX_TOOL_CALLS=8`
 - `TREESEM_AGENT_TOTAL_TIMEOUT_MS=25000`
+- `TREESEM_AGENT_ROUTING_MODE=legacy_rule`
+- `TREESEM_AGENT_ROUTER_REQUEST_TIMEOUT_MS=3000`
+- `TREESEM_AGENT_ROUTER_TOTAL_DEADLINE_MS=7000`
+- `TREESEM_AGENT_ROUTER_MAX_ATTEMPTS=2`
 - `TREESEM_AGENT_SERVICE_SECRET`，M6 required 模式必须配置
 
 C++ 侧使用 `TREESEM_AGENT_ENABLED`、`TREESEM_AGENT_URL`、连接/总超时以及独立 Worker/Queue 配置。Agent 队列过载返回 503，不占用推理或数据库 Scheduler。

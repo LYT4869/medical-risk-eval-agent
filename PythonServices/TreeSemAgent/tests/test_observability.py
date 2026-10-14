@@ -33,6 +33,35 @@ class ObservabilityTest(unittest.TestCase):
         self.assertRegex(trace.trace_id, r"^[0-9a-f]{32}$")
         self.assertEqual(trace.parent_span_id, "")
 
+    def test_counter_can_add_token_amount_without_high_cardinality_labels(self):
+        registry = Metrics()
+        registry.add("treesem_agent_llm_tokens_total", 120, kind="total")
+        registry.add("treesem_agent_llm_tokens_total", 30, kind="total")
+        self.assertIn(
+            'treesem_agent_llm_tokens_total{kind="total"} 150',
+            registry.render())
+
+    def test_structured_routing_series_reject_unknown_or_sensitive_labels(self):
+        registry = Metrics()
+        with self.assertRaisesRegex(ValueError, "labels"):
+            registry.increment(
+                "treesem_agent_intent_router_requests_total",
+                result="success", request_id="req_" + "a" * 32)
+        with self.assertRaisesRegex(ValueError, "label value"):
+            registry.increment(
+                "treesem_agent_intent_dispatch_total",
+                dispatch="private user sentence")
+
+    def test_final_repair_metrics_accept_only_fixed_result_labels(self):
+        registry = Metrics()
+        for result in ("attempted", "success", "failed"):
+            registry.increment("treesem_agent_final_repairs_total", result=result)
+        with self.assertRaises(ValueError):
+            registry.increment("treesem_agent_final_repairs_total", result="patient text")
+        with self.assertRaises(ValueError):
+            registry.increment("treesem_agent_final_repairs_total", result="success",
+                               request_id="req_" + "a" * 32)
+
 
 if __name__ == "__main__":
     unittest.main()
