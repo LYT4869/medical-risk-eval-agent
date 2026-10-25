@@ -211,6 +211,7 @@ endif()
 if(KAMA_ENABLE_MYSQL AND KAMA_ENABLE_AUTH)
     target_sources(treesem_runtime PRIVATE
         WebApps/TreeSemServer/src/infrastructure/persistence/V2SimArtifactStore.cpp
+        WebApps/TreeSemServer/src/infrastructure/persistence/V2SimArtifactCorrections.cpp
         WebApps/TreeSemServer/src/api/V2SimController.cpp
     )
 endif()
