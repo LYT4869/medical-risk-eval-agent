@@ -1,84 +1,122 @@
-# TreeSem V2 M2-A — Synthetic Level-0 vertical slice
+# TreeSem V2 M2 — Synthetic vertical slice, M2-A and M2-B
 
-**Status: implementation prototype.** The P001 Python M2 path uses a **separate local SQLite fake ArtifactRepository**, and the C++/MySQL SIM Artifact API is an **independent authenticated persistence boundary**. These two codepaths are **not yet connected end to end**; do not claim this is the finished C++→MySQL→Python investigation chain. No real HIS/LIS records, LLM investigation, semantic grounding, hospital deployment, physician signature, or medical diagnosis is implemented.
+> **SIM-only implementation**. This is an engineering prototype, NOT an EHR interface, validated prenatal inference, a medically grounded clinical report, or a physician signature. The sample fixture is P001 and cannot be silently substituted with real patient notes.
 
-M1-B remains the required first gate: every initial investigation **must have an explicitly confirmed Task Contract**, including a doctor-readable high-level outline. M2-A never overrides, auto-approves or bypasses that gate. The future full M2 must connect the approved Contract/actor/patient identity to C++ business persistence without trusting user-controlled identifiers.
+## Current architecture
 
-## A. Runnable Python P001 slice (fake persistence)
+M2-A's independent Python/SQLite fake remains as an offline regression path. **M2-B connects a separate gateway variant with a single authoritative C++/MySQL Run**, reusing the *actual* M1-B LangGraph `contract_gate` interrupt:
 
-The bounded Graph is:
-
-```text
-M1: doctor confirms Contract -> M1 graph END (status=contract_confirmed)
-   -> M2: check M1 confirmed Run and revision
-   -> prepare: synthetic get_patient_timeline
-   -> persist_evidence: read E-002 original record (250mL);
-                        read E-003 referral summary (about 800mL)
-   -> close_issue: I-04 closed_unresolved (retain both sources)
-   -> coverage_and_draft: six fixed template Sections + source-ID checks
-   -> restricted_draft v1 -> M2 Graph END
+```txt
+[Authenticated doctor access JWT]
+    -> C++ Gateway: CREATE V2 SIM Run + Contract preview in MySQL
+    -> Python M1 LangGraph: contract_gate interrupt (graph-only SQLite checkpoint)
+    -> Doctor confirms via authenticated request
+    -> M1 resumed node: C++ confirm(run_id, expected_revision=0)
+    -> MySQL contract_confirmed  (business truth)
+    -> C++ issues short-lived Run+patient+doctor scoped tool JWT
+    -> Python M2 Graph (new Checkpointer, same run_id):
+          get_patient_timeline [fixed synthetic adapter, E-002/E-003]
+          read_patient_record   [fixed synthetic adapter]
+          ↓
+          HTTP/internal/v2 -> C++ Owner/Assignment/Run/Auth Guard
+          ↓
+          MySQL ArtifactRepository: Evidence E-002/E-003
+          ↓
+          MySQL I-04 IssueResult (unresolved conflict)
+          ↓
+          six-section, restricted SIM template Draft v1
+    -> C++ MySQL: persist immutable Draft + journal
+    -> M2 Graph END (no DoctorReview interrupt)
+    -> Doctor GET selected report_id/revision (doctor's authenticated route)
 ```
 
-The Graph State stores **only run_id, contract revision, phase and artifact references**; there is no doctor/patient ID or note content in its Checkpoint. Clinical scope and a confirmed Contract are checked by the M1 synthetic store **before and during each step**. `SyntheticP001Tools` only accepts DOC-001/P001, explicit known tool names, E-002/E-003 and records available at the synthetic cutoff. It rejects future/unapproved sources and never calls a prenatal model or invents a probability. No actual medical semantic verification is performed: the report clearly says `template_only=true` and `validation=template_source_ids_only_not_semantic_grounding`. This **must not** be marketed as an assertion-level grounded report.
+**One authoritative business Run**, not two: new `GatewayContractWorkflow` and `GatewayM2Workflow` use the C++ Run created by the server, while their SQLite files are **only LangGraph Checkpoints**, not duplicate Run/Artifact tables. The original `v2_m1.DemoWorkflowService` and `M2SyntheticService` intentionally remain standalone local technical demonstrations. The gateway path currently supports **initial Contract confirm only**; the M1-B offline `revise/clarify` loop is **not yet supported by the C++ Contract API**. Never describe M2-B as having wired the entire M1 editing path.
 
-Use a fresh synthetic-only directory:
+### Doctor and Agent API boundaries
 
-```bash
-python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
-export PYTHONPATH=PythonServices/TreeSemAgent
-DATA_DIR=/tmp/treesem-v2-m2-demo
-python -m v2_m1.cli --data-dir "$DATA_DIR" start
-python -m v2_m1.cli --data-dir "$DATA_DIR" confirm RUN_ID \
-  --decision confirm --revision 0 --contract-revision 1
-python -m v2_m2.cli --data-dir "$DATA_DIR" RUN_ID
-python -m v2_m2.cli --data-dir "$DATA_DIR" RUN_ID
-```
+The V2 SIM API is **off by default**. It requires the explicit `TREESEM_V2_SIM_ARTIFACT_API=1` flag, `TREESEM_AUTH_MODE=required`, MySQL-enabled build and MySQL schema migration 006. All writes must declare `classification: "SIM"`, and a new Run must explicitly select `fixture_id: "P001"`. The `patient_id` URL identifies an authenticated, doctor-assigned **test patient account**, NOT the identity of a real P001 record.
 
-The final two calls return the same Draft v1 and the same four stored artifacts (two Evidence records, one IssueResult, one Draft), without duplicate operations. Neither doctor/patient ID is a credential. Revisions edited/clarified in M1 must be confirmed at their **new** revision before M2 is allowed to run.
+Public authenticated **doctor Access JWT** endpoints:
 
-SQLite `m2_artifacts.sqlite3` stores content in a separate business database; `m2_graph_checkpoints.sqlite3` is the official LangGraph Checkpointer. In `SyntheticArtifactStore.save`, each phase has a stable operation ID, a canonical request fingerprint, and an immutable artifact key. Insert and operation ledger are written under one `BEGIN IMMEDIATE` transaction. If an operation commits but its Graph node does not checkpoint, retry returns the prior artifact; a different payload under the same phase/op_id raises a conflict. **Graph nodes remain at-least-once, not exactly-once**. M2 Run-start orphan reconciliation and multi-worker shared thread ownership are not solved here.
-
-Run automated tests:
-
-```bash
-PYTHONPATH=PythonServices/TreeSemAgent python -m unittest discover \
-  -s PythonServices/TreeSemAgent/v2_m2/spec_tests -p 'test_*.py' -v
-```
-
-## B. Separate opt-in native C++/MySQL SIM Artifact API
-
-`db/migrations/006_v2_sim_artifacts.sql` adds isolated `treesem_v2_runs`, `treesem_v2_artifacts`, and `treesem_v2_operations` tables with doctor/patient owners, confirmed state, unique artifact keys, source snapshots and operation fingerprints. It **does not modify V1 session/prediction/chat records**. Apply migrations normally, then build TreeSem with `KAMA_ENABLE_MYSQL=ON`, `KAMA_ENABLE_AUTH=ON`, `KAMA_ENABLE_ONNXRUNTIME=OFF` as desired.
-
-The native API is **disabled by default**. To register its four prototype routes, explicitly set `TREESEM_V2_SIM_ARTIFACT_API=1` and use existing JWT authentication + MySQL storage; startup rejects this flag if auth/storage settings are incompatible. Routes accept **doctor Access JWT only** (not a caller-supplied doctor header), recheck doctor status and active patient assignment, bind the Run to that doctor/patient, and write to the database scheduler, not the Muduo I/O thread. No request can create/retrieve artifacts outside its owner scope.
-
-```text
+```http
 POST /api/v2/doctor/patients/:patient_id/sim-runs
-     {"idempotency_key":"m2-example-01",
-      "summary":"synthetic PPH records investigation",
-      "overview":"review existing sources, then summarize limitations"}
-     -> run_id, awaiting_confirmation, contract_revision=1
+{"idempotency_key":"unique-demo-request-id",
+ "fixture_id":"P001",
+ "summary":"what doctor wants to inspect",
+ "overview":"short high-level direction for doctor confirmation"}
 
+GET /api/v2/doctor/patients/:patient_id/sim-runs/:run_id
 POST /api/v2/doctor/patients/:patient_id/sim-runs/:run_id/confirm
-     {"expected_revision":0}
-     -> contract_confirmed
+{"expected_revision":0}
 
-POST /api/v2/doctor/patients/:patient_id/sim-runs/:run_id/artifacts
-     {"operation_id":"op_E002_v1", "kind":"evidence",
-      "artifact_key":"E-002:v1",
-      "payload":{"classification":"SIM","source_id":"E-002",...}}
-     -> immutable inserted/replayed result
-
+POST /api/v2/doctor/patients/:patient_id/sim-runs/:run_id/capability
+{}
 GET /api/v2/doctor/patients/:patient_id/sim-runs/:run_id/artifacts/:kind/:artifact_key
-     -> stored JSON, owner checked
 ```
 
-Prototype only: any uploaded payload must explicitly be `classification=SIM`. The API is not a trusted HIS/LIS source adapter, does not verify supplied clinical claims, does **not** accept real patient notes, and must never be enabled on a production clinical service. In MySQL, all artifacts are isolated per Run. Writes require confirmed state; Issue requires at least one Evidence, Draft at least one Issue. After Draft, new writes are blocked (same operation replay remains safe). Each write locks its Run row, checks source business state, inserts immutable artifact and operation result in **one transaction**; different payload under the same ID conflicts.
+**Only after a confirmed Contract** does C++ sign a short-lived `treesem-internal-tools` JWT capability scoped to a trusted doctor, assigned patient, exact run_id, and `v2_sim_status / v2_sim_artifact_read / v2_sim_artifact_write` tools. It is not a doctor access token, not a service-wide secret, and is **never put in Graph State/Checkpoint or report JSON**. The Python adapter carries this transient token **in memory** when calling:
 
-### Not yet wired / next changes before M2 complete
+```http
+GET  /internal/v2/sim-runs/:run_id
+POST /internal/v2/sim-runs/:run_id/artifacts
+{"operation_id":"op_...",
+ "kind":"evidence|issue|draft",
+ "artifact_key":"stable source/version or issue/draft key",
+ "payload":{"classification":"SIM", ...}}
+GET  /internal/v2/sim-runs/:run_id/artifacts/:kind/:artifact_key
 
-1. Use one **server-authenticated** Run/Contract store for M1 confirmation and subsequent M2 Tool/Artifact operations; do not pretend independent fake Python and C++ SIM Run IDs are a shared clinical identity.
-2. Add a **scoped internal Python→C++ capability** authorized per tool/Run/patient, or an equivalent server-owned execution channel. Doctor JWT must **not** be silently reused as a long-lived Agent service credential. The current C++ public prototype APIs exist only for synthetic manually authenticated tests.
-3. Add MySQL-backed integration tests with a test database and disabled fake patient data in public deployment; test cross-patient/cross-report isolation, idempotency retry, concurrent mutation and rejection of unsigned/unconfirmed Runs.
-4. Replace template-only source-ID checks with M5 sentence/Assertion Grounding before making any clinical reliability claim; and add real dynamic Agenda only in M3.
+Authorization: Bearer <scoped capability>
+X-TreeSem-Session-Id: v2:<run_id>
+```
 
-Build and CI validation must be checked on the specific latest commit. When run-time MySQL integration is not executed, describe the native code as **compiled**, not end-to-end verified. **No main merge without approval.**
+The C++ `SecurityMiddleware` verifies JWT audience/signature/expiration/tool scope and replaces any caller-supplied actor/role/subject/run headers; `V2SimController` further requires the route's run_id == signed run claim, doctor role+active user, and calls `AuthService.authorizeSubject` on **every** read/write (including after assignment revocation). `V2SimArtifactStore` checks that doctor/patient exactly own the Run and that an explicit confirmation happened. Public doctor requests **cannot write arbitrary Artifacts**. The capability endpoint returns the short-lived token only to the authorized doctor application; production orchestration must define an appropriately protected handoff to the Agent.
+
+### Business transaction and replay behavior
+
+`db/migrations/006_v2_sim_artifacts.sql` introduces `treesem_v2_runs`, `treesem_v2_artifacts`, and `treesem_v2_operations`; V1 tables are not modified. Creation is idempotent by (doctor, patient, idempotency_key, contract fingerprint). All Artifact writes happen under a transaction with an InnoDB Run row lock; the same transaction inserts the immutable payload and its operation journal. An unchanged request with the same `operation_id` returns its recorded result, even when the Run's status became `draft_ready`. Reusing the ID with a different payload or attempting to overwrite an immutable source returns a conflict; a report must match its Run and remain unsigned, template-only and restricted.
+
+This is **exactly-once business effect for a stable operation ID**, not exactly-once Graph execution or a distributed transaction. A C++ commit can happen before the Python Graph checkpoint; the next Graph attempt should safely replay the committed write. Graph operations and tool calls are still at-least-once. A recheck of doctor/subject/Run authorization is required even on a replay. Backend/Agent thread ownership, general reconciliation and PHI retention are not production-ready.
+
+### Reproduce and verify
+
+To validate locally, use an isolated MySQL 8 **test database**, with migrations 001–006 applied and the server compiled using MySQL/JWT:
+
+```bash
+TREESEM_DB_PASSWORD='your-local-test-password' \
+TREESEM_DB_HOST=127.0.0.1 TREESEM_DB_PORT=3306 \
+TREESEM_DB_NAME=treesem_test TREESEM_DB_USER=treesem_app \
+bash scripts/migrate_treesem_db.sh
+
+cmake -S . -B build-v2-integration \
+  -DKAMA_ENABLE_ONNXRUNTIME=OFF -DKAMA_ENABLE_MYSQL=ON \
+  -DKAMA_ENABLE_AUTH=ON -DKAMA_BUILD_TESTS=OFF
+cmake --build build-v2-integration -j2
+
+python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
+PYTHONPATH=PythonServices/TreeSemAgent \
+TREESEM_DB_HOST=127.0.0.1 TREESEM_DB_PORT=3306 \
+TREESEM_DB_NAME=treesem_test TREESEM_DB_USER=treesem_app \
+TREESEM_DB_PASSWORD='your-local-test-password' \
+python tests/test_v2_m2_gateway_integration.py build-v2-integration/treesem_server
+```
+
+The integration test creates **fake** users/assignments, signs test-only JWTs, starts the actual C++ binary, checks M1's real interrupt+MySQL confirmation, obtains a C++ signed V2 capability, runs Python M2 with both E-002 and E-003, checks MySQL operation/artifact counts, reads Draft through public doctor API, restarts C++, verifies persistence, revokes the assignment, and tests invalid token, cross-Run, replay and unauthorized access boundaries.
+
+CI job `v2_mysql_integration` runs an ephemeral MySQL 8 service alongside the actual C++/Python processes; independent M1, M2-A and existing V1 jobs run unchanged. **Only claim pass for the exact workflow run actually observed.**
+
+### Deferred, even after M2-B
+
+1. **Contract edits with the gateway**: original M1-B local revise/clarify works; native MySQL V2 Run currently supports explicit initial confirmation only. Add a versioned native Contract edit/reconfirm transaction + tests before saying that branch is integrated.
+2. **Real data Tool adapters**: `get_patient_timeline` and `read_patient_record` still read the fixed P001 JSON fixture in Python. The C++ Gateway authenticates and persists artifacts, but does not source real HIS/EMR/LIS data; a trustworthy clinical Tool source is outside this simulation.
+3. **Actual clinical Evidence verification**: template report validation is only source-ID and fixed-text checking. Sentence/Assertion Grounding, LLM ReAct/dynamic Agenda, source correction propagation, clinical review and formal signing are separate milestones.
+4. **Production execution/security**: no browser-based doctor UI, no durable encrypted secret distribution, no server-initiated internal capability handoff, no PHI processing policy, no distributed multi-worker Checkpointer fencing, and no claim of validated medical risk prediction. Never point this SIM API at production patient records.
+
+## Delivery history
+
+- M0: immutable P001 synthetic chronology Fixture.
+- M1-A: two-interrupt LangGraph technical recovery demo (historical).
+- M1-B: single mandatory initial Contract HITL with offline revise/clarify loops; no mock DoctorReview.
+- M2-A: P001 synthetic Tool→Evidence→IssueResult→Draft Graph, Fake SQLite repository, plus independent C++ SIM API compiled.
+- **M2-B: native MySQL Run and scoped C++ Artifact transport wired into M1 first-confirm path + M2 Graph, with dedicated real MySQL integration regression.**
+
+All contributions are staged through PR #4, stacked on M1 PR #3, and **not merged to main**.
