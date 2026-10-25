@@ -68,8 +68,6 @@ def main():
                 assert started["next"] == ["contract_gate"]
                 assert started["clarification_question"]
                 assert doctor.status(run)["contract_revision"] == 1
-                with __import__("contextlib").suppress(Exception):
-                    pass
                 try:
                     graph.resume_confirm(run, 0, 1)
                     raise AssertionError("unanswered clarification confirmed")
