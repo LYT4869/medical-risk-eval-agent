@@ -106,10 +106,10 @@ V2SimArtifactStore::V2SimArtifactStore(MySqlConnectionConfig config)
     auto lease = pool_.acquire();
     guarded(lease, [](sql::Connection& db) {
         auto st = query(db, "SELECT COUNT(*) AS n FROM schema_migrations WHERE version=?");
-        st->setString(1, "006_v2_sim_artifacts");
+        st->setString(1, "007_v2_sim_fixture_scope");
         auto result = std::unique_ptr<sql::ResultSet>(st->executeQuery());
         if (!result->next() || result->getInt("n") != 1)
-            fail(Kind::PersistenceFailure, "V2 SIM migration 006 missing");
+            fail(Kind::PersistenceFailure, "V2 SIM migrations 006/007 missing");
         return 0;
     });
 }
