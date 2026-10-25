@@ -266,8 +266,10 @@ void verifyDocument(const Json& document, const std::string& run,
           "M5 report identity, revision or restricted flags invalid");
     check(document.contains("model_score") && document.at("model_score").is_null(),
           "unverified prenatal model may not claim a score");
-    check(str(document,"writer_kind") ==
-          (isEdit ? "sim_deterministic_patch" : "fake_catalog"),
+    const std::string writerKind = str(document,"writer_kind");
+    check(isEdit ? writerKind == "sim_deterministic_patch" :
+          (writerKind == "fake_catalog" ||
+           writerKind == "local_model_checked_catalog"),
           "Writer was not independently verified for this prototype");
 
     const auto& coverage = part(document,"coverage");
@@ -564,7 +566,9 @@ Json V2SimArtifactStore::m5DoctorMessage(
             const auto& oldPara=sections.at(index)["paragraphs"][0];
             if (intent=="explain")
             {
-                // This is evidence-reference lookup, not new retrieval or LLM.
+                // Explanations are also subject to current source eligibility;
+                // citing a stale Hb as *current* must never pass silently.
+                ensureReportCurrent(db,runId,oldDoc,contractRev);
                 return Json{{"run_id",runId},{"report_id",reportId},
                     {"base_revision",baseRevision},{"paragraph_id",paragraphId},
                     {"conversation_id",conversationId},{"intent","explain"},
