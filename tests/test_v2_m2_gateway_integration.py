@@ -256,6 +256,13 @@ def main():
                 doctor.confirm(second_id, 0)  # explicit doctor authorization
                 token2 = doctor.issue_capability(second_id)
                 artifacts2 = GatewayArtifactRepository(transport, token2)
+                # Reject a cross-Run claim before persisting any second-run data.
+                expect_gateway_error(
+                    lambda: artifacts2.save(second_id, "issue", "I-04:r1", {
+                        "classification": "SIM", "run_id": run_id,
+                        "issue_id": "I-04", "no_diagnosis": True
+                    }), 409
+                )
                 from v2_m2.fixture_tools import SyntheticP001Tools
                 old_record = SyntheticP001Tools().records["E-002"]
                 record_key = f"{old_record['logical_id']}:v{old_record['version']}"
