@@ -230,6 +230,19 @@ Json V2SimArtifactStore::put(const std::string& runId,
         fail(Kind::InvalidInput, "invalid artifact kind");
     if (!payload.is_object() || payload.value("classification", "") != "SIM")
         fail(Kind::InvalidInput, "only synthetic artifacts are allowed");
+    if (payload.contains("run_id") &&
+        (!payload.at("run_id").is_string() ||
+         payload.at("run_id").get<std::string>() != runId))
+        fail(Kind::Conflict, "artifact references a different Run");
+    if (kind == "issue" && payload.value("no_diagnosis", false) != true)
+        fail(Kind::InvalidInput, "M2 SIM issue cannot assert a diagnosis");
+    if (kind == "draft" &&
+        (payload.value("report_id", "") != "report_" + runId ||
+         payload.value("draft_revision", 0) != 1 ||
+         payload.value("status", "") != "restricted_draft" ||
+         payload.value("not_signed", false) != true ||
+         payload.value("template_only", false) != true))
+        fail(Kind::InvalidInput, "only unsigned P001 template Draft v1 allowed");
     const std::string serialized = payload.dump();
     const std::string contentHash = hash(serialized);
     const std::string requestHash = hash(Json::array(
