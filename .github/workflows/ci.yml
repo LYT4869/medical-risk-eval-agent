@@ -62,3 +62,52 @@ jobs:
           PYTHONPATH: PythonServices/TreeSemAgent
           LANGGRAPH_STRICT_MSGPACK: 'true'
         run: python -m unittest discover -s PythonServices/TreeSemAgent/v2_m2/spec_tests -p 'test_*.py' -v
+
+  v2_mysql_integration:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: treesem_test
+          MYSQL_USER: treesem_app
+          MYSQL_PASSWORD: treesem_dev_password
+          MYSQL_ROOT_PASSWORD: root-test-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot-test-password"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TREESEM_DB_HOST: 127.0.0.1
+      TREESEM_DB_PORT: '3306'
+      TREESEM_DB_NAME: treesem_test
+      TREESEM_DB_USER: treesem_app
+      TREESEM_DB_PASSWORD: treesem_dev_password
+      PYTHONPATH: PythonServices/TreeSemAgent
+      LANGGRAPH_STRICT_MSGPACK: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install C++ MySQL/JWT build and test dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libboost-dev libssl-dev libcurl4-openssl-dev nlohmann-json3-dev libmysqlcppconn-dev libargon2-dev default-mysql-client
+      - name: Build pinned Muduo
+        run: |
+          git clone --depth 1 --branch v2.0.2 https://github.com/chenshuo/muduo.git /tmp/muduo
+          cmake -S /tmp/muduo -B /tmp/muduo/build -DMUDUO_BUILD_EXAMPLES=OFF
+          cmake --build /tmp/muduo/build -j2
+          sudo cmake --install /tmp/muduo/build
+      - name: Build native C++ gateway with MySQL and JWT
+        run: |
+          cmake -S . -B build-v2-integration -DKAMA_ENABLE_ONNXRUNTIME=OFF -DKAMA_ENABLE_MYSQL=ON -DKAMA_ENABLE_AUTH=ON -DKAMA_BUILD_TESTS=OFF
+          cmake --build build-v2-integration -j2
+      - name: Apply real MySQL 8 migrations
+        run: bash scripts/migrate_treesem_db.sh
+      - name: Install pinned LangGraph
+        run: python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
+      - name: Run C++ HTTP/SQL + durable M1/M2 cross-process integration
+        run: python tests/test_v2_m2_gateway_integration.py build-v2-integration/treesem_server
