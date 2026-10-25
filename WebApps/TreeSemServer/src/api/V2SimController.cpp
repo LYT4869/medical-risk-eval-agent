@@ -251,6 +251,9 @@ void V2SimController::confirm(http::HttpRequest request, http::AsyncResponder re
                 !body.at("expected_revision").is_number_integer())
                 reject("expected_revision is required");
             const int revision = body.at("expected_revision").get<int>();
+            if (body.contains("contract_revision") &&
+                !body.at("contract_revision").is_number_integer())
+                reject("contract_revision must be an integer");
             const int contractRevision = body.contains("contract_revision")
                 ? body.at("contract_revision").get<int>() : 1;
             const std::string runId = id(request.getPathParameters("run_id"));
