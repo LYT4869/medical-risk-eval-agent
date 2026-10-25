@@ -1,4 +1,4 @@
-"""Atomic, idempotent demo status transitions independent of graph checkpoints."""
+"""Atomic Contract revision, Run CAS, and operation journal in one demo DB."""
 from __future__ import annotations
 
 import hashlib
@@ -6,51 +6,126 @@ import json
 
 from .run_store import DemoRunStore, WorkflowConflict, operation_id
 
+MAX_PREVIEW_CHARS = 1200
 
-_TRANSITIONS = {
-    ("contract", "confirm"): ("awaiting_confirmation", "awaiting_review"),
-    ("contract", "cancel"): ("awaiting_confirmation", "cancelled"),
-    ("contract", "revise"): ("awaiting_confirmation", "needs_revision"),
-    ("review", "acknowledge"): ("awaiting_review", "completed_demo"),
-    ("review", "cancel"): ("awaiting_review", "cancelled"),
-}
+
+def _text(value: str | None, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WorkflowConflict(f"{field} must be nonempty text")
+    result = value.strip()
+    if len(result) > MAX_PREVIEW_CHARS:
+        raise WorkflowConflict(f"{field} exceeds synthetic demo limit")
+    return result
 
 
 def apply_transition(self: DemoRunStore, *, run_id: str, actor_id: str, phase: str,
                      decision: str, op_id: str, expected_revision: int,
-                     contract_revision: int) -> dict:
-    if op_id != operation_id(run_id, phase, expected_revision):
-        raise WorkflowConflict("operation ID not tied to the expected run and revision")
-    if (phase, decision) not in _TRANSITIONS:
-        raise WorkflowConflict("invalid phase or decision")
-    payload = json.dumps([run_id, actor_id, phase, decision, expected_revision,
-                          contract_revision], separators=(",", ":"))
-    fingerprint = hashlib.sha256(payload.encode()).hexdigest()
-    old_status, next_status = _TRANSITIONS[phase, decision]
+                     contract_revision: int, summary: str | None = None,
+                     overview: str | None = None,
+                     answer: str | None = None) -> dict:
+    if phase != "contract" or decision not in ("confirm", "cancel", "revise", "clarify"):
+        raise WorkflowConflict("unsupported gate/decision")
+    if (not isinstance(expected_revision, int) or isinstance(expected_revision, bool)
+            or expected_revision < 0):
+        raise WorkflowConflict("invalid business revision")
+    if (not isinstance(contract_revision, int) or isinstance(contract_revision, bool)
+            or contract_revision < 1):
+        raise WorkflowConflict("invalid contract revision")
+    if op_id != operation_id(run_id, "contract", expected_revision):
+        raise WorkflowConflict("operation ID not tied to the expected run/revision")
+    if decision in ("confirm", "cancel") and any(
+            item is not None for item in (summary, overview, answer)):
+        raise WorkflowConflict("unexpected edit payload")
+    if decision == "revise":
+        summary = _text(summary, "summary")
+        overview = _text(overview, "overview")
+        if answer is not None:
+            raise WorkflowConflict("clarification answer belongs to clarify")
+    if decision == "clarify":
+        answer = _text(answer, "answer")
+        if summary is not None or overview is not None:
+            raise WorkflowConflict("provide clarification separately from revised draft")
+
+    request = [run_id, actor_id, phase, decision, expected_revision,
+               contract_revision, summary, overview, answer]
+    fingerprint = hashlib.sha256(json.dumps(
+        request, ensure_ascii=False, separators=(",", ":")
+    ).encode()).hexdigest()
+
     with self._connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT * FROM v2_demo_runs WHERE run_id=?", (run_id,)).fetchone()
-        if row is None or row["actor_id"] != actor_id or actor_id != "DOC-001":
+        run = conn.execute(
+            "SELECT * FROM v2_demo_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if run is None or run["actor_id"] != actor_id or actor_id != "DOC-001":
             raise WorkflowConflict("unauthorized synthetic actor")
-        if row["contract_revision"] != contract_revision:
+
+        # MUST precede the current-contract check: a crash after COMMIT but
+        # before a graph checkpoint leaves the graph at the *old* revision.
+        previous = conn.execute(
+            "SELECT * FROM v2_demo_operations WHERE run_id=? AND phase=? "
+            "AND operation_id=?",
+            (run_id, phase, op_id),
+        ).fetchone()
+        if previous is not None:
+            if previous["request_sha256"] != fingerprint:
+                raise WorkflowConflict("operation ID reused with different payload")
+            return {
+                "status": previous["result_status"],
+                "revision": previous["result_revision"],
+                "contract_revision": previous["result_contract_revision"],
+            }
+
+        if run["contract_revision"] != contract_revision:
             raise WorkflowConflict("stale contract revision")
-        prior = conn.execute(
-            "SELECT * FROM v2_demo_operations WHERE run_id=? AND phase=? AND operation_id=?",
-            (run_id, phase, op_id)).fetchone()
-        if prior:
-            if prior["request_sha256"] != fingerprint:
-                raise WorkflowConflict("operation id reused with a different payload")
-            return {"status": prior["result_status"], "revision": prior["result_revision"]}
-        if row["status"] != old_status or row["revision"] != expected_revision:
-            raise WorkflowConflict("stale run revision or illegal transition")
+        if run["revision"] != expected_revision or run["status"] != "awaiting_confirmation":
+            raise WorkflowConflict("stale business revision or illegal transition")
+        current = conn.execute(
+            "SELECT * FROM v2_demo_contracts WHERE run_id=? "
+            "AND contract_revision=?",
+            (run_id, contract_revision),
+        ).fetchone()
+        if current is None:
+            raise WorkflowConflict("missing contract snapshot")
+        if decision == "confirm" and current["clarification_question"]:
+            raise WorkflowConflict("unanswered clarification blocks confirmation")
+        if decision == "clarify" and not current["clarification_question"]:
+            raise WorkflowConflict("no clarification question is pending")
+
+        next_contract_revision = contract_revision
+        if decision in ("revise", "clarify"):
+            next_contract_revision += 1
+            conn.execute(
+                "INSERT INTO v2_demo_contracts VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    run_id, next_contract_revision,
+                    summary if decision == "revise" else current["summary"],
+                    overview if decision == "revise" else current["investigation_overview"],
+                    current["clarification_question"] if decision == "revise" else None,
+                    current["clarification_answer"] if decision == "revise" else answer,
+                ),
+            )
+        status = {
+            "confirm": "contract_confirmed",
+            "cancel": "cancelled",
+            "revise": "awaiting_confirmation",
+            "clarify": "awaiting_confirmation",
+        }[decision]
         updated = conn.execute(
-            "UPDATE v2_demo_runs SET status=?, revision=revision+1 "
-            "WHERE run_id=? AND status=? AND revision=?",
-            (next_status, run_id, old_status, expected_revision)).rowcount
+            "UPDATE v2_demo_runs SET status=?, revision=revision+1, "
+            "contract_revision=? WHERE run_id=? AND status=? AND revision=? "
+            "AND contract_revision=?",
+            (status, next_contract_revision, run_id, "awaiting_confirmation",
+             expected_revision, contract_revision),
+        ).rowcount
         if updated != 1:
-            raise WorkflowConflict("concurrent run transition")
+            raise WorkflowConflict("concurrent business transition")
+
         result_revision = expected_revision + 1
         conn.execute(
-            "INSERT INTO v2_demo_operations VALUES (?, ?, ?, ?, ?, ?)",
-            (run_id, phase, op_id, fingerprint, next_status, result_revision))
-    return {"status": next_status, "revision": result_revision}
+            "INSERT INTO v2_demo_operations VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, phase, op_id, fingerprint, status, result_revision,
+             next_contract_revision),
+        )
+    return {"status": status, "revision": result_revision,
+            "contract_revision": next_contract_revision}
