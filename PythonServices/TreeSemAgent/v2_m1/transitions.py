@@ -18,6 +18,32 @@ def _text(value: str | None, field: str) -> str:
     return result
 
 
+
+def validate_decision(decision: str, summary: str | None = None,
+                      overview: str | None = None,
+                      answer: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """Reject invalid input *before* LangGraph Command(resume), too.
+
+    An exception inside a resumed interrupt node can leave that invalid
+    resume value in the pending task; the service must preflight first.
+    """
+    if decision not in ("confirm", "cancel", "revise", "clarify"):
+        raise WorkflowConflict("unsupported decision")
+    if decision in ("confirm", "cancel") and any(
+            item is not None for item in (summary, overview, answer)):
+        raise WorkflowConflict("unexpected edit payload")
+    if decision == "revise":
+        summary = _text(summary, "summary")
+        overview = _text(overview, "overview")
+        if answer is not None:
+            raise WorkflowConflict("clarification answer belongs to clarify")
+    if decision == "clarify":
+        answer = _text(answer, "answer")
+        if summary is not None or overview is not None:
+            raise WorkflowConflict("provide clarification separately from revised draft")
+    return summary, overview, answer
+
+
 def apply_transition(self: DemoRunStore, *, run_id: str, actor_id: str, phase: str,
                      decision: str, op_id: str, expected_revision: int,
                      contract_revision: int, summary: str | None = None,
@@ -33,18 +59,9 @@ def apply_transition(self: DemoRunStore, *, run_id: str, actor_id: str, phase: s
         raise WorkflowConflict("invalid contract revision")
     if op_id != operation_id(run_id, "contract", expected_revision):
         raise WorkflowConflict("operation ID not tied to the expected run/revision")
-    if decision in ("confirm", "cancel") and any(
-            item is not None for item in (summary, overview, answer)):
-        raise WorkflowConflict("unexpected edit payload")
-    if decision == "revise":
-        summary = _text(summary, "summary")
-        overview = _text(overview, "overview")
-        if answer is not None:
-            raise WorkflowConflict("clarification answer belongs to clarify")
-    if decision == "clarify":
-        answer = _text(answer, "answer")
-        if summary is not None or overview is not None:
-            raise WorkflowConflict("provide clarification separately from revised draft")
+    summary, overview, answer = validate_decision(
+        decision, summary, overview, answer
+    )
 
     request = [run_id, actor_id, phase, decision, expected_revision,
                contract_revision, summary, overview, answer]
