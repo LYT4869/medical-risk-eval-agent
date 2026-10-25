@@ -103,6 +103,13 @@ const Json& part(const Json& object, const char* key)
           "missing M5 report structure field");
     return object.at(key);
 }
+void exactFields(const Json& object, std::initializer_list<const char*> names)
+{
+    check(object.is_object() && object.size()==names.size(),
+          "unexpected/unreviewed fields in synthetic medical report");
+    for (const auto* name : names)
+        check(object.contains(name), "missing reviewed report field");
+}
 std::size_t utf8Length(const std::string& str)
 {
     std::size_t length = 0;
@@ -253,7 +260,10 @@ const Fact& findFact(const std::string& id)
 void verifyDocument(const Json& document, const std::string& run,
                     int expectedContract, int expectedRevision, bool isEdit)
 {
-    check(document.is_object(), "report must be structured JSON");
+    exactFields(document, {"classification","run_id","report_id",
+        "draft_revision","contract_revision","status","not_signed",
+        "clinical_unverified","synthetic_catalog_only","model_score",
+        "writer_kind","source_snapshot","coverage","sections","grounding"});
     check(str(document,"run_id") == run &&
           str(document,"report_id") == "m5_" + run &&
           str(document,"classification") == "SIM" &&
@@ -273,6 +283,12 @@ void verifyDocument(const Json& document, const std::string& run,
           "Writer was not independently verified for this prototype");
 
     const auto& coverage = part(document,"coverage");
+    exactFields(coverage, {"status","method","contract_revision",
+        "issue_states","objectives","reason_codes","source_snapshot",
+        "no_clinical_diagnosis","not_signed"});
+    check(str(coverage,"method") ==
+          "fixed_p001_objectives_not_semantic_contract_interpretation",
+          "unknown Report Coverage method");
     check(str(coverage,"status") == "restricted" &&
           integer(coverage,"contract_revision") == expectedContract &&
           truth(coverage,"not_signed") &&
@@ -290,6 +306,8 @@ void verifyDocument(const Json& document, const std::string& run,
     check(part(document,"source_snapshot") == snapshots,
           "source snapshot is missing or stale");
     const auto& grounding = part(document,"grounding");
+    exactFields(grounding, {"reviewer","total_sentences","total_assertions",
+        "supported_assertions","unsupported_assertions","admission"});
     check(str(grounding,"reviewer") ==
           "strict_p001_catalog_not_general_clinical_semantics" &&
           integer(grounding,"total_sentences") == 6 &&
@@ -306,12 +324,15 @@ void verifyDocument(const Json& document, const std::string& run,
     {
         const auto& expected = sectionPlan()[i];
         const auto& section = sections[i];
+        exactFields(section, {"section_id","paragraphs"});
         check(str(section,"section_id") == expected.name,
               "unexpected section title or ordering");
         const auto& paragraphs = part(section,"paragraphs");
         check(paragraphs.is_array() && paragraphs.size() == 1,
               "expected one provenance-bounded paragraph");
         const auto& p = paragraphs[0];
+        exactFields(p, {"section_id","paragraph_id","text","render_variant",
+            "fact_ids","candidate_evidence_refs","grounding_status","sentences"});
         check(str(p,"section_id") == expected.name &&
               str(p,"paragraph_id") == expected.paragraph &&
               str(p,"grounding_status") == "all_assertions_supported_sim_catalog",
@@ -340,6 +361,8 @@ void verifyDocument(const Json& document, const std::string& run,
         check(sentences.is_array() && sentences.size() == 1,
               "missing sentence or unsplit medical text");
         const auto& sentence = sentences[0];
+        exactFields(sentence, {"sentence_id","start","end","text",
+            "status","assertions"});
         const std::string suffix = std::string(expected.paragraph).substr(2);
         check(str(sentence,"sentence_id") == "S-" + suffix + "-01" &&
               str(sentence,"text") == canonical &&
@@ -353,6 +376,8 @@ void verifyDocument(const Json& document, const std::string& run,
         for (std::size_t k = 0; k < assertions.size(); ++k)
         {
             const auto& claim = assertions[k];
+            exactFields(claim, {"assertion_id","fact_id","text",
+                "start","end","status","evidence_refs"});
             const auto& f = findFact(expected.factIds[k]);
             const std::string phrase = variant == "full" ? f.full : f.brief;
             const std::string aid = "A-" + suffix + "-01-0" + std::to_string(k+1);
@@ -373,6 +398,8 @@ void verifyDocument(const Json& document, const std::string& run,
             for (std::size_t n = 0; n < f.refs.size(); ++n)
             {
                 const auto& link = bindings[n];
+                exactFields(link, {"evidence_id","source_version","logical_id",
+                    "temporal_scope","reference_kind"});
                 const auto& ref = f.refs[n];
                 check(str(link,"evidence_id") == ref &&
                       integer(link,"source_version") == (ref == "E-005" ? 2 : 1) &&
@@ -380,6 +407,16 @@ void verifyDocument(const Json& document, const std::string& run,
                       (ref == "E-004" ? "historical_stale" :
                        ref == "E-005" ? "current" : "historical_T1"),
                       "source version or historical/current scope was forged");
+                check(str(link,"logical_id") ==
+                      (ref=="E-004" || ref=="E-005" ?
+                          "LIS-P001-HB-20261010" :
+                       ref=="E-001" ? "EMR-P001-ANC-20261010" :
+                       ref=="E-002" ? "EMR-P001-DEL-20220508" :
+                           "REF-P001-20261012"),
+                      "source logical record was forged");
+                check(str(link,"reference_kind") ==
+                      (ref=="E-004" || ref=="E-005" ? "LIS_SIM" : "P001_SIM_EMR"),
+                      "source namespace was forged");
             }
             ++assertionCount;
         }
