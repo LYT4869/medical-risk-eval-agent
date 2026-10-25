@@ -96,6 +96,16 @@ class M3GatewayWorkflow(_BaseWorkflow):
             contract_goal="SIM P001：核查既往资料、证据冲突、模型资格",
         )
 
+    def execute(self, run_id: str, contract_revision: int, **limits) -> dict:
+        # Doctor-confirmed goal is fetched only from the authoritative C++
+        # Run and projected into this invocation's bounded working context.
+        # Do not persist the goal text in a Graph Checkpoint.
+        status = self.gateway.status(run_id)
+        if not isinstance(status.get("summary"), str):
+            raise WorkflowConflict("authoritative Contract summary missing")
+        self.contract_goal = status["summary"][:360]
+        return super().execute(run_id, contract_revision, **limits)
+
     def _authorized(self, run_id: str, contract_revision: int) -> None:
         status = self.gateway.status(run_id)
         if (status.get("run_id") != run_id or
