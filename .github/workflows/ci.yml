@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ libboost-dev libssl-dev libcurl4-openssl-dev nlohmann-json3-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libboost-dev libssl-dev libcurl4-openssl-dev nlohmann-json3-dev libmysqlcppconn-dev libargon2-dev
       - name: Build pinned Muduo
         run: |
           git clone --depth 1 --branch v2.0.2 https://github.com/chenshuo/muduo.git /tmp/muduo
@@ -21,6 +21,10 @@ jobs:
         run: pip install -r PythonServices/TreeSemAgent/requirements.txt pypdf numpy PyYAML
       - name: Fast tests
         run: ctest --test-dir build --output-on-failure
+      - name: Compile optional V2 M2 native SIM MySQL and JWT gateway
+        run: |
+          cmake -S . -B build-v2-native -DKAMA_ENABLE_ONNXRUNTIME=OFF -DKAMA_ENABLE_MYSQL=ON -DKAMA_ENABLE_AUTH=ON -DKAMA_BUILD_TESTS=OFF
+          cmake --build build-v2-native -j2
       - name: Deterministic Agent evaluation
         run: PYTHONPATH=PythonServices/TreeSemAgent python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py --mode deterministic
       - name: V2 P001 synthetic fixture tests
