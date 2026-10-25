@@ -11,7 +11,7 @@ Python 3.10+; from repository root, install dependencies:
 Then run:
 
     cd PythonServices/TreeSemAgent
-    python -m unittest discover -s tests -p 'test_v2_m1*.py' -v
+    python -m unittest discover -s v2_m1/spec_tests -p 'test_*.py' -v
     python -m v2_m1.cli --data-dir /tmp/treesem-v2-m1 start
     python -m v2_m1.cli --data-dir /tmp/treesem-v2-m1 status RUN_ID
     python -m v2_m1.cli --data-dir /tmp/treesem-v2-m1 confirm RUN_ID --decision confirm --revision 0

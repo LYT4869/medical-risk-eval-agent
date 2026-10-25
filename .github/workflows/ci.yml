@@ -42,4 +42,4 @@ jobs:
         env:
           PYTHONPATH: PythonServices/TreeSemAgent
           LANGGRAPH_STRICT_MSGPACK: 'true'
-        run: python -m unittest discover -s PythonServices/TreeSemAgent/tests -p 'test_v2_m1*.py' -v
+        run: python -m unittest discover -s PythonServices/TreeSemAgent/v2_m1/spec_tests -p 'test_*.py' -v
