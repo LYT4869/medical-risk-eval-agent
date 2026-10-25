@@ -207,6 +207,14 @@ if(KAMA_ENABLE_MYSQL)
     target_compile_definitions(treesem_runtime PUBLIC TREESEM_HAS_MYSQL=1)
 endif()
 
+# V2 M2 synthetic-only artifact gateway is isolated from V1 fast build.
+if(KAMA_ENABLE_MYSQL AND KAMA_ENABLE_AUTH)
+    target_sources(treesem_runtime PRIVATE
+        WebApps/TreeSemServer/src/infrastructure/persistence/V2SimArtifactStore.cpp
+        WebApps/TreeSemServer/src/api/V2SimController.cpp
+    )
+endif()
+
 if(KAMA_BUILD_TREESEM_SERVER)
     add_executable(treesem_server
         WebApps/TreeSemServer/src/main.cpp
