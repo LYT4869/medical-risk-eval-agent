@@ -13,7 +13,7 @@ M4 extends that same Run with an **independent historical Hb statement scenario*
 
 1. **M4-HISTORY**, explicitly triggered by the authenticated doctor in the SIM test, stores an **immutable** historical source snapshot E-004, logical record `LIS-P001-HB-20261010` version 1 / Hb **110 g/L**, and a dependent synthetic statement S-04 with that value. At this stage `E-004 = current`, `S-04 = current` **in the test's pre-correction snapshot**.
 2. **EV-001**, a fixed server-bundled synthetic `LIS` source correction effective 2026-10-13, confirms **the same logical LIS record** and higher version 2, then inserts E-005 / Hb **130 g/L** as a *new immutable snapshot*.
-3. In one MySQL transaction, mark **E-004 stale**, **S-04 stale**, **E-005 current** in the **validity overlay**, and append **I-05 needs_review** with old/new references. Preserve E-004/S-04 original 110 values; do **not** auto-rewrite old statements to claim 130 or auto-close I-05.
+3. In one MySQL transaction, mark **E-004 stale** and **S-04 stale**, persist a distinct immutable **S-05 with Hb 130 g/L citing E-005**, mark E-005/S-05 **current** in the validity overlay, and append **I-05 needs_review** with old/new references. Preserve E-004/S-04 original 110 values; do **not** auto-rewrite them to claim 130 or auto-close I-05.
 4. The current-source admission gate checks the doctor-authorized Run and explicit source IDs. `[E-004]` is rejected as stale; `[E-005]` is accepted as current; `[E-002,E-003,E-005]` remains acceptable **for reference freshness only**, with E-002/E-003 separate.
 5. The previously delivered **historical** M3 Draft v1 remains unchanged, since it does *not* cite E-004. We do **not** falsely declare that existing report invalid or claim it already describes the current 2026-10-18 Hb. Report Writer / Assertion Grounding / new Draft revision belong to **M5**.
 
@@ -26,7 +26,7 @@ New **additive** `009_v2_m4_source_corrections.sql`, without changing older migr
 | Table | Stores |
 |---|---|
 | `treesem_v2_m4_source_versions` | Immutable E-004 v1 and E-005 v2 source fields and logical record identity |
-| `treesem_v2_m4_statement_snapshots` | Immutable S-04 referencing E-004, original 110 g/L |
+| `treesem_v2_m4_statement_snapshots` | Immutable S-04 → E-004 (110 g/L) and new S-05 → E-005 (130 g/L) snapshots |
 | `treesem_v2_m4_validity` | Current/stale overlay and causing event ID by `run_id + kind + ref`; **only this overlay changes** |
 | `treesem_v2_m4_correction_events` | Immutable per-Run M4-HISTORY/EV-001 keys, SHA256 event fingerprint, recorded result |
 | `treesem_v2_m4_followups` | I-05 `needs_review` caused by EV-001, with old/new source refs |
@@ -54,7 +54,7 @@ The last endpoint returns only **source-version admissibility**, `stale_refs`, `
 CI `v2_m4_mysql_integration` starts ephemeral MySQL 8, applies 001–009 migrations, compiles and runs the actual authenticated C++ server, and exercises:
 - Rejection before DoctorConfirm, wrong patient or inaccessible Run, and rejection when trying to apply correction without original source.
 - Actual M1 Contract confirm → M3 dynamic Agenda → 8 immutable Evidence/Issue/Draft Artifacts → M4 historical E-004/S-04 stage and EV-001 replay through C++/MySQL.
-- An **event COMMIT before M4 Graph checkpoint**; subsequent Graph execution replays safely and produces one source v2, one S-04 stale overlay, one I-05.
+- An **event COMMIT before M4 Graph checkpoint**; subsequent Graph execution replays safely and produces one source v2, one S-04 stale and S-05 current overlay, one I-05.
 - Current-reference admission rejects E-004 and unknown/duplicate refs, accepts E-005, and keeps E-002/E-003 as independent still-current sources.
 - Doctor JWT required, scoped Agent JWT cannot invoke official-correction endpoint, arbitrary body rejected, original M3 historical Draft untouched, cross-Run correction independence, doctor assignment revocation refusal.
 - M4 policy unit tests and existing M0–M3/V1 regression suites.
