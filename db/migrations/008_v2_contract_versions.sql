@@ -24,4 +24,12 @@ SELECT run_id, contract_revision, contract_summary, investigation_overview,
        NULL, NULL
 FROM treesem_v2_runs;
 
+-- Cancellation is an explicit doctor action at the *same* mandatory HITL stage.
+ALTER TABLE treesem_v2_runs DROP CHECK chk_v2_run_status;
+ALTER TABLE treesem_v2_runs
+    ADD CONSTRAINT chk_v2_run_status CHECK (
+        status IN ('awaiting_confirmation','contract_confirmed',
+                   'draft_ready','cancelled')
+    );
+
 INSERT IGNORE INTO schema_migrations(version) VALUES ('008_v2_contract_versions');
