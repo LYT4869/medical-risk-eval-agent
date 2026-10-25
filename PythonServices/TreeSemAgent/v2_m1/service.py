@@ -1,8 +1,12 @@
 """Isolated local service demonstrating durable Graph / independent business state."""
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
+
+# Restrict checkpoint deserialization to known-safe types in this demo.
+os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
