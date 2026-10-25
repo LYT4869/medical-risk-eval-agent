@@ -294,7 +294,8 @@ Json V2SimArtifactStore::editContract(
     int expectedRevision, int contractRevision, const std::string& summary,
     const std::string& overview, const std::string& answer)
 {
-    if (expectedRevision < 0 || contractRevision < 1 || contractRevision >= 10 ||
+    if (expectedRevision < 0 || contractRevision < 1 ||
+        (decision != "cancel" && contractRevision >= 10) ||
         (decision != "revise" && decision != "clarify" && decision != "cancel"))
         fail(Kind::InvalidInput, "invalid Contract edit/clarification");
     if (decision == "revise" &&
