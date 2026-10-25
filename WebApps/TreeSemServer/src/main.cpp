@@ -478,6 +478,13 @@ int main(int argc, char* argv[])
                     v2SimController->confirm(std::move(request), std::move(responder));
                 });
             server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/contract",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->editContract(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
                 "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/capability",
                 [&v2SimController](http::HttpRequest request,
                                    http::AsyncResponder responder) {
