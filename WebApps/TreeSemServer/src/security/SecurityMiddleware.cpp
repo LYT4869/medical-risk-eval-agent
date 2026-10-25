@@ -33,6 +33,23 @@ std::string bearer(const http::HttpRequest& request)
 std::string requiredTool(const http::HttpRequest& request)
 {
     const std::string path = request.path();
+    // These capability scopes are distinct from V1 prediction tools.
+    // They are usable only after the doctor-confirmed SIM Run was created.
+    if (path.rfind("/internal/v2/sim-runs/", 0) == 0)
+    {
+        const auto artifact = path.find("/artifacts");
+        if (artifact != std::string::npos)
+        {
+            if (request.method() == http::HttpRequest::kPost)
+                return "v2_sim_artifact_write";
+            if (request.method() == http::HttpRequest::kGet)
+                return "v2_sim_artifact_read";
+            return {};
+        }
+        if (request.method() == http::HttpRequest::kGet)
+            return "v2_sim_status";
+        return {};
+    }
     if (path == "/internal/v1/predictions" && request.method() == http::HttpRequest::kPost)
         return "predict_sample";
     if (path.find("/internal/v1/explanations/") == 0) return "get_explanation";
