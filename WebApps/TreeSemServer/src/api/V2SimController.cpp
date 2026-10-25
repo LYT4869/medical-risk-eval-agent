@@ -1,6 +1,7 @@
 #include "api/V2SimController.h"
 
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -11,6 +12,7 @@
 
 #include "api/HttpErrorMapper.h"
 #include "application/BusinessException.h"
+#include "infrastructure/support/ValueSupport.h"
 
 namespace treesem::api
 {
@@ -87,9 +89,10 @@ http::ResponseWriter ok(const Json& result)
 V2SimController::V2SimController(
     const application::AuthService& auth, persistence::ISecurityStore& security,
     const application::AuditService& audit,
+    const security::JwtService& jwt,
     infrastructure::V2SimArtifactStore& artifacts,
     service::BlockingTaskScheduler& scheduler)
-    : auth_(auth), security_(security), audit_(audit),
+    : auth_(auth), security_(security), audit_(audit), jwt_(jwt),
       artifacts_(artifacts), scheduler_(scheduler)
 {}
 
@@ -113,6 +116,104 @@ std::string V2SimController::authorizedDoctor(const http::HttpRequest& request) 
     context.requestId = request.requestContext().requestId;
     auth_.authorizeSubject(context, patientId); // re-check active assignment
     return doctorId;
+}
+
+std::string V2SimController::authorizedInternal(const http::HttpRequest& request) const
+{
+    // Middleware MUST have verified a scoped V2 capability and overwritten the
+    // actor, role, subject and run headers. Never trust caller JSON for identity.
+    const std::string runId = request.getPathParameters("run_id");
+    const std::string claimedRun = request.getHeader("X-TreeSem-Agent-Run-Id");
+    const std::string actor = request.getHeader("X-TreeSem-Actor-Id");
+    const std::string role = request.getHeader("X-TreeSem-Actor-Role");
+    const std::string patient = request.getHeader("X-TreeSem-Subject-Id");
+    if (request.path().rfind("/internal/v2/", 0) != 0 ||
+        runId.empty() || runId != claimedRun ||
+        request.getHeader("X-TreeSem-Session-Id") != "v2:" + runId ||
+        role != "doctor" || actor.empty() || patient.empty())
+        throw application::AuthException(application::AuthException::Kind::Forbidden,
+                                          "scoped V2 capability required");
+    const auto account = security_.findUserById(actor);
+    if (!account || account->status != "active" ||
+        account->role != domain::UserRole::Doctor)
+        throw application::AuthException(application::AuthException::Kind::Forbidden,
+                                          "doctor account not active");
+    domain::ActorContext context;
+    context.userId = actor;
+    context.role = domain::UserRole::Doctor;
+    context.subjectUserId = patient;
+    context.requestId = request.requestContext().requestId;
+    auth_.authorizeSubject(context, patient);
+    return actor;
+}
+
+void V2SimController::status(http::HttpRequest request,
+                             http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const bool internal = request.path().rfind("/internal/v2/", 0) == 0;
+            const std::string actor = internal
+                ? authorizedInternal(request) : authorizedDoctor(request);
+            const std::string patient = internal
+                ? request.getHeader("X-TreeSem-Subject-Id")
+                : request.getPathParameters("patient_id");
+            const std::string runId = id(request.getPathParameters("run_id"));
+            const auto result = artifacts_.status(runId, actor, patient);
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::capability(http::HttpRequest request,
+                                 http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            const std::string patient = request.getPathParameters("patient_id");
+            const std::string runId = id(request.getPathParameters("run_id"));
+            const auto state = artifacts_.status(runId, actor, patient);
+            if (state.at("status") != "contract_confirmed" &&
+                state.at("status") != "draft_ready")
+                throw Error(Kind::Conflict, "doctor must confirm Contract first");
+            security::CapabilityContext scope;
+            scope.actorId = actor;
+            scope.actorRole = domain::UserRole::Doctor;
+            scope.subjectUserId = patient;
+            scope.runId = runId;
+            scope.sessionId = "v2:" + runId;
+            scope.allowedTools = {"v2_sim_status", "v2_sim_artifact_read",
+                                  "v2_sim_artifact_write"};
+            const auto now = domain::TimePoint(std::chrono::microseconds(
+                infrastructure::epochMicroseconds(std::chrono::system_clock::now())));
+            const std::string token = jwt_.issueCapability(scope, now);
+            audit_.record(actor, "doctor", request.requestContext().requestId,
+                          "v2.sim.capability.issue", "v2_run", runId,
+                          "allowed", "confirmed_run_short_lived");
+            return ok(Json{{"run_id", runId}, {"capability_token", token},
+                           {"token_type", "Bearer"}, {"scope", "v2_sim_artifacts"},
+                           {"classification", "SIM"}});
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::internalStatus(http::HttpRequest request,
+                                     http::AsyncResponder responder) const
+{
+    status(std::move(request), std::move(responder));
+}
+
+void V2SimController::internalPut(http::HttpRequest request,
+                                  http::AsyncResponder responder) const
+{
+    put(std::move(request), std::move(responder));
+}
+
+void V2SimController::internalGet(http::HttpRequest request,
+                                  http::AsyncResponder responder) const
+{
+    get(std::move(request), std::move(responder));
 }
 
 void V2SimController::create(http::HttpRequest request, http::AsyncResponder responder) const
@@ -161,7 +262,7 @@ void V2SimController::put(http::HttpRequest request, http::AsyncResponder respon
 {
     scheduler_.schedule([this, request = std::move(request)] {
         return safe([&]() {
-            const std::string actor = authorizedDoctor(request);
+            const std::string actor = authorizedInternal(request);
             const Json body = object(request);
             const std::string runId = id(request.getPathParameters("run_id"));
             const std::string operation = id(str(body, "operation_id", 64));
@@ -170,7 +271,7 @@ void V2SimController::put(http::HttpRequest request, http::AsyncResponder respon
             if (!body.contains("payload") || !body.at("payload").is_object())
                 reject("missing synthetic artifact payload");
             const auto result = artifacts_.put(
-                runId, actor, request.getPathParameters("patient_id"), operation,
+                runId, actor, request.getHeader("X-TreeSem-Subject-Id"), operation,
                 kind, artifact, body.at("payload"));
             audit_.record(actor, "doctor", request.requestContext().requestId,
                           "v2.sim.artifact.write", "v2_run", runId,
@@ -184,13 +285,16 @@ void V2SimController::get(http::HttpRequest request, http::AsyncResponder respon
 {
     scheduler_.schedule([this, request = std::move(request)] {
         return safe([&]() {
-            const std::string actor = authorizedDoctor(request);
+            const bool internal = request.path().rfind("/internal/v2/", 0) == 0;
+            const std::string actor = internal
+                ? authorizedInternal(request) : authorizedDoctor(request);
+            const std::string patient = internal
+                ? request.getHeader("X-TreeSem-Subject-Id")
+                : request.getPathParameters("patient_id");
             const std::string runId = id(request.getPathParameters("run_id"));
             const std::string kind = id(request.getPathParameters("kind"));
             const std::string artifact = id(request.getPathParameters("artifact_key"));
-            const auto result = artifacts_.get(
-                runId, actor, request.getPathParameters("patient_id"),
-                kind, artifact);
+            const auto result = artifacts_.get(runId, actor, patient, kind, artifact);
             audit_.record(actor, "doctor", request.requestContext().requestId,
                           "v2.sim.artifact.read", "v2_run", runId,
                           "allowed", "synthetic_artifact_read");
