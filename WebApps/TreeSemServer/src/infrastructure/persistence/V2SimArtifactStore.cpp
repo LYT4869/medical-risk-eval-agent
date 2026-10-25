@@ -295,7 +295,7 @@ Json V2SimArtifactStore::editContract(
     const std::string& overview, const std::string& answer)
 {
     if (expectedRevision < 0 || contractRevision < 1 || contractRevision >= 10 ||
-        (decision != "revise" && decision != "clarify"))
+        (decision != "revise" && decision != "clarify" && decision != "cancel"))
         fail(Kind::InvalidInput, "invalid Contract edit/clarification");
     if (decision == "revise" &&
         (summary.empty() || overview.empty() ||
@@ -305,6 +305,9 @@ Json V2SimArtifactStore::editContract(
         (answer.empty() || answer.size() > 1200 ||
          !summary.empty() || !overview.empty()))
         fail(Kind::InvalidInput, "invalid clarification answer");
+    if (decision == "cancel" &&
+        (!summary.empty() || !overview.empty() || !answer.empty()))
+        fail(Kind::InvalidInput, "cancel must not carry an edit payload");
 
     const std::string opId = "op_" +
         hash(runId + "|contract|" + std::to_string(expectedRevision)).substr(0, 32);
@@ -338,6 +341,32 @@ Json V2SimArtifactStore::editContract(
                 row->getInt("business_revision") != expectedRevision ||
                 row->getInt("contract_revision") != contractRevision)
                 fail(Kind::Conflict, "stale Contract edit or finished Run");
+            if (decision == "cancel")
+            {
+                auto update = query(db,
+                    "UPDATE treesem_v2_runs SET status='cancelled',"
+                    "business_revision=? WHERE run_id=? "
+                    "AND status='awaiting_confirmation' AND "
+                    "contract_revision=? AND business_revision=?");
+                update->setInt(1, expectedRevision + 1);
+                update->setString(2, runId);
+                update->setInt(3, contractRevision);
+                update->setInt(4, expectedRevision);
+                if (update->executeUpdate() != 1)
+                    fail(Kind::Conflict, "Run changed during cancellation");
+                const Json result{{"run_id", runId},
+                    {"status", "cancelled"}, {"revision", expectedRevision + 1},
+                    {"contract_revision", contractRevision}};
+                auto journal = query(db, "INSERT INTO treesem_v2_operations "
+                    "(run_id,operation_id,phase,request_sha256,result_json) "
+                    "VALUES (?,?,'contract',?,?)");
+                journal->setString(1, runId);
+                journal->setString(2, opId);
+                journal->setString(3, fingerprint);
+                journal->setString(4, result.dump());
+                journal->executeUpdate();
+                return result;
+            }
             auto read = query(db, "SELECT summary,investigation_overview,"
                 "clarification_question,clarification_answer FROM "
                 "treesem_v2_contract_versions WHERE run_id=? "
