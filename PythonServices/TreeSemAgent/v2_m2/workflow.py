@@ -70,6 +70,7 @@ def build_m2_graph(artifacts: SyntheticArtifactStore, tools: SyntheticP001Tools,
         if (original["blood_loss_ml"], referral["blood_loss_ml"]) != (250, 800):
             raise WorkflowConflict("unexpected P001 fixture values")
         result = {
+            "classification": "SIM",
             "issue_id": "I-04",
             "result_revision": 1,
             "status": "closed_unresolved",
