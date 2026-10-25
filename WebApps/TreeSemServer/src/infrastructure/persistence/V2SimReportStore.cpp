@@ -209,8 +209,10 @@ void currentEvidence(sql::Connection& db, const std::string& run)
     evidence->setString(1, run);
     auto evidenceRows = selected(*evidence);
     int evidenceCount = 0;
+    int evidenceRowsSeen = 0;
     while (evidenceRows->next())
     {
+        ++evidenceRowsSeen;
         const auto ref = field(*evidenceRows, "eid");
         const auto logical = field(*evidenceRows, "logicalid");
         const auto kind = field(*evidenceRows, "sourcekind");
@@ -228,7 +230,7 @@ void currentEvidence(sql::Connection& db, const std::string& run)
         else
             fail(Kind::Conflict, "M3 Evidence payload contradicts P001 source");
     }
-    if (evidenceCount != 7)
+    if (evidenceCount != 7 || evidenceRowsSeen != 3)
         fail(Kind::Conflict, "M3 verified Evidence set incomplete");
     auto issueQ = prepared(db, "SELECT "
         "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.issue_id')) AS iid,"
@@ -238,8 +240,10 @@ void currentEvidence(sql::Connection& db, const std::string& run)
     issueQ->setString(1, run);
     auto issueRows = selected(*issueQ);
     int issuesSeen = 0;
+    int issueRowsSeen = 0;
     while (issueRows->next())
     {
+        ++issueRowsSeen;
         const auto id = field(*issueRows,"iid");
         const auto state = field(*issueRows,"issue_state");
         if (field(*issueRows,"no_diagnosis") != "true")
@@ -250,7 +254,7 @@ void currentEvidence(sql::Connection& db, const std::string& run)
         else if (id == "I-04" && state == "closed_unresolved") issuesSeen += 8;
         else fail(Kind::Conflict, "unapproved issue conclusion");
     }
-    if (issuesSeen != 15)
+    if (issuesSeen != 15 || issueRowsSeen != 4)
         fail(Kind::Conflict, "Report lacks expected IssueResult limits");
 }
 
