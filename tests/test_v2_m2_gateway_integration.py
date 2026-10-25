@@ -235,7 +235,7 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_operations "
                     f"WHERE run_id='{run_id}'"
-                ) == "4"
+                ) == "5"
 
                 # Signed capability is scoped to only this Run, regardless of
                 # matching actor or patient on the second Run.
@@ -285,7 +285,7 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_operations "
                     f"WHERE run_id='{second_id}'"
-                ) == "4"
+                ) == "5"
                 # Same operation can still replay safely even after the
                 # successful Draft makes the Run read-only for new writes.
                 artifacts2.save(second_id, "source_original", record_key, value)
