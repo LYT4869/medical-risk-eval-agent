@@ -177,6 +177,40 @@ class GatewayDoctorClient:
         return self._m4(run_id, "POST", "validate-current",
                         {"evidence_ids": evidence_ids})
 
+    def m5_revision(self, run_id: str, report_id: str, revision: int):
+        if not isinstance(revision, int) or not 1 <= revision <= 20:
+            raise WorkflowConflict("invalid selected report version")
+        return self.transport.request(
+            "GET", self._prefix() + f"/{checked_id(run_id)}"
+                   f"/m5/reports/{checked_id(report_id)}/revisions/{revision}",
+            self.doctor_jwt,
+        )
+
+    def m5_message(self, run_id: str, report_id: str, *,
+                   conversation_id: str, base_revision: int,
+                   paragraph_id: str, intent: str,
+                   operation_id: str | None = None, document: dict | None = None):
+        if intent not in ("explain", "shorten"):
+            raise WorkflowConflict("unknown report edit intent")
+        if not isinstance(base_revision, int) or base_revision < 1:
+            raise WorkflowConflict("explicit base_revision is required")
+        body = {
+            "conversation_id": checked_id(conversation_id),
+            "base_revision": base_revision,
+            "paragraph_id": checked_id(paragraph_id),
+            "intent": intent,
+        }
+        if intent == "shorten":
+            if document is None or operation_id is None:
+                raise WorkflowConflict("shorten requires reviewed patch and op ID")
+            body["document"] = document
+            body["operation_id"] = checked_id(operation_id)
+        return self.transport.request(
+            "POST", self._prefix() + f"/{checked_id(run_id)}"
+                    f"/m5/reports/{checked_id(report_id)}/messages",
+            self.doctor_jwt, body,
+        )
+
     def read_report(self, run_id: str, artifact_key: str):
         return self.transport.request(
             "GET", self._prefix() + f"/{checked_id(run_id)}"
@@ -216,6 +250,17 @@ class GatewayArtifactRepository:
             {"operation_id": op_id(run_id, phase),
              "kind": kind, "artifact_key": checked_id(artifact_key),
              "payload": value},
+            run_id=run_id,
+        )
+
+    def publish_m5(self, run_id: str, operation_id: str, document: dict):
+        if (document.get("classification") != "SIM" or
+                document.get("run_id") != run_id):
+            raise WorkflowConflict("cannot publish unbound report")
+        return self.transport.request(
+            "POST", self._prefix(run_id) + "/artifacts/m5/publish",
+            self.capability,
+            {"operation_id": checked_id(operation_id), "document": document},
             run_id=run_id,
         )
 

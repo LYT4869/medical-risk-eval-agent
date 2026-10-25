@@ -38,6 +38,9 @@ public:
     void applyOfficialSimCorrection(http::HttpRequest request, http::AsyncResponder responder) const;
     void correctionState(http::HttpRequest request, http::AsyncResponder responder) const;
     void checkCurrentSources(http::HttpRequest request, http::AsyncResponder responder) const;
+    void m5Publish(http::HttpRequest request, http::AsyncResponder responder) const;
+    void m5Revision(http::HttpRequest request, http::AsyncResponder responder) const;
+    void m5Message(http::HttpRequest request, http::AsyncResponder responder) const;
     void put(http::HttpRequest request, http::AsyncResponder responder) const;
     void get(http::HttpRequest request, http::AsyncResponder responder) const;
 

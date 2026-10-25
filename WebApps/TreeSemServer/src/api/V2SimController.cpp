@@ -396,6 +396,96 @@ void V2SimController::checkCurrentSources(
     }, std::move(responder));
 }
 
+void V2SimController::m5Publish(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            // Only M2's short-lived Run + Tool scoped capability may publish
+            // the initially reviewed synthetic draft. Access JWT cannot.
+            const std::string doctor = authorizedInternal(request);
+            const Json body = object(request);
+            if (!body.contains("document") || !body.at("document").is_object())
+                reject("M5 publish requires a structured reviewed document");
+            const std::string run = id(request.getPathParameters("run_id"));
+            const std::string operation = id(str(body, "operation_id", 64));
+            const Json result = artifacts_.publishM5Report(
+                run, doctor, request.getHeader("X-TreeSem-Subject-Id"),
+                operation, body.at("document"));
+            audit_.record(doctor, "doctor", request.requestContext().requestId,
+                          "v2.sim.m5.publish", "v2_run", run,
+                          "allowed", "restricted_catalog_verified_report");
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::m5Revision(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string doctor = authorizedDoctor(request);
+            const std::string run = id(request.getPathParameters("run_id"));
+            const std::string report = id(request.getPathParameters("report_id"));
+            const std::string version = id(request.getPathParameters("revision"));
+            if (version.size() > 2)
+                reject("invalid report revision");
+            int revision = 0;
+            for (unsigned char ch : version)
+            {
+                if (!std::isdigit(ch)) reject("revision must be decimal");
+                revision = 10 * revision + (ch - '0');
+            }
+            const Json result = artifacts_.getM5Revision(
+                run, doctor, request.getPathParameters("patient_id"),
+                report, revision);
+            audit_.record(doctor, "doctor", request.requestContext().requestId,
+                          "v2.sim.m5.revision.read", "m5_report", report,
+                          "allowed", "explicit_report_version");
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::m5Message(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string doctor = authorizedDoctor(request);
+            const std::string run = id(request.getPathParameters("run_id"));
+            const std::string report = id(request.getPathParameters("report_id"));
+            const Json body = object(request);
+            if (!body.contains("base_revision") ||
+                !body.at("base_revision").is_number_integer())
+                reject("explicit base_revision required");
+            const std::string intent = str(body, "intent", 16);
+            if (intent != "explain" && intent != "shorten")
+                reject("only bounded explanation or same-Evidence shortening available");
+            const std::string conversation = id(str(body,"conversation_id",64));
+            const std::string paragraph = id(str(body,"paragraph_id",16));
+            const std::string operation = intent == "shorten"
+                ? id(str(body,"operation_id",64)) : "";
+            if (intent == "explain" &&
+                (body.contains("operation_id") || body.contains("document")))
+                reject("read-only explanation cannot carry a patch");
+            if (intent == "shorten" &&
+                (!body.contains("document") || !body.at("document").is_object()))
+                reject("shortening requires a complete versioned draft patch");
+            const Json result = artifacts_.m5DoctorMessage(
+                run, doctor, request.getPathParameters("patient_id"), report,
+                conversation, operation, body.at("base_revision").get<int>(),
+                paragraph, intent,
+                intent == "shorten" ? body.at("document") : Json(nullptr));
+            audit_.record(doctor, "doctor", request.requestContext().requestId,
+                          "v2.sim.m5.message." + intent, "m5_report", report,
+                          "allowed", "explicit_report_base_revision");
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
 void V2SimController::get(http::HttpRequest request, http::AsyncResponder responder) const
 {
     scheduler_.schedule([this, request = std::move(request)] {

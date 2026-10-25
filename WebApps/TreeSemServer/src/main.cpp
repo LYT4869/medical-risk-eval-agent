@@ -528,6 +528,31 @@ int main(int argc, char* argv[])
                         std::move(request), std::move(responder));
                 });
 
+            // Initial M5 report publication: short-lived internal Agent Tool
+            // capability only. Doctor revisions use separate authenticated
+            // report-specific endpoints with mandatory base revision.
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/internal/v2/sim-runs/:run_id/artifacts/m5/publish",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m5Publish(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m5/reports/:report_id/revisions/:revision",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m5Revision(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m5/reports/:report_id/messages",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m5Message(
+                        std::move(request), std::move(responder));
+                });
+
             // Only a short-lived, signed, run-scoped Tool capability can use
             // internal artifact writes or Agent status/read requests.
             server.addAsyncRoute(http::HttpRequest::kGet,
