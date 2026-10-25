@@ -97,7 +97,7 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_operations "
                     f"WHERE run_id='{run}'"
-                ) == "8"
+                ) == "9"
                 old_i01 = repository.get(
                     run, "issue", "I-01:r1"
                 )
@@ -112,7 +112,7 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_operations "
                     f"WHERE run_id='{run}'"
-                ) == "8"
+                ) == "9"
 
                 # This simulates the **MySQL COMMIT -> no Graph Checkpoint**
                 # window on a different Run: persisted E-001 must replay.
@@ -140,7 +140,7 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_operations "
                     f"WHERE run_id='{run2}'"
-                ) == "8"
+                ) == "9"
                 expect_gateway_error(lambda: repository.status(run2), 403)
                 expect_gateway_error(lambda: repo2.status(run), 403)
                 expect_gateway_error(lambda: other.status(run), 404)
