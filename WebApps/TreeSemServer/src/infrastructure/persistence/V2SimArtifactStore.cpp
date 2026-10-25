@@ -157,6 +157,30 @@ Json V2SimArtifactStore::create(const std::string& runId,
     });
 }
 
+Json V2SimArtifactStore::status(const std::string& runId,
+                                 const std::string& doctorId,
+                                 const std::string& patientId)
+{
+    auto lease = pool_.acquire();
+    return guarded(lease, [&](sql::Connection& db) -> Json {
+        auto read = query(db,
+            "SELECT run_id,doctor_user_id,patient_user_id,classification,status,"
+            "contract_revision,business_revision,contract_summary,investigation_overview "
+            "FROM treesem_v2_runs WHERE run_id=?");
+        read->setString(1, runId);
+        auto row = std::unique_ptr<sql::ResultSet>(read->executeQuery());
+        if (!row->next()) fail(Kind::NotFound, "unknown V2 Run");
+        checkOwnership(*row, doctorId, patientId);
+        return Json{{"run_id", runId},
+                    {"status", required(*row, "status")},
+                    {"contract_revision", row->getInt("contract_revision")},
+                    {"revision", row->getInt("business_revision")},
+                    {"summary", required(*row, "contract_summary")},
+                    {"overview", required(*row, "investigation_overview")},
+                    {"classification", "SIM"}};
+    });
+}
+
 Json V2SimArtifactStore::confirm(const std::string& runId,
                                   const std::string& doctorId,
                                   const std::string& patientId,
