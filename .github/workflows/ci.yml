@@ -111,3 +111,18 @@ jobs:
         run: python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
       - name: Run C++ HTTP/SQL + durable M1/M2 cross-process integration
         run: python tests/test_v2_m2_gateway_integration.py build-v2-integration/treesem_server
+
+  v2_m3:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned V2 LangGraph
+        run: python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
+      - name: Run M3 single-Agent Agenda and bounded Guard tests
+        env:
+          PYTHONPATH: PythonServices/TreeSemAgent
+          LANGGRAPH_STRICT_MSGPACK: 'true'
+        run: python -m unittest discover -s PythonServices/TreeSemAgent/v2_m3/spec_tests -p 'test_*.py' -v
