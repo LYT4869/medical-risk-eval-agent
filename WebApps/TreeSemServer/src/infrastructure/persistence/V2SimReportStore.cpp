@@ -195,18 +195,63 @@ void currentEvidence(sql::Connection& db, const std::string& run)
     auto issue = selected(*follow);
     if (!issue->next() || field(*issue, "status") != "needs_review")
         fail(Kind::Conflict, "unresolved official source correction not disclosed");
-    auto evidence = prepared(db, "SELECT COUNT(*) AS n FROM treesem_v2_artifacts "
-        "WHERE run_id=? AND kind='evidence'");
+    // Independent SQL re-check of each synthetic M3 Evidence snapshot:
+    // a forged citation and three arbitrary Evidence rows must not bypass
+    // the programmed 250/approximately-800 source contract.
+    auto evidence = prepared(db, "SELECT "
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.evidence_id')) AS eid,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.record.logical_id')) AS logicalid,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.record.kind')) AS sourcekind,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.record.version')) AS v,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.record.blood_loss_ml')) AS loss,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.record.approximate')) AS approx "
+        "FROM treesem_v2_artifacts WHERE run_id=? AND kind='evidence'");
     evidence->setString(1, run);
     auto evidenceRows = selected(*evidence);
-    if (!evidenceRows->next() || evidenceRows->getInt("n") != 3)
-        fail(Kind::Conflict, "M3 source set not complete");
-    auto issueQ = prepared(db, "SELECT COUNT(*) AS n FROM treesem_v2_artifacts "
-        "WHERE run_id=? AND kind='issue'");
+    int evidenceCount = 0;
+    while (evidenceRows->next())
+    {
+        const auto ref = field(*evidenceRows, "eid");
+        const auto logical = field(*evidenceRows, "logicalid");
+        const auto kind = field(*evidenceRows, "sourcekind");
+        if (field(*evidenceRows, "v") != "1")
+            fail(Kind::Conflict, "unapproved original Evidence source version");
+        if (ref == "E-001" && logical == "EMR-P001-ANC-20261010" &&
+            kind == "patient_report") evidenceCount += 1;
+        else if (ref == "E-002" && logical == "EMR-P001-DEL-20220508" &&
+                 kind == "original_delivery" &&
+                 field(*evidenceRows, "loss") == "250") evidenceCount += 2;
+        else if (ref == "E-003" && logical == "REF-P001-20261012" &&
+                 kind == "referral_summary" &&
+                 field(*evidenceRows, "loss") == "800" &&
+                 field(*evidenceRows, "approx") == "true") evidenceCount += 4;
+        else
+            fail(Kind::Conflict, "M3 Evidence payload contradicts P001 source");
+    }
+    if (evidenceCount != 7)
+        fail(Kind::Conflict, "M3 verified Evidence set incomplete");
+    auto issueQ = prepared(db, "SELECT "
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.issue_id')) AS iid,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.status')) AS issue_state,"
+        "JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.no_diagnosis')) AS no_diagnosis "
+        "FROM treesem_v2_artifacts WHERE run_id=? AND kind='issue'");
     issueQ->setString(1, run);
     auto issueRows = selected(*issueQ);
-    if (!issueRows->next() || issueRows->getInt("n") != 4)
-        fail(Kind::Conflict, "M3 issues not complete");
+    int issuesSeen = 0;
+    while (issueRows->next())
+    {
+        const auto id = field(*issueRows,"iid");
+        const auto state = field(*issueRows,"issue_state");
+        if (field(*issueRows,"no_diagnosis") != "true")
+            fail(Kind::Conflict,"IssueResult improperly asserts diagnosis");
+        if (id == "I-01" && state == "closed_with_limitations") issuesSeen += 1;
+        else if (id == "I-02" && state == "closed_unresolved") issuesSeen += 2;
+        else if (id == "I-03" && state == "blocked") issuesSeen += 4;
+        else if (id == "I-04" && state == "closed_unresolved") issuesSeen += 8;
+        else fail(Kind::Conflict, "unapproved issue conclusion");
+    }
+    if (issuesSeen != 15)
+        fail(Kind::Conflict, "Report lacks expected IssueResult limits");
 }
 
 struct Fact
@@ -301,6 +346,30 @@ void verifyDocument(const Json& document, const std::string& run,
           str(states,"I-04") == "closed_unresolved" &&
           str(states,"I-05") == "needs_review",
           "IssueResult/Correction limitations must appear in Coverage");
+    const Json expectedReasons = Json::array({
+        "DIFFERENT_SOURCE_ESTIMATES_UNRESOLVED",
+        "PRENATAL_MODEL_NOT_VERIFIED",
+        "LAB_REVISION_NEEDS_REVIEW",
+        "NO_APPROVED_LITERATURE_RETRIEVAL"
+    });
+    check(part(coverage,"reason_codes") == expectedReasons,
+          "unverified report limitation was omitted");
+    check(part(coverage,"source_snapshot") == part(document,"source_snapshot"),
+          "Coverage and report reference different source versions");
+    const Json expectedObjectives = Json::array({
+        Json{{"key","prior_history"},{"disposition","limited"},
+             {"issues",Json::array({"I-01"})}},
+        Json{{"key","source_comparison"},{"disposition","unresolved"},
+             {"issues",Json::array({"I-02","I-04"})}},
+        Json{{"key","model_reference"},{"disposition","blocked"},
+             {"issues",Json::array({"I-03"})}},
+        Json{{"key","lab_correction"},{"disposition","needs_review"},
+             {"issues",Json::array({"I-05"})}},
+        Json{{"key","literature"},{"disposition","not_searched"},
+             {"issues",Json::array()}}
+    });
+    check(part(coverage,"objectives") == expectedObjectives,
+          "Report Coverage silently changed confirmed P001 objective dispositions");
     const Json snapshots = {"E-001:v1","E-002:v1","E-003:v1",
                             "E-004:v1:historical_stale","E-005:v2"};
     check(part(document,"source_snapshot") == snapshots,
