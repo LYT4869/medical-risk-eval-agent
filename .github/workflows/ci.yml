@@ -23,6 +23,8 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Deterministic Agent evaluation
         run: PYTHONPATH=PythonServices/TreeSemAgent python3 PythonServices/TreeSemAgent/evaluation/run_evaluation.py --mode deterministic
+      - name: V2 P001 synthetic fixture tests
+        run: PYTHONPATH=PythonServices/TreeSemAgent python3 -m unittest discover -s PythonServices/TreeSemAgent/tests -p 'test_p001_fixture.py' -v
       - name: Compose schema validation
         run: docker compose --env-file .env.example config --quiet
       - name: Repository hygiene
