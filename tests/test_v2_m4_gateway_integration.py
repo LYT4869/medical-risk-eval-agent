@@ -146,6 +146,13 @@ def main():
                 assert versions["E-005"]["validity"] == "current"
                 assert statements["S-04"]["hb_g_l"] == 110
                 assert statements["S-04"]["validity"] == "stale"
+                assert statements["S-05"]["hb_g_l"] == 130
+                assert statements["S-05"]["evidence_id"] == "E-005"
+                assert statements["S-05"]["validity"] == "current"
+                assert mysql(
+                    "SELECT COUNT(*) FROM treesem_v2_m4_statement_snapshots "
+                    f"WHERE run_id='{run}'"
+                ) == "2"
                 assert overlay["followup_issues"] == [{
                     "issue_id": "I-05", "status": "needs_review",
                     "old_evidence_id": "E-004", "new_evidence_id": "E-005",
