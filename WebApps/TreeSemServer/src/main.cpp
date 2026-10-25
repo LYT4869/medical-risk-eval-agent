@@ -497,6 +497,37 @@ int main(int argc, char* argv[])
                     v2SimController->get(std::move(request), std::move(responder));
                 });
 
+            // Fixed P001 scenario replay only. A doctor Access JWT is required;
+            // Agent capability tokens cannot manufacture LIS corrections.
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m4/history",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->stageHistoricalLab(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m4/correction",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->applyOfficialSimCorrection(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m4/state",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->correctionState(
+                        std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m4/validate-current",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->checkCurrentSources(
+                        std::move(request), std::move(responder));
+                });
+
             // Only a short-lived, signed, run-scoped Tool capability can use
             // internal artifact writes or Agent status/read requests.
             server.addAsyncRoute(http::HttpRequest::kGet,
