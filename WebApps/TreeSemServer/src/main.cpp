@@ -16,6 +16,10 @@
 #include "api/ChatController.h"
 #include "api/AuthController.h"
 #include "api/DoctorController.h"
+#if defined(TREESEM_HAS_MYSQL) && defined(TREESEM_HAS_AUTH)
+#include "api/V2SimController.h"
+#include "infrastructure/persistence/V2SimArtifactStore.h"
+#endif
 #include "application/PredictionService.h"
 #include "application/RecordServices.h"
 #include "application/SessionService.h"
@@ -235,6 +239,30 @@ int main(int argc, char* argv[])
             config.cookieSecure,
             config.sessionTtlSeconds, config.agentMessageMaxCharacters);
 #endif
+#if defined(TREESEM_HAS_MYSQL) && defined(TREESEM_HAS_AUTH)
+        std::unique_ptr<treesem::infrastructure::V2SimArtifactStore> v2SimStore;
+        std::unique_ptr<treesem::api::V2SimController> v2SimController;
+        const char* v2SimFlag = std::getenv("TREESEM_V2_SIM_ARTIFACT_API");
+        if (v2SimFlag != nullptr && std::string(v2SimFlag) == "1")
+        {
+            if (!config.authRequired ||
+                config.storageBackend != treesem::config::StorageBackend::MySql)
+                throw std::invalid_argument(
+                    "V2 SIM Artifact API requires enabled JWT auth and MySQL");
+            if (config.capabilityTokenTtlSeconds > 120)
+                throw std::invalid_argument(
+                    "V2 SIM Artifact API requires capability TTL at most 120s");
+            auto v2Config = treesem::infrastructure::MySqlStoreConfig::from(config);
+            v2Config.connection.poolSize = 2;
+            v2SimStore = std::make_unique<
+                treesem::infrastructure::V2SimArtifactStore>(
+                std::move(v2Config.connection));
+            v2SimController = std::make_unique<treesem::api::V2SimController>(
+                authService, *securityStore, auditService, jwtService,
+                *v2SimStore, databaseScheduler);
+        }
+#endif
+
         treesem::api::PredictionController predictionController(
             predictionService, predictionScheduler, config.cookieSecure,
             config.sessionTtlSeconds, securityStore, config.authRequired,
@@ -424,6 +452,69 @@ int main(int argc, char* argv[])
                 businessController.listFeedback(
                     std::move(request), std::move(responder));
             });
+
+#if defined(TREESEM_HAS_MYSQL) && defined(TREESEM_HAS_AUTH)
+        // Explicitly opt-in *synthetic* artifact HTTP routes. No real EHR use.
+        if (v2SimController)
+        {
+            // Public doctor routes require a verified access JWT and active
+            // patient assignment on every call. They never accept artifacts.
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->create(std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->status(std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/confirm",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->confirm(std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/capability",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->capability(std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/artifacts/:kind/:artifact_key",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->get(std::move(request), std::move(responder));
+                });
+
+            // Only a short-lived, signed, run-scoped Tool capability can use
+            // internal artifact writes or Agent status/read requests.
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/internal/v2/sim-runs/:run_id",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalStatus(std::move(request),
+                                                   std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/internal/v2/sim-runs/:run_id/artifacts",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalPut(std::move(request),
+                                                std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/internal/v2/sim-runs/:run_id/artifacts/:kind/:artifact_key",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalGet(std::move(request),
+                                                std::move(responder));
+                });
+        }
+#endif
         server.setThreadNum(config.ioThreadCount);
         LOG_INFO << "treeSem backend listening on port " << config.listenPort;
         {
