@@ -177,7 +177,8 @@ Json V2SimArtifactStore::status(const std::string& runId,
                     {"revision", row->getInt("business_revision")},
                     {"summary", required(*row, "contract_summary")},
                     {"overview", required(*row, "investigation_overview")},
-                    {"classification", "SIM"}};
+                    {"classification", "SIM"},
+                    {"fixture_id", required(*row, "fixture_id")}};
     });
 }
 
