@@ -57,6 +57,22 @@ public:
                        const std::string& kind,
                        const std::string& artifactKey);
 
+    // M4: SIM-only, server-bundled synthetic LIS correction event EV-001.
+    // No free-form evidence updates or fake "official" caller payload.
+    nlohmann::json stageHistoricalLab(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId);
+    nlohmann::json applyOfficialSimCorrection(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId);
+    nlohmann::json correctionState(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId);
+    nlohmann::json checkCurrentSources(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId,
+        const nlohmann::json& evidenceIds);
+
 private:
     MySqlConnectionPool pool_;
 };
