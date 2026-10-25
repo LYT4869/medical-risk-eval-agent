@@ -73,6 +73,26 @@ public:
         const std::string& patientId,
         const nlohmann::json& evidenceIds);
 
+    // M5: server-side independently checked, SIM-only report snapshots.
+    // Initial Writer publishing requires run-scoped Agent capability;
+    // doctor report messages use authenticated explicit report identity.
+    nlohmann::json publishM5Report(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& operationId,
+        const nlohmann::json& document);
+
+    nlohmann::json getM5Revision(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& reportId,
+        int revision);
+
+    nlohmann::json m5DoctorMessage(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& reportId,
+        const std::string& conversationId, const std::string& operationId,
+        int baseRevision, const std::string& paragraphId,
+        const std::string& intent, const nlohmann::json& proposedDocument);
+
 private:
     MySqlConnectionPool pool_;
 };
