@@ -20,6 +20,8 @@ def final_overlay():
         "statements": [
             {"statement_id": "S-04", "evidence_id": "E-004",
              "hb_g_l": 110, "validity": "stale"},
+            {"statement_id": "S-05", "evidence_id": "E-005",
+             "hb_g_l": 130, "validity": "current"},
         ],
         "events": ["M4-HISTORY", "EV-001"],
         "followup_issues": [{
@@ -40,6 +42,7 @@ class M4PolicyTests(unittest.TestCase):
     def test_stale_overlay_propagates_only_to_dependent_s04(self):
         result = verify_overlay(final_overlay())
         self.assertEqual(result["stale_statement_ids"], ["S-04"])
+        self.assertEqual(result["current_statement"], "S-05")
         self.assertEqual(result["followup_issue"], "I-05")
         self.assertEqual(result["independent_conflict"], ["E-002", "E-003"])
 
