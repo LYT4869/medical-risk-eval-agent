@@ -250,6 +250,45 @@ def main():
                     lambda: doctor.read_report(second_id,
                         draft["report_id"] + ":v1"), 404
                 )
+                # Simulate business COMMIT of E-002 *before* the M2
+                # Checkpointer advances: the subsequent M2 Graph must replay
+                # that exact operation instead of inserting a second Artifact.
+                doctor.confirm(second_id, 0)  # explicit doctor authorization
+                token2 = doctor.issue_capability(second_id)
+                artifacts2 = GatewayArtifactRepository(transport, token2)
+                from v2_m2.fixture_tools import SyntheticP001Tools
+                old_record = SyntheticP001Tools().records["E-002"]
+                record_key = f"{old_record['logical_id']}:v{old_record['version']}"
+                value = {"classification": "SIM", "evidence_id": "E-002",
+                         "record": old_record}
+                artifacts2.save(second_id, "source_original", record_key, value)
+                # Same stable operation + different content is a 409, not a
+                # silently rewritten patient fact.
+                expect_gateway_error(
+                    lambda: artifacts2.save(second_id, "source_original",
+                        record_key, {**value, "record": {**old_record,
+                            "blood_loss_ml": 999}}), 409
+                )
+                result_retry = GatewayM2Workflow(tmp, artifacts2).execute(second_id)
+                assert result_retry["report"]["status"] == "restricted_draft"
+                assert mysql(
+                    "SELECT COUNT(*) FROM treesem_v2_artifacts "
+                    f"WHERE run_id='{second_id}'"
+                ) == "4"
+                assert mysql(
+                    "SELECT COUNT(*) FROM treesem_v2_operations "
+                    f"WHERE run_id='{second_id}'"
+                ) == "4"
+                # Same operation can still replay safely even after the
+                # successful Draft makes the Run read-only for new writes.
+                artifacts2.save(second_id, "source_original", record_key, value)
+                # Cross-Run Report payload cannot be injected under another Run.
+                expect_gateway_error(
+                    lambda: artifacts2.save(second_id, "draft",
+                        f"report_{second_id}:v1",
+                        {**draft, "run_id": run_id}), 409
+                )
+
                 # Token with a bad signature / wrong audience is rejected.
                 forged = jwt_token(DOC, "doctor", secret=ACCESS_SECRET)
                 expect_gateway_error(
