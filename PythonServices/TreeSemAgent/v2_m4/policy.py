@@ -55,10 +55,13 @@ def verify_overlay(overlay: dict) -> dict:
         (sources["E-004"]["hb_g_l"], sources["E-005"]["hb_g_l"]) != (110, 130) or
         (sources["E-004"]["validity"], sources["E-005"]["validity"]) !=
         ("stale", "current") or
-        set(statements) != {"S-04"} or
+        set(statements) != {"S-04", "S-05"} or
         statements["S-04"]["evidence_id"] != "E-004" or
         statements["S-04"]["hb_g_l"] != 110 or
         statements["S-04"]["validity"] != "stale" or
+        statements["S-05"]["evidence_id"] != "E-005" or
+        statements["S-05"]["hb_g_l"] != 130 or
+        statements["S-05"]["validity"] != "current" or
         "EV-001" not in overlay["events"] or
         set(issues) != {"I-05"} or
         issues["I-05"]["status"] != "needs_review" or
@@ -67,6 +70,7 @@ def verify_overlay(overlay: dict) -> dict:
         raise WorkflowConflict("unexpected correction/impact lineage")
     return {
         "event_id": "EV-001", "old_source": "E-004",
+        "current_statement": "S-05",
         "current_source": "E-005", "stale_statement_ids": ["S-04"],
         "followup_issue": "I-05",
         "model_admission": "blocked_unverified_prenatal",
