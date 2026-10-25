@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS treesem_v2_runs (
     request_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     contract_revision INT NOT NULL DEFAULT 1,
     business_revision INT NOT NULL DEFAULT 0,
-    fixture_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'P001',
     contract_summary TEXT NOT NULL,
     investigation_overview TEXT NOT NULL,
     status VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -22,7 +21,7 @@ CREATE TABLE IF NOT EXISTS treesem_v2_runs (
     CONSTRAINT uq_v2_run_creation UNIQUE (doctor_user_id, patient_user_id, idempotency_key),
     CONSTRAINT chk_v2_run_status CHECK
         (status IN ('awaiting_confirmation', 'contract_confirmed', 'draft_ready')),
-    CONSTRAINT chk_v2_run_sim CHECK (classification = 'SIM' AND fixture_id = 'P001'),
+    CONSTRAINT chk_v2_run_sim CHECK (classification = 'SIM'),
     INDEX idx_v2_run_patient (patient_user_id, created_at DESC, run_id DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
