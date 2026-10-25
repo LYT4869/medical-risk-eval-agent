@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "classification": "SIM",
+  "patient_id": "P001",
+  "doctor_id": "DOC-001",
+  "run_id": "RUN-001",
+  "report_as_of_local": "2026-10-18 09:00",
+  "allow_restricted_draft": true,
+  "records": [
+    {"id": "E-001", "kind": "patient_report", "logical_id": "EMR-P001-ANC-20261010", "version": 1, "event_on": "2026-10-10", "authored_on": "2026-10-10", "available_on": "2026-10-10"},
+    {"id": "E-002", "kind": "original_delivery", "logical_id": "EMR-P001-DEL-20220508", "version": 1, "event_on": "2022-05-08", "authored_on": null, "available_on": "2026-10-12", "blood_loss_ml": 250},
+    {"id": "E-003", "kind": "referral_summary", "logical_id": "REF-P001-20261012", "version": 1, "event_on": "2022-05-08", "authored_on": "2026-10-12", "available_on": "2026-10-12", "blood_loss_ml": 800, "approximate": true},
+    {"id": "E-004", "kind": "lab_result", "logical_id": "LIS-P001-HB-20261010", "version": 1, "event_on": "2026-10-10", "authored_on": "2026-10-11", "available_on": "2026-10-11", "hb_g_l": 110},
+    {"id": "E-005", "kind": "lab_result", "logical_id": "LIS-P001-HB-20261010", "version": 2, "event_on": "2026-10-10", "authored_on": "2026-10-13", "available_on": "2026-10-13", "hb_g_l": 130}
+  ],
+  "audit": {"id": "Q-001", "kind": "bounded_negative_search", "meaning": "no verified PPH diagnosis in authorized searched records; not proof of absence"},
+  "correction": {"id": "EV-001", "kind": "official_correction", "trusted_source": "LIS", "logical_id": "LIS-P001-HB-20261010", "old": "E-004", "new": "E-005", "effective_on": "2026-10-13"},
+  "model_capability": "not_verified_for_prenatal",
+  "stages": [
+    {"id": "T0", "on": "2026-10-12", "retrieved": ["E-001", "E-002", "E-004"], "events": []},
+    {"id": "T1", "on": "2026-10-12", "retrieved": ["E-003"], "events": []},
+    {"id": "T2", "on": "2026-10-13", "retrieved": ["E-005"], "events": ["EV-001"]},
+    {"id": "T3", "on": "2026-10-18", "retrieved": [], "events": []}
+  ],
+  "expected": {
+    "initial_issues": ["I-01", "I-02", "I-03"],
+    "conflict_issue": "I-04",
+    "correction_issue": "I-05",
+    "stale_statements": ["S-04"],
+    "conflicting_sources": ["E-002", "E-003"],
+    "current_hb_evidence": "E-005",
+    "report_admission": "restricted_draft",
+    "forbidden_claims": ["confirmed_prior_pph", "actual_blood_loss_is_800ml", "current_hb_is_110", "validated_prenatal_prediction"]
+  }
+}
