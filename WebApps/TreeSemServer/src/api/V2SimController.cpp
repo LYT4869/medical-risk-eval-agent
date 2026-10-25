@@ -222,6 +222,8 @@ void V2SimController::create(http::HttpRequest request, http::AsyncResponder res
         return safe([&]() {
             const std::string actor = authorizedDoctor(request);
             const Json body = object(request);
+            if (str(body, "fixture_id", 16) != "P001")
+                reject("only explicit synthetic P001 fixture permitted");
             const std::string key = id(str(body, "idempotency_key", 64));
             const std::string summary = str(body, "summary", 1200);
             const std::string overview = str(body, "overview", 1200);
