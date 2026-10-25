@@ -152,7 +152,7 @@ Json V2SimArtifactStore::create(const std::string& runId,
             return Json{{"run_id", required(*row, "run_id")},
                         {"status", required(*row, "status")},
                         {"contract_revision", row->getInt("contract_revision")},
-                        {"classification", "SIM"}};
+                        {"classification", "SIM"}, {"fixture_id", "P001"}};
         });
     });
 }
@@ -164,7 +164,7 @@ Json V2SimArtifactStore::status(const std::string& runId,
     auto lease = pool_.acquire();
     return guarded(lease, [&](sql::Connection& db) -> Json {
         auto read = query(db,
-            "SELECT run_id,doctor_user_id,patient_user_id,classification,status,"
+            "SELECT run_id,doctor_user_id,patient_user_id,classification,fixture_id,status,"
             "contract_revision,business_revision,contract_summary,investigation_overview "
             "FROM treesem_v2_runs WHERE run_id=?");
         read->setString(1, runId);
