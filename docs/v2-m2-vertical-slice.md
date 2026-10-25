@@ -34,7 +34,7 @@ M2-A's independent Python/SQLite fake remains as an offline regression path. **M
 
 ### Doctor and Agent API boundaries
 
-The V2 SIM API is **off by default**. It requires the explicit `TREESEM_V2_SIM_ARTIFACT_API=1` flag, `TREESEM_AUTH_MODE=required`, MySQL-enabled build and MySQL schema migration 006. All writes must declare `classification: "SIM"`, and a new Run must explicitly select `fixture_id: "P001"`. The `patient_id` URL identifies an authenticated, doctor-assigned **test patient account**, NOT the identity of a real P001 record.
+The V2 SIM API is **off by default** and refuses to start when its capability TTL exceeds 120 seconds. It requires the explicit `TREESEM_V2_SIM_ARTIFACT_API=1` flag, `TREESEM_AUTH_MODE=required`, MySQL-enabled build and MySQL schema migrations 006 and incremental 007. All writes must declare `classification: "SIM"`, and a new Run must explicitly select `fixture_id: "P001"`. The `patient_id` URL identifies an authenticated, doctor-assigned **test patient account**, NOT the identity of a real P001 record.
 
 Public authenticated **doctor Access JWT** endpoints:
 
@@ -73,13 +73,13 @@ The C++ `SecurityMiddleware` verifies JWT audience/signature/expiration/tool sco
 
 ### Business transaction and replay behavior
 
-`db/migrations/006_v2_sim_artifacts.sql` introduces `treesem_v2_runs`, `treesem_v2_artifacts`, and `treesem_v2_operations`; V1 tables are not modified. Creation is idempotent by (doctor, patient, idempotency_key, contract fingerprint). All Artifact writes happen under a transaction with an InnoDB Run row lock; the same transaction inserts the immutable payload and its operation journal. An unchanged request with the same `operation_id` returns its recorded result, even when the Run's status became `draft_ready`. Reusing the ID with a different payload or attempting to overwrite an immutable source returns a conflict; a report must match its Run and remain unsigned, template-only and restricted.
+`db/migrations/006_v2_sim_artifacts.sql` introduces `treesem_v2_runs`, `treesem_v2_artifacts`, and `treesem_v2_operations`; incremental `007_v2_sim_fixture_scope.sql` adds the fixed P001 fixture binding and check constraint without rewriting migration 006. V1 tables are not modified. Creation is idempotent by (doctor, patient, idempotency_key, contract fingerprint). All Artifact writes happen under a transaction with an InnoDB Run row lock; the same transaction inserts the immutable payload and its operation journal. An unchanged request with the same `operation_id` returns its recorded result, even when the Run's status became `draft_ready`. Reusing the ID with a different payload or attempting to overwrite an immutable source returns a conflict; a report must match its Run and remain unsigned, template-only and restricted.
 
 This is **exactly-once business effect for a stable operation ID**, not exactly-once Graph execution or a distributed transaction. A C++ commit can happen before the Python Graph checkpoint; the next Graph attempt should safely replay the committed write. Graph operations and tool calls are still at-least-once. A recheck of doctor/subject/Run authorization is required even on a replay. Backend/Agent thread ownership, general reconciliation and PHI retention are not production-ready.
 
 ### Reproduce and verify
 
-To validate locally, use an isolated MySQL 8 **test database**, with migrations 001–006 applied and the server compiled using MySQL/JWT:
+To validate locally, use an isolated MySQL 8 **test database**, with migrations 001–007 applied and the server compiled using MySQL/JWT:
 
 ```bash
 TREESEM_DB_PASSWORD='your-local-test-password' \
