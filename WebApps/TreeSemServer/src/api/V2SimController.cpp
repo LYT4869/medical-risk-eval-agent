@@ -324,6 +324,78 @@ void V2SimController::put(http::HttpRequest request, http::AsyncResponder respon
     }, std::move(responder));
 }
 
+void V2SimController::stageHistoricalLab(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            if (!object(request).empty())
+                reject("M4 historical fixture accepts no caller-supplied facts");
+            const std::string run = id(request.getPathParameters("run_id"));
+            const Json value = artifacts_.stageHistoricalLab(
+                run, actor, request.getPathParameters("patient_id"));
+            audit_.record(actor, "doctor", request.requestContext().requestId,
+                          "v2.sim.m4.history", "v2_run", run,
+                          "allowed", "fixed_synthetic_historical_LIS");
+            return ok(value);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::applyOfficialSimCorrection(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            // Deliberate doctor-triggered replay of the one server-bundled
+            // LIS SIM fixture, NOT a production LIS event ingestion endpoint.
+            if (!object(request).empty())
+                reject("M4 correction cannot accept arbitrary medical facts");
+            const std::string run = id(request.getPathParameters("run_id"));
+            const Json value = artifacts_.applyOfficialSimCorrection(
+                run, actor, request.getPathParameters("patient_id"));
+            audit_.record(actor, "doctor", request.requestContext().requestId,
+                          "v2.sim.m4.official_fixture_event", "v2_run", run,
+                          "allowed", "fixed_EV-001_event");
+            return ok(value);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::correctionState(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            const std::string run = id(request.getPathParameters("run_id"));
+            const Json value = artifacts_.correctionState(
+                run, actor, request.getPathParameters("patient_id"));
+            return ok(value);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::checkCurrentSources(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            const Json body = object(request);
+            if (body.size() != 1 || !body.contains("evidence_ids"))
+                reject("M4 source gate accepts evidence_ids only");
+            const std::string run = id(request.getPathParameters("run_id"));
+            const Json result = artifacts_.checkCurrentSources(
+                run, actor, request.getPathParameters("patient_id"),
+                body.at("evidence_ids"));
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
 void V2SimController::get(http::HttpRequest request, http::AsyncResponder responder) const
 {
     scheduler_.schedule([this, request = std::move(request)] {

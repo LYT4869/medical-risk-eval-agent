@@ -152,6 +152,31 @@ class GatewayDoctorClient:
             raise WorkflowConflict("gateway capability missing")
         return token
 
+    def _m4(self, run_id: str, method: str, endpoint: str, payload=None):
+        return self.transport.request(
+            method, self._prefix() + f"/{checked_id(run_id)}/m4/{endpoint}",
+            self.doctor_jwt, payload,
+        )
+
+    def stage_m4_history(self, run_id: str):
+        # Test-only: doctor explicitly asks the server to stage fixed old LIS v1.
+        return self._m4(run_id, "POST", "history", {})
+
+    def apply_m4_simulated_correction(self, run_id: str):
+        # A bundled server fixture EV-001; never accept arbitrary patient values.
+        return self._m4(run_id, "POST", "correction", {})
+
+    def m4_state(self, run_id: str):
+        return self._m4(run_id, "GET", "state")
+
+    def validate_m4_current(self, run_id: str, evidence_ids: list[str]):
+        if not isinstance(evidence_ids, list) or not all(
+            isinstance(ref, str) for ref in evidence_ids
+        ):
+            raise WorkflowConflict("invalid synthetic source references")
+        return self._m4(run_id, "POST", "validate-current",
+                        {"evidence_ids": evidence_ids})
+
     def read_report(self, run_id: str, artifact_key: str):
         return self.transport.request(
             "GET", self._prefix() + f"/{checked_id(run_id)}"
