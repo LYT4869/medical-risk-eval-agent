@@ -249,6 +249,9 @@ int main(int argc, char* argv[])
                 config.storageBackend != treesem::config::StorageBackend::MySql)
                 throw std::invalid_argument(
                     "V2 SIM Artifact API requires enabled JWT auth and MySQL");
+            if (config.capabilityTokenTtlSeconds > 120)
+                throw std::invalid_argument(
+                    "V2 SIM Artifact API requires capability TTL at most 120s");
             auto v2Config = treesem::infrastructure::MySqlStoreConfig::from(config);
             v2Config.connection.poolSize = 2;
             v2SimStore = std::make_unique<
