@@ -255,8 +255,8 @@ int main(int argc, char* argv[])
                 treesem::infrastructure::V2SimArtifactStore>(
                 std::move(v2Config.connection));
             v2SimController = std::make_unique<treesem::api::V2SimController>(
-                authService, *securityStore, auditService, *v2SimStore,
-                databaseScheduler);
+                authService, *securityStore, auditService, jwtService,
+                *v2SimStore, databaseScheduler);
         }
 #endif
 
@@ -454,11 +454,19 @@ int main(int argc, char* argv[])
         // Explicitly opt-in *synthetic* artifact HTTP routes. No real EHR use.
         if (v2SimController)
         {
+            // Public doctor routes require a verified access JWT and active
+            // patient assignment on every call. They never accept artifacts.
             server.addAsyncRoute(http::HttpRequest::kPost,
                 "/api/v2/doctor/patients/:patient_id/sim-runs",
                 [&v2SimController](http::HttpRequest request,
                                    http::AsyncResponder responder) {
                     v2SimController->create(std::move(request), std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->status(std::move(request), std::move(responder));
                 });
             server.addAsyncRoute(http::HttpRequest::kPost,
                 "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/confirm",
@@ -467,16 +475,40 @@ int main(int argc, char* argv[])
                     v2SimController->confirm(std::move(request), std::move(responder));
                 });
             server.addAsyncRoute(http::HttpRequest::kPost,
-                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/artifacts",
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/capability",
                 [&v2SimController](http::HttpRequest request,
                                    http::AsyncResponder responder) {
-                    v2SimController->put(std::move(request), std::move(responder));
+                    v2SimController->capability(std::move(request), std::move(responder));
                 });
             server.addAsyncRoute(http::HttpRequest::kGet,
                 "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/artifacts/:kind/:artifact_key",
                 [&v2SimController](http::HttpRequest request,
                                    http::AsyncResponder responder) {
                     v2SimController->get(std::move(request), std::move(responder));
+                });
+
+            // Only a short-lived, signed, run-scoped Tool capability can use
+            // internal artifact writes or Agent status/read requests.
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/internal/v2/sim-runs/:run_id",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalStatus(std::move(request),
+                                                   std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/internal/v2/sim-runs/:run_id/artifacts",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalPut(std::move(request),
+                                                std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/internal/v2/sim-runs/:run_id/artifacts/:kind/:artifact_key",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->internalGet(std::move(request),
+                                                std::move(responder));
                 });
         }
 #endif
