@@ -91,22 +91,53 @@ class GatewayDoctorClient:
     def _prefix(self) -> str:
         return f"/api/v2/doctor/patients/{self.patient_id}/sim-runs"
 
-    def create(self, idempotency_key: str, summary: str, overview: str):
-        return self.transport.request("POST", self._prefix(), self.doctor_jwt, {
+    def create(self, idempotency_key: str, summary: str, overview: str,
+               *, clarification_question: str | None = None):
+        body = {
             "idempotency_key": checked_id(idempotency_key),
             "fixture_id": "P001",
             "summary": summary, "overview": overview,
-        })
+        }
+        if clarification_question is not None:
+            if not isinstance(clarification_question, str) or not clarification_question.strip():
+                raise WorkflowConflict("clarification must be nonempty")
+            body["clarification_question"] = clarification_question
+        return self.transport.request(
+            "POST", self._prefix(), self.doctor_jwt, body
+        )
 
     def status(self, run_id: str):
         return self.transport.request(
             "GET", self._prefix() + f"/{checked_id(run_id)}", self.doctor_jwt,
         )
 
-    def confirm(self, run_id: str, expected_revision: int):
+    def confirm(self, run_id: str, expected_revision: int,
+                contract_revision: int = 1):
         return self.transport.request(
             "POST", self._prefix() + f"/{checked_id(run_id)}/confirm",
-            self.doctor_jwt, {"expected_revision": expected_revision},
+            self.doctor_jwt,
+            {"expected_revision": expected_revision,
+             "contract_revision": contract_revision},
+        )
+
+    def change_contract(
+        self, run_id: str, decision: str, expected_revision: int,
+        contract_revision: int, *, summary: str | None = None,
+        overview: str | None = None, answer: str | None = None,
+    ):
+        if decision not in ("revise", "clarify", "cancel"):
+            raise WorkflowConflict("unsupported native Contract edit")
+        body = {"decision": decision, "expected_revision": expected_revision,
+                "contract_revision": contract_revision}
+        if summary is not None:
+            body["summary"] = summary
+        if overview is not None:
+            body["overview"] = overview
+        if answer is not None:
+            body["answer"] = answer
+        return self.transport.request(
+            "POST", self._prefix() + f"/{checked_id(run_id)}/contract",
+            self.doctor_jwt, body,
         )
 
     def issue_capability(self, run_id: str) -> str:
