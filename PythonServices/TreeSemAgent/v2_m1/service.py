@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from .run_store import DemoRunStore, WorkflowConflict, operation_id
+from .transitions import validate_decision
 from .workflow import build_graph
 
 
@@ -75,6 +76,18 @@ class DemoWorkflowService:
             if (snapshot.values["business_revision"] != expected_revision
                     or snapshot.values["contract_revision"] != contract_revision):
                 raise WorkflowConflict("response targets a different contract snapshot")
+            # Reject known-invalid doctor input *before* Command(resume).
+            # An error inside the interrupted node can make the next attempt
+            # replay a previously supplied, invalid resume value.
+            validate_decision(decision, summary, overview, answer)
+            business = self.store.get(run_id, actor_id)
+            if (business["revision"] == expected_revision
+                    and business["contract_revision"] == contract_revision):
+                draft = self.store.contract(run_id, actor_id)
+                if decision == "confirm" and draft["clarification_question"]:
+                    raise WorkflowConflict("unanswered clarification blocks confirmation")
+                if decision == "clarify" and not draft["clarification_question"]:
+                    raise WorkflowConflict("no clarification question is pending")
             graph.invoke(
                 Command(resume={
                     "decision": decision,
