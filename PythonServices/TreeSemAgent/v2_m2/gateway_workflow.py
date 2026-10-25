@@ -1,8 +1,7 @@
 """One authoritative C++/MySQL SIM Run for M1 HITL and M2 Artifact writes.
 
-This is the first confirmed-Contract path: initial confirmation only.
-M1-B's full revise/clarify loop remains in the isolated SQLite demo until
-the native versioned Contract edit API is implemented.
+M1's real Contract interrupt now supports doctor revise/clarify/reconfirm
+through one C++/MySQL authoritative Run; SQLite contains graph state only.
 """
 from __future__ import annotations
 
@@ -12,6 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from v2_m1.run_store import WorkflowConflict, operation_id
+from v2_m1.transitions import validate_decision
 from v2_m1.workflow import build_graph
 
 from .fixture_tools import SyntheticP001Tools
@@ -26,16 +26,34 @@ class _GatewayContractStore:
     def apply(self, *, run_id: str, actor_id: str, phase: str, decision: str,
               op_id: str, expected_revision: int, contract_revision: int,
               summary=None, overview=None, answer=None):
-        if (phase != "contract" or decision != "confirm"
-                or contract_revision != 1 or expected_revision != 0
-                or any(x is not None for x in (summary, overview, answer))
-                or op_id != operation_id(run_id, "contract", expected_revision)):
-            raise WorkflowConflict("M2-B gateway currently supports initial confirmation only")
-        approved = self.doctor.confirm(run_id, expected_revision)
-        if approved.get("status") != "contract_confirmed" or approved.get("revision") != 1:
-            raise WorkflowConflict("gateway Contract was not confirmed")
-        return {"status": "contract_confirmed", "revision": 1,
-                "contract_revision": 1}
+        if (phase != "contract" or expected_revision < 0 or
+                contract_revision < 1 or
+                op_id != operation_id(run_id, "contract", expected_revision)):
+            raise WorkflowConflict("invalid M1 Gateway operation identity")
+        summary, overview, answer = validate_decision(
+            decision, summary, overview, answer
+        )
+        if decision == "confirm":
+            result = self.doctor.confirm(
+                run_id, expected_revision, contract_revision
+            )
+        else:
+            result = self.doctor.change_contract(
+                run_id, decision, expected_revision, contract_revision,
+                summary=summary, overview=overview, answer=answer,
+            )
+        expected_status = ("contract_confirmed" if decision == "confirm"
+                           else "cancelled" if decision == "cancel"
+                           else "awaiting_confirmation")
+        next_contract = contract_revision + (
+            1 if decision in ("revise", "clarify") else 0
+        )
+        if (result.get("status") != expected_status or
+                result.get("revision") != expected_revision + 1 or
+                result.get("contract_revision") != next_contract):
+            raise WorkflowConflict("unexpected authoritative Contract transition")
+        return {"status": expected_status, "revision": expected_revision + 1,
+                "contract_revision": next_contract}
 
 
 class GatewayContractWorkflow:
@@ -51,8 +69,12 @@ class GatewayContractWorkflow:
     def config(run_id: str) -> dict:
         return {"configurable": {"thread_id": "treesem-v2:gateway-contract:" + run_id}}
 
-    def start(self, idempotency_key: str, summary: str, overview: str) -> dict:
-        created = self.doctor.create(idempotency_key, summary, overview)
+    def start(self, idempotency_key: str, summary: str, overview: str,
+              *, clarification_question: str | None = None) -> dict:
+        created = self.doctor.create(
+            idempotency_key, summary, overview,
+            clarification_question=clarification_question,
+        )
         run_id = created["run_id"]
         remote = self.doctor.status(run_id)
         if remote.get("classification") != "SIM" or remote.get("fixture_id") != "P001":
@@ -75,38 +97,73 @@ class GatewayContractWorkflow:
                 "next": list(snapshot.next),
                 "revision": remote["revision"],
                 "contract_revision": remote["contract_revision"],
-                "summary": remote["summary"], "overview": remote["overview"]}
+                "summary": remote["summary"], "overview": remote["overview"],
+                "clarification_question": remote["clarification_question"],
+                "clarification_answer": remote["clarification_answer"]}
+
+    def resume(self, run_id: str, decision: str, expected_revision: int,
+               contract_revision: int, *, summary: str | None = None,
+               overview: str | None = None, answer: str | None = None) -> dict:
+        # Verify input *before* Command(resume): failed interrupt execution can
+        # otherwise replay a prior invalid doctor decision at the next resume.
+        summary, overview, answer = validate_decision(
+            decision, summary, overview, answer
+        )
+        remote = self.doctor.status(run_id)
+        if remote.get("fixture_id") != "P001":
+            raise WorkflowConflict("unexpected synthetic Contract identity")
+        if not (
+            (remote["revision"] == expected_revision and
+             remote["contract_revision"] == contract_revision and
+             remote["status"] == "awaiting_confirmation")
+            or
+            # SQL COMMIT succeeded, but Graph checkpoint has not advanced.
+            (remote["revision"] == expected_revision + 1 and
+             remote["contract_revision"] ==
+                contract_revision + (1 if decision in ("revise", "clarify") else 0)
+             and remote["status"] in
+                ("awaiting_confirmation", "contract_confirmed", "cancelled", "draft_ready"))
+        ):
+            raise WorkflowConflict("stale or unrelated Contract revision")
+        if remote["revision"] == expected_revision:
+            if decision == "confirm" and remote["clarification_question"]:
+                raise WorkflowConflict("answer pending clarification before confirm")
+            if decision == "clarify" and not remote["clarification_question"]:
+                raise WorkflowConflict("no pending clarification")
+            if decision in ("revise", "clarify") and contract_revision >= 10:
+                raise WorkflowConflict("Contract revision limit reached")
+        with SqliteSaver.from_conn_string(self.checkpoints) as saver:
+            graph = build_graph(_GatewayContractStore(self.doctor), "doctor", saver)
+            config = self.config(run_id)
+            snapshot = graph.get_state(config)
+            if snapshot.next != ("contract_gate",):
+                raise WorkflowConflict("M1 Gateway Graph is not awaiting confirmation")
+            if (snapshot.values["business_revision"] != expected_revision or
+                    snapshot.values["contract_revision"] != contract_revision):
+                raise WorkflowConflict("stale checkpoint Contract revision")
+            graph.invoke(Command(resume={
+                "decision": decision, "expected_revision": expected_revision,
+                "contract_revision": contract_revision,
+                "summary": summary, "overview": overview, "answer": answer,
+            }), config=config, durability="sync")
+            latest = graph.get_state(config)
+        updated = self.doctor.status(run_id)
+        should_wait = decision in ("revise", "clarify")
+        if (list(latest.next) != (["contract_gate"] if should_wait else []) or
+                latest.values.get("phase") != updated["status"]):
+            raise WorkflowConflict("M1 Gateway transition/checkpoint diverged")
+        return {
+            "run_id": run_id, "business": updated["status"],
+            "next": list(latest.next), "revision": updated["revision"],
+            "contract_revision": updated["contract_revision"],
+            "summary": updated["summary"], "overview": updated["overview"],
+            "clarification_question": updated["clarification_question"],
+            "clarification_answer": updated["clarification_answer"],
+        }
 
     def resume_confirm(self, run_id: str, expected_revision: int,
                        contract_revision: int) -> dict:
-        remote = self.doctor.status(run_id)
-        if (remote.get("fixture_id") != "P001"
-                or contract_revision != remote["contract_revision"]
-                or expected_revision != 0
-                or remote["revision"] not in (0, 1)
-                or remote["status"] not in ("awaiting_confirmation", "contract_confirmed")):
-            raise WorkflowConflict("unexpected Contract state")
-        with SqliteSaver.from_conn_string(self.checkpoints) as saver:
-            graph = build_graph(_GatewayContractStore(self.doctor), "doctor", saver)
-            snapshot = graph.get_state(self.config(run_id))
-            if snapshot.next != ("contract_gate",):
-                raise WorkflowConflict("the M1 Graph is not awaiting confirmation")
-            if (snapshot.values["business_revision"] != expected_revision
-                    or snapshot.values["contract_revision"] != contract_revision):
-                raise WorkflowConflict("stale M1 confirmation snapshot")
-            graph.invoke(
-                Command(resume={"decision": "confirm",
-                                "expected_revision": expected_revision,
-                                "contract_revision": contract_revision}),
-                config=self.config(run_id), durability="sync",
-            )
-            latest = graph.get_state(self.config(run_id))
-        status = self.doctor.status(run_id)
-        if latest.next or latest.values.get("phase") != "contract_confirmed":
-            raise WorkflowConflict("M1 Graph did not exit confirmed")
-        return {"run_id": run_id, "business": status["status"],
-                "next": [], "revision": status["revision"],
-                "contract_revision": status["contract_revision"]}
+        return self.resume(run_id, "confirm", expected_revision, contract_revision)
 
 
 class GatewayM2Workflow:

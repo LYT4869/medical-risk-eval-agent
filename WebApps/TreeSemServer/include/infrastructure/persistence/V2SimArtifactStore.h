@@ -20,7 +20,8 @@ public:
                           const std::string& patientId,
                           const std::string& idemKey,
                           const std::string& summary,
-                          const std::string& overview);
+                          const std::string& overview,
+                          const std::string& clarificationQuestion = "");
 
     nlohmann::json status(const std::string& runId,
                           const std::string& doctorId,
@@ -29,7 +30,18 @@ public:
     nlohmann::json confirm(const std::string& runId,
                            const std::string& doctorId,
                            const std::string& patientId,
-                           int expectedRevision);
+                           int expectedRevision,
+                           int expectedContractRevision = 1);
+
+    nlohmann::json editContract(const std::string& runId,
+                                const std::string& doctorId,
+                                const std::string& patientId,
+                                const std::string& decision,
+                                int expectedRevision,
+                                int expectedContractRevision,
+                                const std::string& summary,
+                                const std::string& overview,
+                                const std::string& answer);
 
     nlohmann::json put(const std::string& runId,
                        const std::string& doctorId,

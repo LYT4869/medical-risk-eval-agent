@@ -26,6 +26,7 @@ public:
 
     void create(http::HttpRequest request, http::AsyncResponder responder) const;
     void confirm(http::HttpRequest request, http::AsyncResponder responder) const;
+    void editContract(http::HttpRequest request, http::AsyncResponder responder) const;
     void status(http::HttpRequest request, http::AsyncResponder responder) const;
     void capability(http::HttpRequest request, http::AsyncResponder responder) const;
     void internalStatus(http::HttpRequest request, http::AsyncResponder responder) const;

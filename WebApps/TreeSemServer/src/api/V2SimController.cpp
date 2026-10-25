@@ -227,9 +227,11 @@ void V2SimController::create(http::HttpRequest request, http::AsyncResponder res
             const std::string key = id(str(body, "idempotency_key", 64));
             const std::string summary = str(body, "summary", 1200);
             const std::string overview = str(body, "overview", 1200);
+            const std::string question = body.contains("clarification_question")
+                ? str(body, "clarification_question", 1200) : "";
             const auto result = artifacts_.create(
                 newRunId(), actor, request.getPathParameters("patient_id"),
-                key, summary, overview);
+                key, summary, overview, question);
             audit_.record(actor, "doctor", request.requestContext().requestId,
                           "v2.sim.run.create", "v2_run",
                           result.at("run_id").get<std::string>(),
@@ -249,12 +251,51 @@ void V2SimController::confirm(http::HttpRequest request, http::AsyncResponder re
                 !body.at("expected_revision").is_number_integer())
                 reject("expected_revision is required");
             const int revision = body.at("expected_revision").get<int>();
+            if (body.contains("contract_revision") &&
+                !body.at("contract_revision").is_number_integer())
+                reject("contract_revision must be an integer");
+            const int contractRevision = body.contains("contract_revision")
+                ? body.at("contract_revision").get<int>() : 1;
             const std::string runId = id(request.getPathParameters("run_id"));
             const auto result = artifacts_.confirm(
-                runId, actor, request.getPathParameters("patient_id"), revision);
+                runId, actor, request.getPathParameters("patient_id"),
+                revision, contractRevision);
             audit_.record(actor, "doctor", request.requestContext().requestId,
                           "v2.sim.contract.confirm", "v2_run", runId,
                           "allowed", "explicit_doctor_confirm");
+            return ok(result);
+        });
+    }, std::move(responder));
+}
+
+void V2SimController::editContract(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request = std::move(request)] {
+        return safe([&]() {
+            const std::string actor = authorizedDoctor(request);
+            const Json body = object(request);
+            if (!body.contains("expected_revision") ||
+                !body.at("expected_revision").is_number_integer() ||
+                !body.contains("contract_revision") ||
+                !body.at("contract_revision").is_number_integer())
+                reject("both Contract and Run revisions must be integers");
+            const std::string decision = str(body, "decision", 16);
+            const std::string summary = body.contains("summary")
+                ? str(body, "summary", 1200) : "";
+            const std::string overview = body.contains("overview")
+                ? str(body, "overview", 1200) : "";
+            const std::string answer = body.contains("answer")
+                ? str(body, "answer", 1200) : "";
+            const std::string runId = id(request.getPathParameters("run_id"));
+            const auto result = artifacts_.editContract(
+                runId, actor, request.getPathParameters("patient_id"), decision,
+                body.at("expected_revision").get<int>(),
+                body.at("contract_revision").get<int>(),
+                summary, overview, answer);
+            audit_.record(actor, "doctor", request.requestContext().requestId,
+                          "v2.sim.contract." + decision, "v2_run", runId,
+                          "allowed", "versioned_doctor_contract_action");
             return ok(result);
         });
     }, std::move(responder));
