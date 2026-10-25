@@ -255,6 +255,15 @@ Json V2SimArtifactStore::applyOfficialSimCorrection(
                 statement->getInt("value_g_l") != 110)
                 fail(Kind::Conflict, "missing exact historical statement");
             saveSource(db, runId, "E-005", 2, 130);
+            // The new statement is an immutable *new* source-backed
+            // observation, not a rewrite of the historical S-04.
+            auto newStatement = stmt(db,
+                "INSERT INTO treesem_v2_m4_statement_snapshots "
+                "(run_id,statement_id,evidence_id,value_g_l) "
+                "VALUES (?,'S-05','E-005',130)");
+            newStatement->setString(1, runId);
+            newStatement->executeUpdate();
+            saveValidity(db, runId, "statement", "S-05", "current", "");
             saveValidity(db, runId, "evidence", "E-004", "stale", "EV-001");
             saveValidity(db, runId, "statement", "S-04", "stale", "EV-001");
             saveValidity(db, runId, "evidence", "E-005", "current", "");
@@ -265,6 +274,7 @@ Json V2SimArtifactStore::applyOfficialSimCorrection(
                 {"logical_id",kLogical}, {"previous","E-004"},
                 {"current","E-005"}, {"previous_hb_g_l",110},
                 {"current_hb_g_l",130}, {"affected_statements",Json::array({"S-04"})},
+                {"new_statement_id","S-05"},
                 {"new_issue_id","I-05"}, {"issue_status","needs_review"},
                 {"classification","SIM"}, {"effective_on","2026-10-13"}
             };
