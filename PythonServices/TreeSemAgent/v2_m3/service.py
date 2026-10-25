@@ -48,8 +48,6 @@ class _BaseWorkflow:
                 graph.invoke(
                     {"run_id": run_id, "contract_revision": contract_revision},
                     config=config, durability="sync",
-                    # Keep a safety margin for small P001's decisions.
-                    context={"sim_only": True},
                 )
             elif previous.next:
                 graph.invoke(None, config=config, durability="sync")
