@@ -22,6 +22,10 @@ public:
                           const std::string& summary,
                           const std::string& overview);
 
+    nlohmann::json status(const std::string& runId,
+                          const std::string& doctorId,
+                          const std::string& patientId);
+
     nlohmann::json confirm(const std::string& runId,
                            const std::string& doctorId,
                            const std::string& patientId,
