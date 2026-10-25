@@ -32,6 +32,12 @@ public:
     void internalStatus(http::HttpRequest request, http::AsyncResponder responder) const;
     void internalPut(http::HttpRequest request, http::AsyncResponder responder) const;
     void internalGet(http::HttpRequest request, http::AsyncResponder responder) const;
+    // Doctor-only SIM fixture controls; Agent tool capabilities cannot
+    // claim an independent record has become an official LIS correction.
+    void stageHistoricalLab(http::HttpRequest request, http::AsyncResponder responder) const;
+    void applyOfficialSimCorrection(http::HttpRequest request, http::AsyncResponder responder) const;
+    void correctionState(http::HttpRequest request, http::AsyncResponder responder) const;
+    void checkCurrentSources(http::HttpRequest request, http::AsyncResponder responder) const;
     void put(http::HttpRequest request, http::AsyncResponder responder) const;
     void get(http::HttpRequest request, http::AsyncResponder responder) const;
 
