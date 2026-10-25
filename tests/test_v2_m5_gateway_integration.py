@@ -130,6 +130,47 @@ def main():
                     "POST",repo._prefix(run)+"/artifacts/m5/publish",
                     doctor.doctor_jwt,{"operation_id":"op_wrong_token","document":doc1},
                     run_id=run),401,403)
+                # Wrong token class cannot cross the internal/public boundary.
+                expect_gateway_error(lambda: transport.request(
+                    "POST",doctor._prefix()+f"/{run}/m5/reports/{report_id}/messages",
+                    repo.capability,
+                    {"intent":"explain","base_revision":3,"conversation_id":cv,
+                     "paragraph_id":"P-02"},run_id=run),401,403)
+
+                # MySQL COMMIT then no M5 LangGraph checkpoint: a *second*
+                # explicitly confirmed Report/Run uses identical stable op.
+                run2=m1.start(
+                    "m5_"+uuid.uuid4().hex,"第二份独立P001合成报告",
+                    "与第一份报告隔离，不自动复用报告身份"
+                )["run_id"]
+                m1.resume_confirm(run2,0,1)
+                repo2=GatewayArtifactRepository(
+                    transport,doctor.issue_capability(run2))
+                M3GatewayWorkflow(tmp,repo2).execute(run2,1)
+                M4GatewayWorkflow(tmp,doctor).execute(
+                    run2,explicit_simulated_lis_event=True)
+                staged=verified_document(
+                    P001ReportContext(run2,1,repo2,doctor).load())
+                precommit_op=operation_id(run2,"m5","publish","1")
+                repo2.publish_m5(run2,precommit_op,staged)
+                replayed=M5GatewayWorkflow(tmp,repo2,doctor).execute(run2,1)
+                assert replayed["document"]==staged
+                assert mysql("SELECT COUNT(*) FROM treesem_v2_m5_report_revisions "
+                             f"WHERE run_id='{run2}'")=="1"
+                assert mysql("SELECT COUNT(*) FROM treesem_v2_m5_operations "
+                             f"WHERE run_id='{run2}'")=="1"
+                expect_gateway_error(
+                    lambda:doctor.m5_revision(run2,report_id,1),404)
+                # Live patient authorization rechecked on every subsequent
+                # report read or explanation, even if the old token remains.
+                mysql("UPDATE treesem_doctor_patient_assignments "
+                      "SET status='revoked',revoked_at=UTC_TIMESTAMP(6) "
+                      "WHERE assignment_id='m2_asn'")
+                expect_gateway_error(
+                    lambda:doctor.m5_revision(run,report_id,3),403,404)
+                expect_gateway_error(
+                    lambda:session.explain(run,report_id,base_revision=3,
+                        paragraph_id="P-02",conversation_id=cv),403,404)
                 print("M5 MySQL: Coverage/Writer/10 assertions and doctor v1-v3 CAS passed")
             finally:
                 if proc.poll() is None:
