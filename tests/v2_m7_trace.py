@@ -32,7 +32,7 @@ STEPS = {
         "draft_delivered", "checkpoint_recovered", "access_revoked",
     ),
 }
-REF_PATTERN = re.compile(r"(?:[EISP]-[0-9]{2}|EV-[0-9]{3})\Z")
+REF_PATTERN = re.compile(r"(?:E-[0-9]{3}|[SIP]-[0-9]{2}|EV-[0-9]{3})\Z")
 METRICS = frozenset({
     "contract_revision", "steps", "tool_calls", "proposal_rows",
     "report_rows", "report_revision", "assertions", "sections", "writer_calls",
