@@ -5,6 +5,8 @@ connection, clinical sentence verification, or report publish is performed.
 """
 from __future__ import annotations
 from copy import deepcopy
+import hashlib
+import json
 from pathlib import Path
 from typing import TypedDict
 from langgraph.graph import START, END, StateGraph
@@ -35,6 +37,7 @@ class RuntimeState(TypedDict, total=False):
     pending: dict
     trace: list[str]
     outcome: str
+    contract_digest: str
 
 def select_issue(agenda):
     """Resume in-progress first; else high-priority todo with stable order."""
@@ -54,9 +57,13 @@ def build_graph(repo, authorize, agent, contract, saver, *,
     check(len(objective_ids)==len(contract["objectives"]) and bool(objective_ids),
           "confirmed objective IDs required")
     tools=M3FixtureTools()
+    digest=hashlib.sha256(json.dumps(contract,sort_keys=True,
+                     ensure_ascii=False).encode("utf-8")).hexdigest()
 
     def authorized(state):
         authorize(state["run_id"],state["contract_revision"])
+        if state.get("contract_digest") and state["contract_digest"]!=digest:
+            raise WorkflowConflict("confirmed Contract binding changed")
 
     def seed(state):
         authorized(state)
@@ -80,14 +87,16 @@ def build_graph(repo, authorize, agent, contract, saver, *,
             agenda=initial_agenda(proposed,objective_ids)
             cached={"classification":"SIM","run_id":state["run_id"],
                     "contract_revision":state["contract_revision"],
-                    "agenda":agenda}
+                    "agenda":agenda,"contract_digest":digest}
             repo.save(state["run_id"],"agenda_seed",key,cached)
         else:
             if (cached.get("run_id")!=state["run_id"] or
                     cached.get("contract_revision")!=state["contract_revision"] or
-                    cached.get("classification")!="SIM"):
-                raise WorkflowConflict("Agenda seed identity changed")
+                    cached.get("classification")!="SIM" or
+                    cached.get("contract_digest")!=digest):
+                raise WorkflowConflict("Agenda seed or approved Contract changed")
         return {"phase":"investigating","agenda":cached["agenda"],
+                "contract_digest":digest,
                 "agenda_revision":1,"source_keys":{},"seen_evidence":[],
                 "steps":0,"tool_calls":0,"max_tool_calls":max_tool_calls,
                 "pending":{},"no_progress":0,"trace":["agenda:seed"],
@@ -212,9 +221,15 @@ class M8LocalWorkflow:
     def execute(self,run_id,contract_revision=1,*,max_steps=24,max_tool_calls=6):
         self.authorized(run_id,contract_revision)
         config={"configurable":{"thread_id":f"treesem-v2:m8:{run_id}"}}
+        approved=self.m1.store.contract(run_id,"DOC-001")
+        # The summary is authoritative in this SIM-only M1 workflow.
+        # Objective IDs remain a declared synthetic test profile, not parsed clinical goals.
+        bound_contract={**self.contract,"goal":approved["summary"]}
+        expected=hashlib.sha256(json.dumps(bound_contract,sort_keys=True,
+                          ensure_ascii=False).encode("utf-8")).hexdigest()
         with SqliteSaver.from_conn_string(self.checkpoints) as saver:
             graph=build_graph(self.repo,self.authorized,self.agent,
-                              self.contract,saver,max_steps=max_steps,
+                              bound_contract,saver,max_steps=max_steps,
                               max_tool_calls=max_tool_calls)
             previous=graph.get_state(config)
             if not previous.values:
@@ -224,6 +239,8 @@ class M8LocalWorkflow:
                 graph.invoke(None,config=config,durability="sync")
             current=graph.get_state(config)
         values=current.values
+        if values and values.get("contract_digest")!=expected:
+            raise WorkflowConflict("resumed M8 Graph has a different Contract binding")
         return {"run_id":run_id,"phase":values.get("phase"),
                 "outcome":values.get("outcome"),"agenda":values.get("agenda",[]),
                 "agenda_revision":values.get("agenda_revision"),
