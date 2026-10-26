@@ -49,6 +49,12 @@ class P001ReportContext:
         overlay = self.doctor.m4_state(self.run_id)
         if overlay.get("run_id") != self.run_id or overlay.get("classification") != "SIM":
             raise WorkflowConflict("M4 overlay does not belong to Report Run")
+        # A later same-source official correction invalidates the fixed
+        # M5 P001 report inputs. Block rather than silently presenting old Hb.
+        if "EV-002" in overlay.get("events", []):
+            raise WorkflowConflict(
+                "new LIS source revision: regenerate coverage after bounded investigation"
+            )
         from v2_m4.policy import verify_overlay
         verify_overlay(overlay)
         self.overlay = overlay
