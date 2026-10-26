@@ -83,12 +83,30 @@ def apply_delta(agenda, delta, revision, objectives, seen):
                           "status":"todo","disposition":None,
                           "evidence_ids":list(spec["trigger_evidence_refs"]),
                           "result_key":None})
+        elif op["op"]=="update_issue":
+            # The core category/objective bindings stay unchanged. A semantic
+            # change of task scope requires re-confirmation, not an Agenda edit.
+            fields(op, ("op","issue_id","question","priority"))
+            check(isinstance(op["priority"],str) and
+                  op["priority"] in PRIORITIES,"bad priority")
+            target=next((x for x in after if x["issue_id"]==op["issue_id"]),None)
+            check(target is not None and target["status"] in ("todo","in_progress"),
+                  "cannot edit completed Issue")
+            changed=label(op["question"])
+            check(not any(x["issue_id"]!=target["issue_id"] and
+                          x["question"].casefold()==changed.casefold()
+                          for x in after),"duplicate question")
+            check(changed!=target["question"] or
+                  op["priority"]!=target["priority"],"no-progress Issue update")
+            target["question"]=changed
+            target["priority"]=op["priority"]
         elif op["op"]=="reprioritize":
             fields(op, ("op","issue_id","priority"))
             check(isinstance(op["priority"],str) and op["priority"] in PRIORITIES,"bad priority")
             target=next((x for x in after if x["issue_id"]==op["issue_id"]),None)
             check(target is not None and target["status"] in ("todo","in_progress"),
                   "cannot reprioritize completed Issue")
+            check(target["priority"]!=op["priority"],"no-progress priority update")
             target["priority"]=op["priority"]
         else:
             check(False,"unsupported operation")

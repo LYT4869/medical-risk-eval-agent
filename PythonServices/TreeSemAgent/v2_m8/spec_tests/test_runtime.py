@@ -81,6 +81,29 @@ class Contracts(unittest.TestCase):
             with self.assertRaises(WorkflowConflict):
                 apply_delta(agenda,bad,2,OBJECTIVES,{"E-002","E-003"})
 
+    def test_edit_unclosed_issue_without_changing_confirmed_scope(self):
+        agenda=initial_agenda({"issues":[planned()]},{"O-01"})
+        delta={"base_agenda_revision":1,"operations":[{
+            "op":"update_issue","issue_id":"I-01",
+            "question":"核查原始记录的来源版本和估计值",
+            "priority":"high"}]}
+        edited,rev=apply_delta(agenda,delta,1,{"O-01"},set())
+        self.assertEqual((edited[0]["question"],edited[0]["priority"]),
+                         ("核查原始记录的来源版本和估计值","high"))
+        self.assertEqual(edited[0]["objective_refs"],["O-01"])
+        self.assertEqual(agenda[0]["question"],"核查原始记录")
+        self.assertEqual(rev,2)
+        with self.assertRaises(WorkflowConflict):
+            apply_delta(edited,{"base_agenda_revision":2,"operations":[{
+                "op":"reprioritize","issue_id":"I-01","priority":"high"}]},
+                2,{"O-01"},set())
+        edited[0]["status"]="done"
+        with self.assertRaises(WorkflowConflict):
+            apply_delta(edited,{"base_agenda_revision":2,"operations":[{
+                "op":"update_issue","issue_id":"I-01",
+                "question":"再写一个问题","priority":"high"}]},
+                2,{"O-01"},set())
+
     def test_close_never_auto_promotes_candidate_to_medical_truth(self):
         issue={"issue_id":"I-01","evidence_ids":["E-002"]}
         proposal={"issue_id":"I-01","disposition":"limited",
