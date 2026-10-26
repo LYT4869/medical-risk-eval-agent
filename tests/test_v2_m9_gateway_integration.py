@@ -169,7 +169,7 @@ def main():
                         gateway.capability,
                         {"operation_id": "m9_fake_legacy_issue",
                          "kind": "issue", "artifact_key": "I-99:r1",
-                         "payload": result}, run_id=run), 409)
+                         "payload": result}, run_id=run), 400)
                 expect_gateway_error(
                     lambda: transport.request(
                         "POST", gateway._prefix(run) + "/artifacts",
