@@ -444,3 +444,21 @@ jobs:
 
 
 
+
+  v2_m7b_component_probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated V2 evaluation dependencies
+        run: python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
+      - name: M7-B P001 decision and Writer attribution contracts (no real LLM)
+        env:
+          PYTHONPATH: PythonServices/TreeSemAgent
+        run: python -m unittest discover -s PythonServices/TreeSemAgent/v2_m7_eval/spec_tests -p 'test_*.py' -v
+      - name: Run explicit FIXTURE-only component probe
+        env:
+          PYTHONPATH: PythonServices/TreeSemAgent
+        run: python -m v2_m7_eval.run_probe --mode fixture --out artifacts/m7b-fixture.json
