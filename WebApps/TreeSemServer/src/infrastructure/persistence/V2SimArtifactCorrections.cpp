@@ -442,7 +442,7 @@ Json V2SimArtifactStore::checkCurrentSources(
         Json missing = Json::array();
         for (const auto& id : unique)
         {
-            if (id == "E-004" || id == "E-005")
+            if (id == "E-004" || id == "E-005" || id == "E-006")
             {
                 const auto state = sourceValidity(db, runId, id);
                 if (state == "stale") stale.push_back(id);
