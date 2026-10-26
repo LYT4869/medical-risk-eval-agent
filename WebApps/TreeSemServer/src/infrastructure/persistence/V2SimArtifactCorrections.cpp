@@ -291,6 +291,72 @@ Json V2SimArtifactStore::applyOfficialSimCorrection(
     });
 }
 
+Json V2SimArtifactStore::applyM6LateCorrection(
+    const std::string& runId, const std::string& doctorId,
+    const std::string& patientId)
+{
+    // Fixed doctor-triggered SIM-only late event; not a fake free-form LIS
+    // webhook. E-005 becomes historical and E-006 is a new source snapshot.
+    const std::string fingerprint = digest(Json::array({
+        runId,doctorId,patientId,"EV-002","LIS",kLogical,
+        "E-005",2,130,"E-006",3,125,"2026-10-18"
+    }).dump());
+    auto lease=pool_.acquire();
+    return withConnection(lease,[&](sql::Connection& db) {
+        return transaction(db,[&]() -> Json {
+            owns(db,runId,doctorId,patientId,true);
+            const Json replay=eventReplay(db,runId,"EV-002",fingerprint);
+            if(!replay.is_null()) return replay;
+            auto previous=stmt(db,"SELECT logical_id,source_version,hb_g_l "
+                "FROM treesem_v2_m4_source_versions WHERE run_id=? "
+                "AND evidence_id='E-005'");
+            previous->setString(1,runId);
+            auto source=records(*previous);
+            if(!source->next() || field(*source,"logical_id")!=kLogical ||
+               source->getInt("source_version")!=2 ||
+               source->getInt("hb_g_l")!=130 ||
+               sourceValidity(db,runId,"E-005")!="current")
+                fail(Kind::Conflict,"cannot apply unverified late LIS amendment");
+            auto statement=stmt(db,"SELECT evidence_id,value_g_l "
+                "FROM treesem_v2_m4_statement_snapshots WHERE run_id=? "
+                "AND statement_id='S-05'");
+            statement->setString(1,runId);
+            auto old=records(*statement);
+            if(!old->next() || field(*old,"evidence_id")!="E-005" ||
+               old->getInt("value_g_l")!=130)
+                fail(Kind::Conflict,"current LIS statement snapshot missing");
+            saveSource(db,runId,"E-006",3,125);
+            auto add=stmt(db,"INSERT INTO treesem_v2_m4_statement_snapshots "
+                "(run_id,statement_id,evidence_id,value_g_l) "
+                "VALUES (?,'S-06','E-006',125)");
+            add->setString(1,runId);
+            add->executeUpdate();
+            saveValidity(db,runId,"evidence","E-005","stale","EV-002");
+            saveValidity(db,runId,"statement","S-05","stale","EV-002");
+            saveValidity(db,runId,"evidence","E-006","current","");
+            saveValidity(db,runId,"statement","S-06","current","");
+            const Json result{
+                {"run_id",runId},{"event_id","EV-002"},
+                {"event_kind","official_correction_sim"},
+                {"trusted_source","LIS_SIM_FIXTURE"},
+                {"previous","E-005"},{"current","E-006"},
+                {"previous_hb_g_l",130},{"current_hb_g_l",125},
+                {"stale_statement_ids",Json::array({"S-05"})},
+                {"new_statement_id","S-06"},{"new_issue_id","I-06"},
+                {"issue_status","needs_review"},{"classification","SIM"},
+                {"effective_on","2026-10-18"}
+            };
+            saveEvent(db,runId,"EV-002","official_correction_sim",fingerprint,result);
+            auto issue=stmt(db,"INSERT INTO treesem_v2_m4_followups "
+                "(run_id,issue_id,cause_event_id,old_evidence_id,new_evidence_id,status) "
+                "VALUES (?,'I-06','EV-002','E-005','E-006','needs_review')");
+            issue->setString(1,runId);
+            issue->executeUpdate();
+            return result;
+        });
+    });
+}
+
 Json V2SimArtifactStore::correctionState(
     const std::string& runId, const std::string& doctorId,
     const std::string& patientId)
@@ -376,7 +442,7 @@ Json V2SimArtifactStore::checkCurrentSources(
         Json missing = Json::array();
         for (const auto& id : unique)
         {
-            if (id == "E-004" || id == "E-005")
+            if (id == "E-004" || id == "E-005" || id == "E-006")
             {
                 const auto state = sourceValidity(db, runId, id);
                 if (state == "stale") stale.push_back(id);

@@ -618,10 +618,26 @@ Json V2SimArtifactStore::getM5Revision(
         if (revision>row->getInt("current_revision"))
             fail(Kind::NotFound,"report revision not yet published");
         const Json document=readRevision(db,runId,revision);
+        // Reading an immutable old Draft is allowed for audit, but the UI
+        // must not silently present its previously current Hb as current
+        // after a later trusted correction. Never rewrite archived text.
+        auto validity=prepared(db,"SELECT object_id,status FROM "
+            "treesem_v2_m4_validity WHERE run_id=? "
+            "AND ((object_kind='evidence' AND object_id='E-005') "
+            "OR (object_kind='statement' AND object_id='S-05'))");
+        validity->setString(1,runId);
+        auto active=selected(*validity);
+        int validCount=0;
+        while(active->next()) {
+            if(field(*active,"status")=="current") ++validCount;
+        }
+        const bool currentSources = validCount == 2;
         return Json{{"run_id",runId},{"report_id",reportId},
             {"revision",revision},{"current_revision",row->getInt("current_revision")},
-            {"document",document},{"classification","SIM"},
-            {"signed",false}};
+            {"document",document},{"classification","SIM"},{"signed",false},
+            {"source_freshness",currentSources?"current":"stale_requires_investigation"},
+            {"signing_eligible",false},
+            {"freshness_as_of","current_authorized_run_overlay"}};
     });
 }
 
@@ -661,6 +677,10 @@ Json V2SimArtifactStore::m5DoctorMessage(
             const int current=row->getInt("current_revision");
             if (intent=="shorten")
             {
+                // Before replaying a successful old patch receipt, recheck
+                // sources: a later LIS correction must not masquerade as a
+                // currently valid edit simply because op_id is familiar.
+                currentEvidence(db,runId);
                 const Json old=savedOp(db,runId,operationId,fingerprint);
                 if (!old.is_null()) return old;
             }

@@ -396,6 +396,84 @@ void V2SimController::checkCurrentSources(
     }, std::move(responder));
 }
 
+void V2SimController::m6Stage(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request=std::move(request)] {
+        return safe([&]() {
+            const std::string doctor=authorizedInternal(request);
+            const Json body=object(request);
+            if(body.size()!=2 || !body.contains("document") ||
+               !body.at("document").is_object())
+                reject("M6 stage accepts a proposal key and restricted document");
+            const std::string run=id(request.getPathParameters("run_id"));
+            const std::string key=id(str(body,"proposal_key",64));
+            const Json result=artifacts_.stageM6Proposal(
+                run,doctor,request.getHeader("X-TreeSem-Subject-Id"),
+                key,body.at("document"));
+            audit_.record(doctor,"doctor",request.requestContext().requestId,
+                          "v2.sim.m6.stage","v2_run",run,
+                          "allowed","untrusted_writer_precommit_proposal");
+            return ok(result);
+        });
+    },std::move(responder));
+}
+
+void V2SimController::m6Proposal(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request=std::move(request)] {
+        return safe([&]() {
+            const std::string doctor=authorizedInternal(request);
+            const std::string run=id(request.getPathParameters("run_id"));
+            const std::string key=id(request.getPathParameters("proposal_key"));
+            return ok(artifacts_.getM6Proposal(
+                run,doctor,request.getHeader("X-TreeSem-Subject-Id"),key));
+        });
+    },std::move(responder));
+}
+
+void V2SimController::m6Publish(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request=std::move(request)] {
+        return safe([&]() {
+            const std::string doctor=authorizedInternal(request);
+            const Json body=object(request);
+            if(body.size()!=2)
+                reject("publish must refer only to a saved proposal and operation");
+            const std::string run=id(request.getPathParameters("run_id"));
+            const Json result=artifacts_.publishM6Proposal(
+                run,doctor,request.getHeader("X-TreeSem-Subject-Id"),
+                id(str(body,"proposal_key",64)),
+                id(str(body,"operation_id",64)));
+            audit_.record(doctor,"doctor",request.requestContext().requestId,
+                          "v2.sim.m6.publish","v2_run",run,
+                          "allowed","published_previously_staged_document");
+            return ok(result);
+        });
+    },std::move(responder));
+}
+
+void V2SimController::m6LateCorrection(
+    http::HttpRequest request, http::AsyncResponder responder) const
+{
+    scheduler_.schedule([this, request=std::move(request)] {
+        return safe([&]() {
+            const std::string doctor=authorizedDoctor(request);
+            if(!object(request).empty())
+                reject("late LIS SIM event has no caller-controlled medical facts");
+            const std::string run=id(request.getPathParameters("run_id"));
+            const Json result=artifacts_.applyM6LateCorrection(
+                run,doctor,request.getPathParameters("patient_id"));
+            audit_.record(doctor,"doctor",request.requestContext().requestId,
+                          "v2.sim.m6.late_LIS","v2_run",run,
+                          "allowed","fixed_EV-002_late_correction");
+            return ok(result);
+        });
+    },std::move(responder));
+}
+
 void V2SimController::m5Publish(
     http::HttpRequest request, http::AsyncResponder responder) const
 {

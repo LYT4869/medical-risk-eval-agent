@@ -1,0 +1,4 @@
+# M6 isolated integration POC, not a production clinical deployment.
+-r requirements-v2-m1.txt
+langgraph-checkpoint-postgres==3.2.0
+psycopg[binary]>=3.2.0,<3.4

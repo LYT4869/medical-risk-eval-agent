@@ -213,6 +213,7 @@ if(KAMA_ENABLE_MYSQL AND KAMA_ENABLE_AUTH)
         WebApps/TreeSemServer/src/infrastructure/persistence/V2SimArtifactStore.cpp
         WebApps/TreeSemServer/src/infrastructure/persistence/V2SimArtifactCorrections.cpp
         WebApps/TreeSemServer/src/infrastructure/persistence/V2SimReportStore.cpp
+        WebApps/TreeSemServer/src/infrastructure/persistence/V2SimReportRecovery.cpp
         WebApps/TreeSemServer/src/api/V2SimController.cpp
     )
 endif()

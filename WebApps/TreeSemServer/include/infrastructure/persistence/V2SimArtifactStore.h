@@ -93,6 +93,26 @@ public:
         int baseRevision, const std::string& paragraphId,
         const std::string& intent, const nlohmann::json& proposedDocument);
 
+    // M6: staged model proposal is untrusted until existing M5 publish validator
+    // rechecks every Assertion and current source in a fresh SQL transaction.
+    nlohmann::json stageM6Proposal(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& proposalKey,
+        const nlohmann::json& document);
+    nlohmann::json getM6Proposal(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& proposalKey);
+    nlohmann::json publishM6Proposal(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId, const std::string& proposalKey,
+        const std::string& operationId);
+
+    // Late arrival of a second *fixed SIM* authoritative LIS amendment.
+    // This is NOT patient-wide hospital LIS ingestion.
+    nlohmann::json applyM6LateCorrection(
+        const std::string& runId, const std::string& doctorId,
+        const std::string& patientId);
+
 private:
     MySqlConnectionPool pool_;
 };
