@@ -21,6 +21,7 @@ from .contracts import PRIORITIES, apply_delta, check, check_decision, initial_a
 from .context import context_for_issue, get_evidence, get_issue_result
 from .close import close_issue
 from .fake_agent import ScriptedInvestigator
+from .coverage import structural_coverage
 
 class RuntimeState(TypedDict, total=False):
     run_id: str
@@ -311,4 +312,5 @@ class M8GatewayWorkflow:
                 "seen_evidence":values.get("seen_evidence",[]),
                 "tool_calls":values.get("tool_calls",0),
                 "steps":values.get("steps",0),
+                "coverage":structural_coverage(values,self.repo,contract),
                 "next":list(current.next)}

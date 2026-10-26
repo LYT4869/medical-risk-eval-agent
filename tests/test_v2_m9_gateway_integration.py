@@ -58,6 +58,12 @@ def main():
     if mysql("SELECT COUNT(*) FROM treesem_users "
              "WHERE user_id='m2_doc'") == "0":
         seed_fake_users()
+    # M6 deliberately revokes its SIM doctor assignment at the end. Each
+    # integration scenario gets a fresh authorized fixture, never carry over a
+    # revoked assignment from a separate test in the SAME CI database.
+    mysql("UPDATE treesem_doctor_patient_assignments "
+          "SET status='active',revoked_at=NULL "
+          "WHERE assignment_id IN ('m2_asn','m2_asn_b')")
     port = free_port()
     env = {
         **os.environ,
@@ -115,6 +121,12 @@ def main():
                 ], out
                 assert out["seen_evidence"] == ["E-002", "E-003"]
                 assert out["tool_calls"] == 2
+                preview = out["coverage"]
+                assert preview["publish_allowed"] is False
+                assert preview["source_freshness"] == "not_evaluated"
+                assert preview["clinical_grounding"] == "not_evaluated"
+                assert preview["incomplete_objective_ids"] == []
+                assert preview["unreviewed_statement_count"] == 3
                 assert agent.consolidation_calls == 3
                 result = graph.repo.get(run, "issue", "I-03:r1")
                 assert result["status"] == "closed_unverified"
