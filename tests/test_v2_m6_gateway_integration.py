@@ -24,6 +24,8 @@ from v2_m4.service import M4GatewayWorkflow
 from v2_m5.coverage import P001ReportContext
 from v2_m5.service import M5DoctorSession, operation_id, verified_document
 from v2_m5.writer import FakeParagraphWriter
+from v2_m5.catalog import SECTION_PLAN, paragraph_text
+from v2_m5.grounding import review_document
 from v2_m6.service import M6ReliableGatewayWorkflow, proposal_key
 
 
@@ -136,6 +138,26 @@ def main():
                     run, "m5_" + run, base_revision=1,
                     paragraph_id="P-02", conversation_id="cv_m6_before",
                 )["created_revision"] is None
+                # Prepare a *valid* reviewed patch while sources are current,
+                # then verify the C++ server refuses the SAME payload after
+                # a later official correction (independent of Python policy).
+                proposals=FakeParagraphWriter().write({})
+                proposals[1]["text"]=paragraph_text(SECTION_PLAN[1][2],"short")
+                reviewed, grounding=review_document(proposals, ctx)
+                valid_patch=deepcopy(document)
+                valid_patch.update({
+                    "draft_revision":2,
+                    "writer_kind":"sim_deterministic_patch",
+                    "sections":reviewed,
+                    "grounding":grounding,
+                })
+                # Only this doctor's signed access JWT may trigger fixed EV-002.
+                expect_gateway_error(lambda: transport.request(
+                    "POST",doctor._prefix()+f"/{run}/m6/late-correction",
+                    repo.capability, {}, run_id=run),401,403)
+                expect_gateway_error(lambda: transport.request(
+                    "POST",doctor._prefix()+f"/{run}/m6/late-correction",
+                    doctor.doctor_jwt, {"hb_g_l":999}),400,422)
                 # Late authorized SIM LIS update AFTER report delivery.
                 late = doctor.m6_apply_late_sim_correction(run)
                 assert late["event_id"] == "EV-002"
@@ -173,6 +195,13 @@ def main():
                     lambda: doctor_session.explain(
                         run, "m5_" + run, base_revision=1,
                         paragraph_id="P-02", conversation_id="cv_m6_after"), 409)
+                expect_gateway_error(
+                    lambda: doctor.m5_message(
+                        run, "m5_" + run,
+                        conversation_id="cv_m6_after", base_revision=1,
+                        paragraph_id="P-02", intent="shorten",
+                        operation_id=operation_id(run,"m6_stale_patch"),
+                        document=valid_patch),409)
                 # Python Coverage may reject this *before* an HTTP write.
                 # A direct doctor endpoint is independently protected by
                 # C++ current-source SQL checks.
