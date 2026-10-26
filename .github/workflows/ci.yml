@@ -435,6 +435,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_v2_m7_trace.py' -v
       - name: Run M6 integration and M7-A P001 SIM structured replay
         run: python tests/test_v2_m6_gateway_integration.py build-v2-integration/treesem_server --trace-out artifacts/v2-m7a-p001-replay.json
+      - name: Run M9 native Gateway and MySQL dynamic IssueResult safety regression
+        run: python tests/test_v2_m9_gateway_integration.py build-v2-integration/treesem_server
       - name: Upload P001 SIM replay trace (allowlisted refs only)
         uses: actions/upload-artifact@v4
         with:

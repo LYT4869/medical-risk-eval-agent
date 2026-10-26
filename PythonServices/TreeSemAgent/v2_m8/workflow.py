@@ -21,6 +21,7 @@ from .contracts import PRIORITIES, apply_delta, check, check_decision, initial_a
 from .context import context_for_issue, get_evidence, get_issue_result
 from .close import close_issue
 from .fake_agent import ScriptedInvestigator
+from .coverage import structural_coverage
 
 class RuntimeState(TypedDict, total=False):
     run_id: str
@@ -74,7 +75,7 @@ def build_graph(repo, authorize, agent, contract, saver, *,
         try:
             cached=repo.get(state["run_id"],"agenda_seed",key)
         except WorkflowConflict as exc:
-            if "artifact missing" not in str(exc):
+            if "artifact missing" not in str(exc) and getattr(exc, "status", None) != 404:
                 raise
             cached=None
         if cached is None:
@@ -87,7 +88,8 @@ def build_graph(repo, authorize, agent, contract, saver, *,
             agenda=initial_agenda(proposed,objective_ids)
             cached={"classification":"SIM","run_id":state["run_id"],
                     "contract_revision":state["contract_revision"],
-                    "agenda":agenda,"contract_digest":digest}
+                    "agenda":agenda,"contract_digest":digest,
+                    "contract_summary":contract["goal"][:360]}
             repo.save(state["run_id"],"agenda_seed",key,cached)
         else:
             if (cached.get("run_id")!=state["run_id"] or
@@ -248,3 +250,67 @@ class M8LocalWorkflow:
                 "seen_evidence":values.get("seen_evidence",[]),
                 "tool_calls":values.get("tool_calls",0),
                 "steps":values.get("steps",0),"next":list(current.next)}
+
+
+class M8GatewayWorkflow:
+    """M9 isolated M8 dynamic graph with authoritative C++/MySQL SIM Run.
+
+    The capability-scoped Gateway only persists dynamic artifacts in m8_* kinds.
+    M5/M6 cannot consume these candidate Statements as report-worthy assertions.
+    """
+    def __init__(self, directory, gateway, *, agent=None, contract=None):
+        from .gateway_repository import GatewayM8Repository
+        root=Path(directory)
+        root.mkdir(parents=True,exist_ok=True)
+        self.gateway=gateway
+        self.repo=GatewayM8Repository(gateway)
+        self.checkpoints=str(root/"m9_graph_checkpoints.sqlite3")
+        self.agent=agent or ScriptedInvestigator()
+        self.contract=contract or {
+            "goal":"SIM P001 goal injected from C++",
+            "objectives":[{"id":"O-01","text":"核查原始资料"},
+                          {"id":"O-02","text":"核查转诊资料"}],
+            "skill":{"id":"perinatal-investigation","version":"SIM-v1"},
+            "risk_profile":{"id":"PPH-SIM","version":1},
+        }
+
+    def authorized(self,run_id,contract_revision):
+        status=self.gateway.status(run_id)
+        if (status.get("run_id")!=run_id or
+                status.get("classification")!="SIM" or
+                status.get("fixture_id")!="P001" or
+                status.get("status")!="contract_confirmed" or
+                status.get("contract_revision")!=contract_revision):
+            raise WorkflowConflict("M9 requires current authoritative confirmed Run")
+
+    def execute(self,run_id,contract_revision=1,*,max_steps=24,max_tool_calls=6):
+        self.authorized(run_id,contract_revision)
+        status=self.gateway.status(run_id)
+        if not isinstance(status.get("summary"),str):
+            raise WorkflowConflict("authoritative confirmed goal missing")
+        contract={**self.contract,"goal":status["summary"]}
+        digest=hashlib.sha256(json.dumps(contract,sort_keys=True,
+                    ensure_ascii=False).encode("utf-8")).hexdigest()
+        config={"configurable":{"thread_id":f"treesem-v2:m9:{run_id}"}}
+        with SqliteSaver.from_conn_string(self.checkpoints) as saver:
+            graph=build_graph(self.repo,self.authorized,self.agent,contract,
+                              saver,max_steps=max_steps,max_tool_calls=max_tool_calls)
+            previous=graph.get_state(config)
+            if not previous.values:
+                graph.invoke({"run_id":run_id,"contract_revision":contract_revision},
+                             config=config,durability="sync")
+            elif previous.next:
+                graph.invoke(None,config=config,durability="sync")
+            current=graph.get_state(config)
+        values=current.values
+        if values and values.get("contract_digest")!=digest:
+            raise WorkflowConflict("M9 checkpoint does not match confirmed Contract")
+        return {"run_id":run_id,"phase":values.get("phase"),
+                "outcome":values.get("outcome"),"agenda":values.get("agenda",[]),
+                "agenda_revision":values.get("agenda_revision"),
+                "trace":values.get("trace",[]),
+                "seen_evidence":values.get("seen_evidence",[]),
+                "tool_calls":values.get("tool_calls",0),
+                "steps":values.get("steps",0),
+                "coverage":structural_coverage(values,self.repo,contract),
+                "next":list(current.next)}

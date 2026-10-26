@@ -1,5 +1,6 @@
 #include "infrastructure/persistence/V2SimArtifactStore.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -106,10 +107,10 @@ V2SimArtifactStore::V2SimArtifactStore(MySqlConnectionConfig config)
     auto lease = pool_.acquire();
     guarded(lease, [](sql::Connection& db) {
         auto st = query(db, "SELECT COUNT(*) AS n FROM schema_migrations WHERE version=?");
-        st->setString(1, "011_v2_m6_recovery");
+        st->setString(1, "012_v2_m9_dynamic_artifacts");
         auto result = std::unique_ptr<sql::ResultSet>(st->executeQuery());
         if (!result->next() || result->getInt("n") != 1)
-            fail(Kind::PersistenceFailure, "V2 SIM migrations 006–011 missing");
+            fail(Kind::PersistenceFailure, "V2 SIM migrations 006–012 missing");
         return 0;
     });
 }
@@ -438,7 +439,9 @@ Json V2SimArtifactStore::put(const std::string& runId,
                               const std::string& artifactKey,
                               const Json& payload)
 {
-    if (kind != "evidence" && kind != "issue" && kind != "draft")
+    const bool dynamic = kind == "m8_seed" || kind == "m8_evidence" ||
+                         kind == "m8_issue";
+    if (kind != "evidence" && kind != "issue" && kind != "draft" && !dynamic)
         fail(Kind::InvalidInput, "invalid artifact kind");
     if (!payload.is_object() || payload.value("classification", "") != "SIM")
         fail(Kind::InvalidInput, "only synthetic artifacts are allowed");
@@ -448,6 +451,11 @@ Json V2SimArtifactStore::put(const std::string& runId,
         fail(Kind::Conflict, "artifact references a different Run");
     if (kind == "issue" && payload.value("no_diagnosis", false) != true)
         fail(Kind::InvalidInput, "M2 SIM issue cannot assert a diagnosis");
+    if (kind == "issue" &&
+        (payload.value("status", "") == "closed_unverified" ||
+         payload.contains("semantic_validation") ||
+         payload.contains("agenda_delta")))
+        fail(Kind::InvalidInput, "unverified M8 issue cannot enter legacy M3 namespace");
     if (kind == "draft" &&
         (payload.value("report_id", "") != "report_" + runId ||
          payload.value("draft_revision", 0) != 1 ||
@@ -455,6 +463,69 @@ Json V2SimArtifactStore::put(const std::string& runId,
          payload.value("not_signed", false) != true ||
          payload.value("template_only", false) != true))
         fail(Kind::InvalidInput, "only unsigned P001 template Draft v1 allowed");
+    // Dynamic investigation is a separate, UNVERIFIED namespace. Never
+    // allow generic IssueResult candidates into the M5/M6 report admission.
+    if (kind == "m8_seed")
+    {
+        if (payload.value("contract_revision", 0) < 1 ||
+            !payload.contains("agenda") || !payload.at("agenda").is_array() ||
+            payload.at("agenda").empty() || payload.at("agenda").size() > 8 ||
+            !payload.contains("contract_digest") ||
+            !payload.at("contract_digest").is_string() ||
+            payload.at("contract_digest").get<std::string>().size() != 64 ||
+            !payload.contains("contract_summary") ||
+            !payload.at("contract_summary").is_string())
+            fail(Kind::InvalidInput, "invalid unverified Agenda seed");
+    }
+    if (kind == "m8_evidence")
+    {
+        if (!payload.contains("record") || !payload.at("record").is_object() ||
+            !payload.contains("evidence_id") || !payload.at("evidence_id").is_string())
+            fail(Kind::InvalidInput, "invalid M8 source projection");
+        const auto& row = payload.at("record");
+        const std::string ref = payload.at("evidence_id").get<std::string>();
+        if (row.value("id", "") != ref || row.value("version", 0) != 1 ||
+            !row.contains("blood_loss_ml") ||
+            !row.at("blood_loss_ml").is_number_integer() ||
+            !((ref == "E-002" && row.value("logical_id", "") ==
+                "EMR-P001-DEL-20220508" && row.at("blood_loss_ml") == 250) ||
+              (ref == "E-003" && row.value("logical_id", "") ==
+                "REF-P001-20261012" && row.at("blood_loss_ml") == 800 &&
+                row.value("approximate", false) == true)))
+            fail(Kind::InvalidInput, "M8 source is outside fixed synthetic fixture");
+    }
+    if (kind == "m8_issue")
+    {
+        if (payload.value("status", "") != "closed_unverified" ||
+            payload.value("semantic_validation", "") != "not_evaluated" ||
+            payload.value("no_diagnosis", false) != true ||
+            payload.value("result_revision", 0) != 1 ||
+            !payload.contains("statements") || !payload.at("statements").is_array() ||
+            payload.at("statements").size() > 6 ||
+            !payload.contains("evidence_ids") || !payload.at("evidence_ids").is_array() ||
+            payload.at("evidence_ids").size() > 8 ||
+            !payload.contains("issue_id") || !payload.at("issue_id").is_string() ||
+            payload.at("issue_id").get<std::string>() + ":r1" != artifactKey)
+            fail(Kind::InvalidInput, "M8 Issue must remain an unverified candidate");
+        // All statement refs must agree with the declared Run-bound source set.
+        // This is structural provenance checking, NOT clinical textual grounding.
+        for (const auto& statement : payload.at("statements"))
+        {
+            if (!statement.is_object() || !statement.contains("evidence_refs") ||
+                !statement.at("evidence_refs").is_array() ||
+                !statement.contains("semantic_validation") ||
+                statement.at("semantic_validation") != "not_evaluated")
+                fail(Kind::InvalidInput, "M8 Statement lacks bounded candidate references");
+            for (const auto& ref : statement.at("evidence_refs"))
+            {
+                if (!ref.is_string() ||
+                    std::find(payload.at("evidence_ids").begin(),
+                              payload.at("evidence_ids").end(), ref)
+                        == payload.at("evidence_ids").end())
+                    fail(Kind::InvalidInput, "unlisted M8 Statement reference");
+            }
+        }
+    }
     const std::string serialized = payload.dump();
     const std::string contentHash = hash(serialized);
     const std::string requestHash = hash(Json::array(
@@ -463,7 +534,8 @@ Json V2SimArtifactStore::put(const std::string& runId,
     return guarded(lease, [&](sql::Connection& db) {
         return transaction(db, [&]() -> Json {
             auto lock = query(db,
-                "SELECT doctor_user_id,patient_user_id,classification,status "
+                "SELECT doctor_user_id,patient_user_id,classification,status,"
+                "contract_revision,contract_summary "
                 "FROM treesem_v2_runs WHERE run_id=? FOR UPDATE");
             lock->setString(1, runId);
             auto run = std::unique_ptr<sql::ResultSet>(lock->executeQuery());
@@ -482,9 +554,18 @@ Json V2SimArtifactStore::put(const std::string& runId,
             }
             if (required(*run, "status") != "contract_confirmed")
                 fail(Kind::Conflict, "Run is not open for artifacts");
-            if (kind != "evidence")
+            if (kind == "m8_seed" &&
+                (run->getInt("contract_revision") !=
+                    payload.at("contract_revision").get<int>() ||
+                 required(*run, "contract_summary") !=
+                    payload.at("contract_summary").get<std::string>()))
+                fail(Kind::Conflict, "M8 plan does not match confirmed Contract");
+            if (kind != "evidence" && kind != "m8_seed")
             {
-                const std::string requiredKind = kind == "issue" ? "evidence" : "issue";
+                const std::string requiredKind =
+                    kind == "issue" ? "evidence" :
+                    kind == "m8_evidence" ? "m8_seed" :
+                    kind == "m8_issue" ? "m8_seed" : "issue";
                 auto count = query(db,
                     "SELECT COUNT(*) AS n FROM treesem_v2_artifacts "
                     "WHERE run_id=? AND kind=?");
@@ -492,6 +573,24 @@ Json V2SimArtifactStore::put(const std::string& runId,
                 auto found = std::unique_ptr<sql::ResultSet>(count->executeQuery());
                 if (!found->next() || found->getInt("n") < 1)
                     fail(Kind::Conflict, "required previous artifact is absent");
+            }
+            if (kind == "m8_issue")
+            {
+                // IDs are non-authoritative model suggestions. Verify that each
+                // referenced source was persisted by this Run, not just named.
+                for (const auto& ref : payload.at("evidence_ids"))
+                {
+                    if (!ref.is_string()) fail(Kind::InvalidInput, "M8 invalid source ref");
+                    auto seen = query(db,
+                        "SELECT COUNT(*) AS n FROM treesem_v2_artifacts "
+                        "WHERE run_id=? AND kind='m8_evidence' "
+                        "AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.evidence_id'))=?");
+                    seen->setString(1, runId);
+                    seen->setString(2, ref.get<std::string>());
+                    auto foundRef = std::unique_ptr<sql::ResultSet>(seen->executeQuery());
+                    if (!foundRef->next() || foundRef->getInt("n") != 1)
+                        fail(Kind::Conflict, "M8 referenced source was not stored");
+                }
             }
             auto existing = query(db,
                 "SELECT payload_sha256 FROM treesem_v2_artifacts "
@@ -547,6 +646,9 @@ Json V2SimArtifactStore::get(const std::string& runId,
                               const std::string& kind,
                               const std::string& artifactKey)
 {
+    if (kind != "evidence" && kind != "issue" && kind != "draft" &&
+        kind != "m8_seed" && kind != "m8_evidence" && kind != "m8_issue")
+        fail(Kind::InvalidInput, "unknown Artifact kind");
     auto lease = pool_.acquire();
     return guarded(lease, [&](sql::Connection& db) -> Json {
         auto owner = query(db,

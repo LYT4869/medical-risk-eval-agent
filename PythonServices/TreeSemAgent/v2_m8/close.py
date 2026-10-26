@@ -20,7 +20,7 @@ def close_issue(state, issue, repo, contract, agent):
     try:
         cached=repo.get(state["run_id"],"issue",artifact_key)
     except WorkflowConflict as exc:
-        if "artifact missing" not in str(exc):
+        if "artifact missing" not in str(exc) and getattr(exc, "status", None) != 404:
             raise
 
     staged=deepcopy(state["agenda"])
