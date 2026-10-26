@@ -156,6 +156,8 @@ def main():
                 assert doctor.validate_m4_current(
                     run, ["E-005"])["admissible"] is False
                 assert doctor.validate_m4_current(
+                    run, ["E-006"])["admissible"] is True
+                assert doctor.validate_m4_current(
                     run, ["E-002","E-003"])["admissible"] is True
                 history = doctor.m5_revision(run, "m5_" + run, 1)
                 assert history["document"] == document  # immutable old Draft
