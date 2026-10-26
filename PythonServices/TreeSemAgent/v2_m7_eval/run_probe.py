@@ -10,7 +10,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from v2_m1.run_store import WorkflowConflict
 from v2_m3.agent import FakeInvestigationAgent, OpenAICompatibleInvestigationAgent
@@ -35,6 +35,11 @@ class Completion:
     latency_ms: float
     usage: dict
 
+class DenyRedirect(HTTPRedirectHandler):
+    """A loopback server cannot redirect model prompts outside localhost."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
 class LocalChat:
     """Mirror the existing M3/M5 system/user JSON request boundary."""
     def __init__(self, endpoint, model, timeout=30):
@@ -51,7 +56,7 @@ class LocalChat:
             },ensure_ascii=False).encode("utf-8"),
             headers={"Content-Type":"application/json"},method="POST")
         start=time.perf_counter()
-        with urlopen(req,timeout=self.timeout) as response:
+        with build_opener(DenyRedirect()).open(req,timeout=self.timeout) as response:
             body=response.read(131073)
         elapsed=round((time.perf_counter()-start)*1000,3)
         if len(body)>131072:
@@ -221,7 +226,8 @@ def probe(client,mode,save_raw=True):
                      "outcome":"provider_error","schema_pass":False,
                      "catalog_pass":False,"semantic_correctness":"not_evaluated"})
     return {"schema":"treesem.v2.m7b.probe.v1","classification":"SIM",
-        "fixture":"P001","mode":mode,"real_llm_called":mode=="live",
+        "fixture":"P001","mode":mode,"live_requested":mode=="live",
+        "real_llm_called":mode=="live" and any("provider_model" in x for x in rows),
         "scope":"isolated_components_not_e2e_or_clinical_nli",
         "cases":len(rows),"agent_cases":len(selected),
         "golden_matches":sum(x.get("golden_match",False) for x in rows),
