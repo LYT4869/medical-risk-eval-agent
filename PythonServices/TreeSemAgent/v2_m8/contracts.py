@@ -36,7 +36,7 @@ def issue_spec(item, objectives, known_evidence, known_issues):
     names=("question", "category", "priority", "objective_refs",
            "trigger_evidence_refs", "related_issue_ids")
     fields(item, names, ("op",))
-    check(item["priority"] in PRIORITIES, "priority")
+    check(isinstance(item["priority"], str) and item["priority"] in PRIORITIES, "priority")
     objective_refs = refs(item["objective_refs"], objectives)
     check(bool(objective_refs), "issue must serve a confirmed objective")
     return {"question": label(item["question"]),
@@ -85,7 +85,7 @@ def apply_delta(agenda, delta, revision, objectives, seen):
                           "result_key":None})
         elif op["op"]=="reprioritize":
             fields(op, ("op","issue_id","priority"))
-            check(op["priority"] in PRIORITIES,"bad priority")
+            check(isinstance(op["priority"],str) and op["priority"] in PRIORITIES,"bad priority")
             target=next((x for x in after if x["issue_id"]==op["issue_id"]),None)
             check(target is not None and target["status"] in ("todo","in_progress"),
                   "cannot reprioritize completed Issue")
@@ -107,7 +107,8 @@ def check_decision(proposal, issue, state, available_records):
         check(proposal["issue_id"]==issue["issue_id"],"wrong active Issue")
     elif action=="agenda_delta":
         fields(proposal, ("action","delta"))
-        check(proposal["delta"].get("base_agenda_revision") ==
+        check(isinstance(proposal["delta"],dict) and
+              proposal["delta"].get("base_agenda_revision") ==
               state["agenda_revision"],"stale agenda delta")
     else:
         check(False,"unsupported action")
