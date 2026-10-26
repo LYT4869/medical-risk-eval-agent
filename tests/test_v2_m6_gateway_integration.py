@@ -173,11 +173,18 @@ def main():
                     lambda: doctor_session.explain(
                         run, "m5_" + run, base_revision=1,
                         paragraph_id="P-02", conversation_id="cv_m6_after"), 409)
-                expect_gateway_error(
-                    lambda: doctor_session.shorten(
+                # Python Coverage may reject this *before* an HTTP write.
+                # A direct doctor endpoint is independently protected by
+                # C++ current-source SQL checks.
+                try:
+                    doctor_session.shorten(
                         run, "m5_" + run, base_revision=1,
                         paragraph_id="P-02", conversation_id="cv_m6_after",
-                        request_key="m6_after"), 409)
+                        request_key="m6_after")
+                except WorkflowConflict:
+                    pass
+                else:
+                    raise AssertionError("stale-source paragraph patch was permitted")
                 # M6 does not rewrite a clinically obsolete draft with 125;
                 # it blocks reuse and requests new authorized investigation.
                 assert mysql(
