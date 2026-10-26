@@ -258,6 +258,26 @@ def main():
                 assert mysql(
                     "SELECT COUNT(*) FROM treesem_v2_m5_report_revisions "
                     f"WHERE run_id='{run3}'") == "1"
+                # D: normal fresh end-to-end generation (no pre-staging),
+                # followed by a new service instance with a Writer that
+                # cannot be called successfully. Exercises the normal branch.
+                run4, repo4 = ready_run()
+                writer = CountingWriter()
+                first_generated = M6ReliableGatewayWorkflow(
+                    tmp, repo4, doctor, writer=writer,
+                    postgres_dsn=postgres).execute(run4, 1)
+                assert first_generated["source_freshness"] == "current"
+                assert writer.count == 1
+                with tempfile.TemporaryDirectory() as other_directory:
+                    replayed_from_ref = M6ReliableGatewayWorkflow(
+                        other_directory, repo4, doctor,
+                        writer=NeverCalledWriter(),
+                        postgres_dsn=postgres).execute(run4,1)
+                    assert replayed_from_ref["document"] == first_generated["document"]
+                assert mysql("SELECT COUNT(*) FROM treesem_v2_m6_writer_proposals "
+                             f"WHERE run_id='{run4}'") == "1"
+                assert mysql("SELECT COUNT(*) FROM treesem_v2_m5_report_revisions "
+                             f"WHERE run_id='{run4}'") == "1"
                 # Actor is re-authorized even when the graph has fully finished.
                 mysql("UPDATE treesem_doctor_patient_assignments "
                       "SET status='revoked',revoked_at=UTC_TIMESTAMP(6) "
