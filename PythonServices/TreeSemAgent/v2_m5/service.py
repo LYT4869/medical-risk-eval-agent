@@ -158,6 +158,8 @@ class M5GatewayWorkflow:
         )
         if result["document"]["contract_revision"] != contract_revision:
             raise WorkflowConflict("delivered report Contract version drift")
+        if result.get("source_freshness") != "current":
+            raise WorkflowConflict("historical Draft exists but current citations are stale")
         return result
 
 
