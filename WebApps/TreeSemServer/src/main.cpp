@@ -528,6 +528,37 @@ int main(int argc, char* argv[])
                         std::move(request), std::move(responder));
                 });
 
+            // M6 resume-safe Writer proposal is MySQL-durable and can be
+            // retrieved using the same Run-scoped short-lived capability.
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/internal/v2/sim-runs/:run_id/artifacts/m6/proposals",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m6Stage(
+                        std::move(request),std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kGet,
+                "/internal/v2/sim-runs/:run_id/artifacts/m6/proposals/:proposal_key",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m6Proposal(
+                        std::move(request),std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/internal/v2/sim-runs/:run_id/artifacts/m6/publish",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m6Publish(
+                        std::move(request),std::move(responder));
+                });
+            server.addAsyncRoute(http::HttpRequest::kPost,
+                "/api/v2/doctor/patients/:patient_id/sim-runs/:run_id/m6/late-correction",
+                [&v2SimController](http::HttpRequest request,
+                                   http::AsyncResponder responder) {
+                    v2SimController->m6LateCorrection(
+                        std::move(request),std::move(responder));
+                });
+
             // Initial M5 report publication: short-lived internal Agent Tool
             // capability only. Doctor revisions use separate authenticated
             // report-specific endpoints with mandatory base revision.
