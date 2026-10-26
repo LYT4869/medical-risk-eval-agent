@@ -177,6 +177,13 @@ class GatewayDoctorClient:
         return self._m4(run_id, "POST", "validate-current",
                         {"evidence_ids": evidence_ids})
 
+    def m6_apply_late_sim_correction(self, run_id: str):
+        # One fixed server-side P001 event; never arbitrary lab values.
+        return self.transport.request(
+            "POST", self._prefix() + f"/{checked_id(run_id)}/m6/late-correction",
+            self.doctor_jwt, {},
+        )
+
     def m5_revision(self, run_id: str, report_id: str, revision: int):
         if not isinstance(revision, int) or not 1 <= revision <= 20:
             raise WorkflowConflict("invalid selected report version")
@@ -250,6 +257,36 @@ class GatewayArtifactRepository:
             {"operation_id": op_id(run_id, phase),
              "kind": kind, "artifact_key": checked_id(artifact_key),
              "payload": value},
+            run_id=run_id,
+        )
+
+    def get_m6_proposal(self, run_id: str, proposal_key: str):
+        return self.transport.request(
+            "GET", self._prefix(run_id) +
+                   f"/artifacts/m6/proposals/{checked_id(proposal_key)}",
+            self.capability, run_id=run_id,
+        )
+
+    def stage_m6_proposal(self, run_id: str, proposal_key: str,
+                          document: dict):
+        if (not isinstance(document, dict) or
+                document.get("classification") != "SIM" or
+                document.get("run_id") != run_id):
+            raise WorkflowConflict("cannot stage unbound Writer proposal")
+        return self.transport.request(
+            "POST", self._prefix(run_id) + "/artifacts/m6/proposals",
+            self.capability,
+            {"proposal_key": checked_id(proposal_key), "document": document},
+            run_id=run_id,
+        )
+
+    def publish_m6_proposal(self, run_id: str, proposal_key: str,
+                            operation_id: str):
+        return self.transport.request(
+            "POST", self._prefix(run_id) + "/artifacts/m6/publish",
+            self.capability,
+            {"proposal_key": checked_id(proposal_key),
+             "operation_id": checked_id(operation_id)},
             run_id=run_id,
         )
 
