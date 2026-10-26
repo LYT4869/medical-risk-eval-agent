@@ -677,6 +677,10 @@ Json V2SimArtifactStore::m5DoctorMessage(
             const int current=row->getInt("current_revision");
             if (intent=="shorten")
             {
+                // Before replaying a successful old patch receipt, recheck
+                // sources: a later LIS correction must not masquerade as a
+                // currently valid edit simply because op_id is familiar.
+                currentEvidence(db,runId);
                 const Json old=savedOp(db,runId,operationId,fingerprint);
                 if (!old.is_null()) return old;
             }
