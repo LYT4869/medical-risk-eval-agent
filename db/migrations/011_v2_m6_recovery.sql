@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS treesem_v2_m6_writer_proposals (
   CONSTRAINT fk_v2_m6_proposal_run FOREIGN KEY(run_id)
     REFERENCES treesem_v2_runs(run_id) ON DELETE RESTRICT,
   CONSTRAINT chk_v2_m6_contract_revision CHECK(contract_revision>=1),
-  CONSTRAINT uq_v2_m6_initial_proposal UNIQUE KEY(run_id)
+  UNIQUE KEY uq_v2_m6_initial_proposal (run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO schema_migrations(version) VALUES ('011_v2_m6_recovery');
