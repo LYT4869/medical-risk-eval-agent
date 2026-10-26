@@ -176,6 +176,24 @@ class GraphIntegration(unittest.TestCase):
         self.assertEqual(recovered.repo.count(rid),6)
         self.assertEqual(second_agent.consolidation_calls,2)
 
+    def test_confirmed_summary_is_source_of_runtime_goal(self):
+        rid=self.approved()
+        scripted=ScriptedInvestigator()
+        M8LocalWorkflow(self.root,agent=scripted).execute(rid)
+        confirmed=self.m1.store.contract(rid,"DOC-001")["summary"]
+        self.assertEqual(scripted.contexts[0]["contract_goal"],confirmed)
+        self.assertIn("P001",confirmed)
+
+    def test_completed_checkpoint_cannot_be_read_with_changed_objectives(self):
+        rid=self.approved()
+        M8LocalWorkflow(self.root).execute(rid)
+        changed={"goal":"ignored local override",
+            "objectives":[{"id":"O-01","text":"a new set of objectives"}],
+            "skill":{"id":"perinatal-investigation","version":"SIM-v1"},
+            "risk_profile":{"id":"PPH-SIM","version":1}}
+        with self.assertRaisesRegex(WorkflowConflict,"Contract binding"):
+            M8LocalWorkflow(self.root,contract=changed).execute(rid)
+
     def test_alternate_plan_is_not_hardcoded_to_p001_issue_list(self):
         rid=self.approved()
         only={"question":"核查模型是否适合此次任务",
