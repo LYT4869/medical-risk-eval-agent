@@ -462,3 +462,18 @@ jobs:
         env:
           PYTHONPATH: PythonServices/TreeSemAgent
         run: python -m v2_m7_eval.run_probe --mode fixture --out artifacts/m7b-fixture.json
+
+  v2_m8_dynamic_runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated V2 LangGraph dependencies
+        run: python -m pip install -r PythonServices/TreeSemAgent/requirements-v2-m1.txt
+      - name: M8 dynamic planning, cross-Issue memory and immutable Close
+        env:
+          PYTHONPATH: PythonServices/TreeSemAgent
+          LANGGRAPH_STRICT_MSGPACK: 'true'
+        run: python -m unittest discover -s PythonServices/TreeSemAgent/v2_m8/spec_tests -p 'test_*.py' -v

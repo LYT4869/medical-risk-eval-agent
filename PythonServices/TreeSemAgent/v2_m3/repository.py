@@ -37,7 +37,7 @@ class LocalM3Repository:
         return db
 
     def save(self, run_id: str, kind: str, key: str, payload: dict):
-        if (kind not in ("evidence", "issue", "draft") or
+        if (kind not in ("evidence", "issue", "draft", "agenda_seed") or
                 not isinstance(payload, dict) or
                 payload.get("classification") != "SIM" or
                 payload.get("run_id") != run_id):
